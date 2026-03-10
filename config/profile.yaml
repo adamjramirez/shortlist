@@ -1,0 +1,86 @@
+name: Adam
+
+# What Adam is best at and what to look for
+fit_context: |
+  Best fit: VP/Director of Engineering at Series B-D companies building AI-native products.
+  Companies that need to operationalize AI, not invent it. Startups that want a leader who ships, not a theorist.
+
+  Strong fit signals:
+  - B2B SaaS adding AI features (done this at Panora, UMG rollout — knows what works vs hype)
+  - Series B-C needing to professionalize (Blindside story — scrappy to structured without killing velocity)
+  - PE portfolio companies needing transformation (enterprise, cost optimization, global ops — did 17→10 while shipping)
+  - Customer success / RevOps space (knows it from Panora): Gainsight competitors, ChurnZero, Vitally-tier
+  - Vertical SaaS adding AI: music/media (his domain), HR tech, fintech
+  - PE-backed rollups needing engineering leadership
+  - Founder/CTO at seed-stage AI company (has the scars)
+
+  Avoid / score down:
+  - ML research companies (Anthropic, OpenAI, DeepMind) — would be exposed on theory
+  - Pure enterprise IT — boring, not his strength
+  - Companies that need a "visionary" CTO who gives talks — not his vibe
+  - Roles focused on research or publishing papers
+
+tracks:
+  em:
+    title: Engineering Manager
+    resume: resumes/em.tex
+    target_orgs: large
+    min_reports: 20
+    search_queries:
+      - "Engineering Manager"
+      - "EM"
+      - "Head of Engineering"
+      - "Director of Engineering"
+      - "Engineering Lead"
+      - "Senior Engineering Manager"
+  ai:
+    title: AI Engineering
+    resume: resumes/ai.tex
+    target_orgs: any
+    min_reports: 5
+    search_queries:
+      - "AI Engineering Manager"
+      - "Head of AI"
+      - "ML Engineering Manager"
+      - "AI Platform Lead"
+      - "Director of AI"
+      - "Head of Machine Learning"
+  vp:
+    title: VP Engineering
+    resumes:
+      - resumes/vp_enterprise.tex  # large orgs, complexity, transformation, PE
+      - resumes/vp_growth.tex      # Series B+, shipping, startups, product-led
+    target_orgs: series_b_plus
+    min_reports: 20
+    search_queries:
+      - "VP Engineering"
+      - "VP of Engineering"
+      - "Vice President Engineering"
+      - "SVP Engineering"
+      - "CTO"
+
+filters:
+  location:
+    remote: true
+    local_zip: "75098"
+    max_commute_minutes: 30
+  salary:
+    min_base: 250000
+  role_type:
+    reject_explicit_ic: true
+
+preferences:
+  equity: nice_to_have
+  travel: minimal
+  series_a_fresh_funding: yellow_flag
+
+llm:
+  model: gemini-2.5-flash
+  max_jobs_per_run: 500
+  cost_budget_daily: 2.00
+
+brief:
+  output_dir: briefs/
+  top_n: 30
+  show_filtered: true
+  stale_threshold_days: 7

@@ -1,0 +1,12 @@
+.env
+jobs.db
+briefs/
+resumes/
+cv-new/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
