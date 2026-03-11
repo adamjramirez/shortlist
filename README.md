@@ -16,7 +16,7 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-Requires **Python 3.12 or later**. Check with `python --version`.
+Requires **Python 3.11 or later**. Check with `python --version`.
 
 ### Step 2: Initialize
 

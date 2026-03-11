@@ -1,4 +1,5 @@
 .env
+config/profile.yaml
 jobs.db
 briefs/
 resumes/
@@ -11,3 +12,4 @@ __pycache__/
 dist/
 build/
 .DS_Store
+uv.lock
