@@ -128,11 +128,89 @@ fit_context: |                     # MOST IMPORTANT FIELD
   What should score high vs low?   
 ```
 
-**`fit_context` is the single most important thing to get right.** Write it like you'd brief a recruiter who knows nothing about you. Include:
-- Your level and target roles
-- Your background (what industries, what size companies)
-- What signals should score HIGH (e.g., "Series B fintech", "AI infrastructure")
-- What signals should score LOW (e.g., "pure research", "pre-product startups")
+**`fit_context` is the single most important thing to get right.** This text gets sent directly to the LLM with every job it scores. Vague context = vague scores. Write it like you'd brief a recruiter who knows nothing about you.
+
+#### Let AI write it for you
+
+Don't stare at a blank page. Paste this prompt into ChatGPT, Claude, or any AI chat — along with your resume — and it'll generate your `fit_context`, tracks, and search queries:
+
+<details>
+<summary>📋 Click to copy the profile generator prompt</summary>
+
+```
+I'm setting up a job search tool that scores job listings against my profile.
+I need you to read my resume and generate a YAML configuration. Here's what I need:
+
+1. A "fit_context" section (10-20 lines) that describes:
+   - My level and years of experience
+   - What I'm looking for (role types, company stage, team size)
+   - My strongest domain areas
+   - "Score HIGH" signals — company types, industries, role traits that are a great fit
+   - "Score LOW" signals — things that are clearly not a fit
+   - "Yellow flags" — things to note but not reject
+
+2. One or more "tracks" — each representing a type of role I'd target. For each:
+   - A short key (like "em" or "vp" or "data")
+   - A human-readable title
+   - 3-6 LinkedIn search queries (exact job titles people use on LinkedIn)
+   - A minimum team size I'd want to manage (if applicable)
+
+3. Filter settings:
+   - Am I open to remote, hybrid, or local-only?
+   - What's my minimum base salary?
+   - Should it reject individual contributor roles?
+
+Write it like you're briefing a recruiter who doesn't know me. Be specific about
+what makes a role good or bad for me — not generic statements like "looking for
+leadership roles" but real signals like "Series B+ B2B SaaS" or "not ad-tech."
+
+Output the result as YAML I can paste directly into a config file.
+
+Here's my resume:
+
+[PASTE YOUR RESUME TEXT HERE]
+```
+
+</details>
+
+Review what it gives you — tweak anything that doesn't feel right, especially the "Score HIGH" and "Score LOW" sections. You know your preferences better than any AI does.
+
+**❌ Too vague (will produce mediocre scores):**
+```yaml
+fit_context: |
+  Looking for engineering leadership roles. 
+  Prefer remote. Good at building teams.
+```
+
+**✅ Specific (will produce useful scores):**
+```yaml
+fit_context: |
+  12 years in software engineering, last 5 in management. Currently managing
+  25 engineers across 3 teams at a Series C fintech company ($40M ARR).
+  
+  Looking for: Director or VP of Engineering at product-focused companies,
+  Series B or later, 30-100 engineers. I'm strongest at scaling teams through
+  the 20→80 engineer growth phase and building platform/infrastructure orgs.
+  
+  Score HIGH:
+  - B2B SaaS, fintech, developer tools, data infrastructure
+  - Companies with engineering blogs, OSS presence, or strong Glassdoor
+  - Roles where I'd own the full eng org or a major pillar (platform, data)
+  - PE-backed companies needing eng transformation (VP track)
+  
+  Score LOW:
+  - Consumer social, gaming, ad-tech (not my domain)
+  - Pure ML/AI research orgs (I'm an eng leader, not a researcher)
+  - Pre-product startups (seed/pre-seed) — too early for my level
+  - Roles that report to a non-technical founder with no VP Eng layer
+  
+  Yellow flags (don't reject, but note):
+  - Series A with fresh funding (may not need my level yet)
+  - "Engineering Manager" title at a 500+ person company (likely too junior)
+  - No salary listed at a company with <50 people
+```
+
+The more specific your "Score HIGH" and "Score LOW" sections are, the better. Think about the last 5 roles you saw and thought "yes, that's me" vs. "no way" — put that reasoning here.
 
 ```yaml
 tracks:                            # Role types you're targeting
@@ -146,7 +224,14 @@ tracks:                            # Role types you're targeting
       - "Head of Engineering"      
 ```
 
-Each track generates LinkedIn searches from its `search_queries`. More specific queries = better results. If you're targeting multiple role types (e.g., EM and VP), create a track for each.
+Each track generates LinkedIn searches from its `search_queries`.
+
+**Tips for `search_queries`:**
+- Use the **exact job titles** you'd search on LinkedIn — these become LinkedIn keyword searches
+- Include title variations people actually use (e.g., "Head of Engineering" vs "Director of Engineering" — same role, different titles)
+- Don't add generic terms like "remote" or "software" — that's what filters are for
+- 3-6 queries per track is the sweet spot. Too many = noise, too few = missed roles
+- If you're targeting a specific domain, add it: "Fintech Engineering Manager", "AI/ML Engineering Lead"
 
 **Multiple resumes per track:** If you have variants (e.g., enterprise vs. growth VP resume), use `resumes:` (plural) instead of `resume:`:
 
@@ -158,6 +243,8 @@ Each track generates LinkedIn searches from its `search_queries`. More specific 
       - resumes/vp_growth.tex
     search_queries:
       - "VP Engineering"
+      - "VP of Engineering"
+      - "Vice President Engineering"
 ```
 
 The LLM will read each job description and pick the best resume variant.
@@ -178,9 +265,23 @@ filters:
     reject_explicit_ic: true       # Reject "individual contributor" roles
 ```
 
-**Filters are very permissive by design.** Salary only rejects jobs that explicitly list a number below your minimum — if no salary is listed, the job passes through to scoring. Same for location: if it's ambiguous, it passes.
+**Filters are intentionally permissive.** They only reject jobs with clear disqualifiers — explicit salary below your minimum, explicit IC role, or a location that's clearly not remote and not local. If anything is ambiguous, the job passes through to scoring. This means:
+- No salary listed? → Passes to scoring (the LLM will estimate)
+- "Hybrid" with no city? → Passes to scoring
+- You'll see some irrelevant jobs scored low (30-40) — that's by design. Better to score a bad job than miss a good one.
 
 See `config/example-profile.yaml` for a fully commented template.
+
+### Tuning your results
+
+After your first run, check the brief:
+
+- **Too many low-scoring jobs?** Your `search_queries` might be too broad. Narrow them.
+- **Good jobs scoring low?** Your `fit_context` is probably missing what makes them good. Add it to "Score HIGH."
+- **Bad jobs scoring high?** Add the pattern to "Score LOW" in your `fit_context`.
+- **Missing jobs you expected?** Add more `search_queries` variations, or check if the company uses an ATS we don't support (Workday, custom platforms).
+
+The scorer learns nothing between runs — it re-reads your `fit_context` every time. So edit it freely and re-run with `shortlist run --no-collect` to re-score existing jobs with your updated profile.
 
 ### Step 6: Run it
 
@@ -340,7 +441,7 @@ Check your `.env` file:
 
 ### Low scores across the board
 
-Your `fit_context` might be too vague. Be specific about what you want — the LLM can only score well if it understands your priorities.
+Your `fit_context` is probably too vague. See the [good vs. bad examples](#step-5-configure-your-search) and the [tuning guide](#tuning-your-results) above.
 
 ### Resume tailoring fails
 
