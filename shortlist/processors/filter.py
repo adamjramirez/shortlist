@@ -171,7 +171,7 @@ def apply_hard_filters(job: RawJob, config: Config) -> FilterResult:
 
 
 def _check_location(job: RawJob, config: Config) -> FilterResult:
-    """Reject if not remote AND not in DFW metro."""
+    """Reject if not remote AND not in local area."""
     location = (job.location or "").strip()
     location_lower = location.lower()
     description = (job.description or "").lower()

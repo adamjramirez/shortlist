@@ -112,7 +112,7 @@ def build_scoring_prompt(job: RawJob, config: Config) -> str:
         name=config.name or "Candidate",
         fit_context=config.fit_context or "No additional context provided.",
         tracks_description="\n".join(tracks_desc),
-        local_zip=config.filters.location.local_zip or "75098",
+        local_zip=config.filters.location.local_zip or "",
         min_salary=config.filters.salary.min_base or 250000,
         title=job.title,
         company=job.company,
