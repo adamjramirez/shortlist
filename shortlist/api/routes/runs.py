@@ -1,4 +1,5 @@
 """Pipeline run routes — create, list, get status."""
+import asyncio
 import os
 from datetime import datetime, timezone
 
@@ -8,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shortlist.api.db import get_session
 from shortlist.api.deps import get_current_user
-from shortlist.api.machines import MachineSpawner, get_machine_spawner
 from shortlist.api.models import Run, User
 from shortlist.api.schemas import RunResponse
 
@@ -34,11 +34,20 @@ def _run_to_response(run: Run) -> RunResponse:
 async def create_run(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-    spawner: MachineSpawner = Depends(get_machine_spawner),
 ):
-    # Require profile
-    if user.profile is None or not user.profile.config.get("fit_context"):
+    # Require profile with fit_context and API key
+    if user.profile is None:
         raise HTTPException(status_code=400, detail="Set up your profile before running")
+
+    config = user.profile.config or {}
+    if not config.get("fit_context"):
+        raise HTTPException(status_code=400, detail="Add a description of what you're looking for first")
+
+    if not config.get("llm", {}).get("encrypted_api_key"):
+        raise HTTPException(status_code=400, detail="Connect your AI provider first")
+
+    if not config.get("tracks"):
+        raise HTTPException(status_code=400, detail="Add at least one role to search for")
 
     # One active run at a time
     result = await session.execute(
@@ -51,22 +60,19 @@ async def create_run(
     session.add(run)
     await session.flush()
 
-    # Build env for the worker machine
-    worker_env = {
-        "DATABASE_URL": os.environ.get("DATABASE_URL", ""),
-        "ENCRYPTION_KEY": os.environ.get("ENCRYPTION_KEY", ""),
-    }
+    # Launch background worker
+    db_url = os.environ.get("DATABASE_URL", "")
+    from shortlist.api import worker
 
-    machine_id = await spawner.spawn(run.id, worker_env)
-    if machine_id:
-        run.machine_id = machine_id
-        run.status = "running"
-        run.started_at = datetime.now(timezone.utc)
-    else:
-        run.status = "failed"
-        run.error = "Failed to spawn worker machine"
+    asyncio.create_task(
+        worker.execute_run(
+            run_id=run.id,
+            user_id=user.id,
+            config=dict(config),
+            db_url=db_url,
+        )
+    )
 
-    await session.flush()
     return _run_to_response(run)
 
 

@@ -1,28 +1,50 @@
 """Tests for pipeline run routes."""
+from unittest.mock import AsyncMock, patch
+
 import pytest
+from cryptography.fernet import Fernet
+
+
+@pytest.fixture(autouse=True)
+def encryption_key(monkeypatch):
+    from shortlist.api.crypto import _get_fernet
+    _get_fernet.cache_clear()
+    monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+
+
+@pytest.fixture()
+def mock_worker():
+    """Mock execute_run so we don't run the actual pipeline."""
+    import shortlist.api.worker  # ensure module is imported before patching
+    with patch("shortlist.api.worker.execute_run", new_callable=AsyncMock) as mock:
+        yield mock
+
+
+async def _setup_profile(client, auth_headers):
+    """Set up a complete profile with fit_context, tracks, and API key."""
+    await client.put("/api/profile", json={
+        "fit_context": "Senior backend engineer looking for staff roles",
+        "tracks": {"backend": {"title": "Backend Engineer", "search_queries": ["python backend"]}},
+        "llm": {"model": "gemini-2.5-flash", "api_key": "test-key-123"},
+    }, headers=auth_headers)
 
 
 @pytest.mark.asyncio
-async def test_create_run(client, auth_headers):
-    await client.put("/api/profile", json={
-        "fit_context": "test", "tracks": {"em": {"title": "EM", "search_queries": []}},
-    }, headers=auth_headers)
+async def test_create_run(client, auth_headers, mock_worker):
+    await _setup_profile(client, auth_headers)
 
     resp = await client.post("/api/runs", headers=auth_headers)
     assert resp.status_code == 201
     data = resp.json()
-    assert data["status"] == "running"  # spawner succeeded → running
-    assert data["machine_id"] is not None
+    assert data["status"] == "pending"
     assert "id" in data
+    mock_worker.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_create_run_requires_profile(client):
-    """User without profile can't start a run."""
-    # Sign up a fresh user (no profile set)
     resp = await client.post("/api/auth/signup", json={
-        "email": "noprofile@example.com",
-        "password": "pass123",
+        "email": "noprofile@example.com", "password": "pass123",
     })
     headers = {"Authorization": f"Bearer {resp.json()['token']}"}
 
@@ -32,11 +54,44 @@ async def test_create_run_requires_profile(client):
 
 
 @pytest.mark.asyncio
-async def test_one_active_run_per_user(client, auth_headers):
-    # Set up profile first
+async def test_create_run_requires_api_key(client, auth_headers):
     await client.put("/api/profile", json={
-        "fit_context": "test", "tracks": {"em": {"title": "EM", "search_queries": []}},
+        "fit_context": "test",
+        "tracks": {"em": {"title": "EM", "search_queries": ["eng manager"]}},
     }, headers=auth_headers)
+
+    resp = await client.post("/api/runs", headers=auth_headers)
+    assert resp.status_code == 400
+    assert "AI provider" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_create_run_requires_tracks(client, auth_headers):
+    await client.put("/api/profile", json={
+        "fit_context": "test",
+        "llm": {"model": "gemini-2.5-flash", "api_key": "test-key"},
+    }, headers=auth_headers)
+
+    resp = await client.post("/api/runs", headers=auth_headers)
+    assert resp.status_code == 400
+    assert "role" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_create_run_requires_fit_context(client, auth_headers):
+    await client.put("/api/profile", json={
+        "tracks": {"em": {"title": "EM", "search_queries": ["eng manager"]}},
+        "llm": {"model": "gemini-2.5-flash", "api_key": "test-key"},
+    }, headers=auth_headers)
+
+    resp = await client.post("/api/runs", headers=auth_headers)
+    assert resp.status_code == 400
+    assert "description" in resp.json()["detail"].lower() or "looking" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_one_active_run_per_user(client, auth_headers, mock_worker):
+    await _setup_profile(client, auth_headers)
 
     resp1 = await client.post("/api/runs", headers=auth_headers)
     assert resp1.status_code == 201
@@ -46,45 +101,33 @@ async def test_one_active_run_per_user(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_list_runs(client, auth_headers):
-    await client.put("/api/profile", json={
-        "fit_context": "test", "tracks": {"em": {"title": "EM", "search_queries": []}},
-    }, headers=auth_headers)
-
+async def test_list_runs(client, auth_headers, mock_worker):
+    await _setup_profile(client, auth_headers)
     await client.post("/api/runs", headers=auth_headers)
 
     resp = await client.get("/api/runs", headers=auth_headers)
     assert resp.status_code == 200
     runs = resp.json()
     assert len(runs) == 1
-    assert runs[0]["status"] == "running"
 
 
 @pytest.mark.asyncio
-async def test_get_run(client, auth_headers):
-    await client.put("/api/profile", json={
-        "fit_context": "test", "tracks": {"em": {"title": "EM", "search_queries": []}},
-    }, headers=auth_headers)
-
+async def test_get_run(client, auth_headers, mock_worker):
+    await _setup_profile(client, auth_headers)
     create = await client.post("/api/runs", headers=auth_headers)
     run_id = create.json()["id"]
 
     resp = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["id"] == run_id
-    assert resp.json()["status"] == "running"
 
 
 @pytest.mark.asyncio
-async def test_get_other_users_run(client, auth_headers):
-    await client.put("/api/profile", json={
-        "fit_context": "test", "tracks": {"em": {"title": "EM", "search_queries": []}},
-    }, headers=auth_headers)
-
+async def test_get_other_users_run(client, auth_headers, mock_worker):
+    await _setup_profile(client, auth_headers)
     create = await client.post("/api/runs", headers=auth_headers)
     run_id = create.json()["id"]
 
-    # Different user
     resp = await client.post("/api/auth/signup", json={
         "email": "other@example.com", "password": "pass123",
     })

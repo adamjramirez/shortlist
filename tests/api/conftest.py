@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from shortlist.api.app import create_app
 from shortlist.api.db import get_session
 from shortlist.api.models import Base
-from shortlist.api.machines import FakeMachineSpawner, get_machine_spawner
 from shortlist.api.storage import MemoryStorage, get_storage
 
 
@@ -40,13 +39,7 @@ async def test_storage():
 
 
 @pytest_asyncio.fixture
-async def test_spawner():
-    """Single FakeMachineSpawner instance shared across all requests in a test."""
-    return FakeMachineSpawner()
-
-
-@pytest_asyncio.fixture
-async def app(session_factory, test_storage, test_spawner):
+async def app(session_factory, test_storage):
     """FastAPI app with all external dependencies overridden for tests."""
     application = create_app()
 
@@ -57,7 +50,6 @@ async def app(session_factory, test_storage, test_spawner):
 
     application.dependency_overrides[get_session] = override_get_session
     application.dependency_overrides[get_storage] = lambda: test_storage
-    application.dependency_overrides[get_machine_spawner] = lambda: test_spawner
     return application
 
 

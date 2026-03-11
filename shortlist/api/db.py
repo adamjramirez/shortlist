@@ -5,13 +5,8 @@ from functools import lru_cache
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
-def _get_database_url() -> str:
-    """Get async database URL from environment."""
-    url = os.environ.get("DATABASE_URL", "")
-    if not url:
-        raise RuntimeError("DATABASE_URL not set")
-
-    # Convert postgres:// to postgresql+asyncpg://
+def _clean_url(url: str) -> str:
+    """Convert a DATABASE_URL to asyncpg format."""
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
     elif url.startswith("postgresql://"):
@@ -24,6 +19,14 @@ def _get_database_url() -> str:
         url = f"{base}?{filtered}" if filtered else base
 
     return url
+
+
+def _get_database_url() -> str:
+    """Get async database URL from environment."""
+    url = os.environ.get("DATABASE_URL", "")
+    if not url:
+        raise RuntimeError("DATABASE_URL not set")
+    return _clean_url(url)
 
 
 def _get_connect_args(url: str) -> dict:
