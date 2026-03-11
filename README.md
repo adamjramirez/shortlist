@@ -260,7 +260,7 @@ filters:
 
   salary:
     min_base: 200000               # Only reject if EXPLICITLY below this
-    currency: USD                  # Your local currency (USD, GBP, EUR, INR, etc.)
+    currency: USD                  # Your currency (USD, GBP, EUR, INR, etc.)
 
   role_type:
     reject_explicit_ic: true       # Reject "individual contributor" roles
@@ -270,6 +270,18 @@ filters:
 - No salary listed? → Passes to scoring (the LLM will estimate)
 - "Hybrid" with no city? → Passes to scoring
 - You'll see some irrelevant jobs scored low (30-40) — that's by design. Better to score a bad job than miss a good one.
+
+**International salary support:** Set `min_base` in your local currency and `currency` to match (e.g., `min_base: 4000000` with `currency: INR` for ₹40 lakh). The filter converts everything to USD for comparison — both your minimum and the job's listed salary. It handles most international formats:
+
+| Format | Example | How it's parsed |
+|--------|---------|----------------|
+| Standard | `$280,000`, `£220k`, `€190,000` | Direct |
+| Indian shorthand | `₹40L`, `₹40 LPA`, `₹1.5Cr` | Lakh/crore multiplier |
+| Monthly rates | `kr 85,000/month`, `₪65,000/month` | Annualized (×12) |
+| EU formatting | `€250.000`, `€250 000`, `€250.000,00` | Dot/space as thousands |
+| Currency after number | `250,000 EUR`, `280.000 €` | Recognized |
+
+Salaries in unrecognized formats (e.g., `competitive`, `250万円`) pass through to scoring — the LLM handles the rest.
 
 See `config/example-profile.yaml` for a fully commented template.
 
@@ -462,7 +474,7 @@ LLM API only. A typical run processes ~500 jobs scored + 30 enriched + 15 resume
 - **No JS-rendered career pages** — companies using Workday or custom platforms (Atlassian, Shopify) aren't auto-discovered. Their LinkedIn listings still get collected.
 - **LinkedIn guest API is fragile** — unauthenticated, may break without notice
 - **Remote works globally, on-site filtering is US-biased** — if you're looking for remote roles, location filtering works regardless of where you live. The US bias only affects on-site/hybrid filtering: state abbreviations, zip codes, and the known-city list skew American. Major international cities (London, Berlin, Tokyo, etc.) are recognized, but smaller non-US cities may not be — meaning some on-site international jobs could slip through filters instead of being rejected.
-- **Salary filtering uses approximate currency conversion** — the salary filter recognizes $, £, €, ¥, ₹, ₪, kr, CHF, R$, A$, and C$, converting to USD with rough exchange rates for the reject/pass decision. Rates are approximate (not live) — this is fine because the filter only rejects jobs that are *clearly* below your minimum. Salaries in unrecognized formats pass through to scoring.
+- **Salary conversion rates are approximate** — the salary filter supports 11 currency symbols and 18 currency codes, including monthly rates and Indian lakh/crore notation. Exchange rates are hardcoded approximations (not live) — this is fine because the filter only rejects jobs that are *clearly* below your minimum. Japanese 万円 and Chinese 万/月 notation are not yet supported (these pass through to scoring).
 
 ## License
 
