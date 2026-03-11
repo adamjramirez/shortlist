@@ -41,6 +41,58 @@ def cli():
 
 
 @cli.command()
+def init():
+    """Set up a new shortlist project in the current directory."""
+    import shutil
+
+    root = Path.cwd()
+    config_dir = root / "config"
+    config_dir.mkdir(exist_ok=True)
+
+    target = config_dir / "profile.yaml"
+    if target.exists():
+        click.echo(f"Config already exists: {target}")
+        if not click.confirm("Overwrite?"):
+            return
+
+    # Find the example config relative to this package
+    example = Path(__file__).parent.parent / "config" / "example-profile.yaml"
+    if not example.exists():
+        click.echo("Error: example-profile.yaml not found in package.")
+        return
+
+    shutil.copy(example, target)
+    click.echo(f"Created {target}")
+
+    # Create directories
+    for d in ["resumes", "briefs"]:
+        (root / d).mkdir(exist_ok=True)
+        click.echo(f"Created {d}/")
+
+    # Create .env template
+    env_file = root / ".env"
+    if not env_file.exists():
+        env_file.write_text("GEMINI_API_KEY=your-key-here\n")
+        click.echo("Created .env (add your Gemini API key)")
+
+    # Create .gitignore
+    gitignore = root / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text(
+            ".env\njobs.db\nbriefs/\nresumes/\n.venv/\n"
+            "__pycache__/\n*.pyc\n.pytest_cache/\n*.egg-info/\n"
+        )
+        click.echo("Created .gitignore")
+
+    click.echo("\nNext steps:")
+    click.echo("  1. Get a Gemini API key: https://aistudio.google.com/ → Get API key → Create API key")
+    click.echo("  2. Paste it in .env: GEMINI_API_KEY=AIzaSy...your-key")
+    click.echo("  3. Edit config/profile.yaml with your search criteria")
+    click.echo("  4. Put your resume(s) in resumes/ (LaTeX format)")
+    click.echo("  5. Run: shortlist run")
+
+
+@cli.command()
 @click.option("--config", "config_path", default=None, help="Path to profile.yaml")
 @click.option("--no-collect", is_flag=True, help="Skip collection, process existing jobs only")
 def run(config_path, no_collect):

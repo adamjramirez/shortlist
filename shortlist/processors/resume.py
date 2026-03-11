@@ -85,7 +85,7 @@ Return a JSON object:
 {{
     "tailored_tex": "<the full modified LaTeX document>",
     "changes_made": ["<list of specific changes>"],
-    "interest_note": "<3 sentences: why Adam is genuinely interested in this role, based on his real background and what the company does. Personal, specific, not generic.>"
+    "interest_note": "<3 sentences: why the candidate is genuinely interested in this role, based on their real background and what the company does. Personal, specific, not generic.>"
 }}
 ```"""
 
