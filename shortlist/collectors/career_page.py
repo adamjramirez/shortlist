@@ -230,7 +230,7 @@ def fetch_lever_jobs(org_slug: str, company_name: str | None = None) -> list[Raw
     try:
         data = resp.json()
     except Exception:
-        logger.warning(f"Lever/{org_slug}: response was not JSON")
+        logger.debug(f"Lever/{org_slug}: response was not JSON (likely invalid slug)")
         return []
 
     name = company_name or org_slug
