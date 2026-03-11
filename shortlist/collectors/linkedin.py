@@ -44,10 +44,11 @@ class LinkedInCollector:
     """Collects jobs from LinkedIn's guest API. No auth required."""
 
     def __init__(self, searches: list[dict] | None = None, max_pages: int = 2,
-                 time_filter: str = "r604800"):
+                 time_filter: str = "r604800", fetch_descriptions: bool = False):
         self.searches = searches or DEFAULT_SEARCHES
         self.max_pages = max_pages
         self.time_filter = time_filter
+        self.fetch_descriptions = fetch_descriptions
         self._seen_ids: set[str] = set()
 
     def fetch_new(self) -> list[RawJob]:
@@ -144,7 +145,7 @@ class LinkedInCollector:
             url = links[i].split("?")[0]
 
             description = ""
-            if job_id:
+            if self.fetch_descriptions and job_id:
                 description = self._fetch_description(job_id)
 
             if not description:
@@ -194,6 +195,23 @@ class LinkedInCollector:
             logger.debug(f"Failed to parse description for job {job_id}: {e}")
 
         return ""
+
+
+def fetch_description_for_url(url: str) -> str:
+    """Fetch the full job description for a LinkedIn job URL.
+
+    Extracts the job ID from the URL and fetches from the detail API.
+    Returns empty string on failure.
+    """
+    match = re.search(r"/view/[^/]+-(\d+)", url)
+    if not match:
+        match = re.search(r"(\d{8,})", url)
+    if not match:
+        return ""
+
+    job_id = match.group(1)
+    collector = LinkedInCollector()
+    return collector._fetch_description(job_id)
 
 
 def _clean_html(text: str) -> str:

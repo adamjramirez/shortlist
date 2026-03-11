@@ -111,8 +111,48 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
 
         # Shared progress dict — sync thread writes, async flush loop reads
         progress = {}
+        import time
+        run_start_time = time.monotonic()
+
+        # Phase timing: based on observed runs
+        # HN ~10s, LinkedIn ~45s (rate-limited detail fetches), NextPlay ~10s
+        # Filter ~2s, Score ~60s (50 jobs, 10 parallel), Enrich ~40s, Tailor ~25s, Brief ~5s
+        # Total typical run: 3-4 minutes
+        PHASE_ORDER = ["collecting", "filtering", "fetching", "scoring", "enriching", "tailoring", "finishing"]
+        PHASE_SECONDS = {
+            "collecting": 30,   # fast now — no LinkedIn descriptions
+            "filtering": 5,
+            "fetching": 60,     # LinkedIn descriptions for ~30 filtered jobs
+            "scoring": 60,
+            "enriching": 40,
+            "tailoring": 25,
+            "finishing": 5,
+        }
 
         def on_progress(data: dict):
+            phase = data.get("phase", progress.get("phase", "collecting"))
+            elapsed = time.monotonic() - run_start_time
+
+            # Sum remaining phase durations
+            if phase in PHASE_ORDER:
+                idx = PHASE_ORDER.index(phase)
+                remaining_phases = PHASE_ORDER[idx + 1:]
+                remaining = sum(PHASE_SECONDS.get(p, 0) for p in remaining_phases)
+
+                # Current phase: use scored/total ratio if scoring, else half
+                current_est = PHASE_SECONDS.get(phase, 10)
+                scored = data.get("scored")
+                total = data.get("total")
+                if phase == "scoring" and scored is not None and total and total > 0:
+                    remaining += current_est * (1 - scored / total)
+                else:
+                    remaining += current_est * 0.5
+
+                data["eta_seconds"] = max(0, int(remaining))
+            else:
+                data["eta_seconds"] = 0
+
+            data["elapsed_seconds"] = int(elapsed)
             progress.update(data)
 
         async def flush_progress():

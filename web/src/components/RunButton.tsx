@@ -64,49 +64,88 @@ export default function RunButton({ onComplete }: Props) {
     scored?: number;
     total?: number;
     jobs_found?: number;
+    eta_seconds?: number;
+    elapsed_seconds?: number;
   };
 
   const phaseLabels: Record<string, string> = {
     starting: "Starting up…",
-    collecting: "Scraping job boards…",
+    collecting: "Searching job boards…",
+    fetching: "Fetching job details…",
     "saving results": "Saving results…",
     done: "Complete!",
   };
 
-  const phaseLabel = progress?.detail || phaseLabels[progress?.phase || ""] || progress?.phase || run?.status || "";
+  const phaseLabel =
+    progress?.detail ||
+    phaseLabels[progress?.phase || ""] ||
+    progress?.phase ||
+    run?.status ||
+    "";
+
+  function formatEta(seconds: number): string {
+    if (seconds <= 10) return "almost done";
+    if (seconds < 60) return `~${Math.ceil(seconds / 10) * 10}s left`;
+    const mins = Math.ceil(seconds / 60);
+    return `~${mins} min left`;
+  }
+
+  // Overall progress fraction for the bar
+  const TOTAL_SECONDS = 195; // sum of phase estimates
+  const etaSeconds = progress?.eta_seconds;
+  const elapsedSeconds = progress?.elapsed_seconds ?? 0;
+  const fraction =
+    etaSeconds !== undefined && etaSeconds + elapsedSeconds > 0
+      ? Math.min(0.95, elapsedSeconds / (elapsedSeconds + etaSeconds))
+      : undefined;
 
   return (
     <div>
       {isActive ? (
-        <div className="flex items-center gap-3">
-          <svg
-            className="h-4 w-4 animate-spin text-blue-600"
-            viewBox="0 0 24 24"
-            fill="none"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <svg
+              className="h-4 w-4 shrink-0 animate-spin text-blue-600"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+              />
+            </svg>
+            <span className="text-sm text-gray-600">
+              {phaseLabel}
+              {progress?.scored !== undefined &&
+                progress?.total !== undefined &&
+                progress.total > 0 &&
+                ` (${progress.scored}/${progress.total})`}
+            </span>
+          </div>
+          {/* Progress bar */}
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+            <div
+              className="h-full rounded-full bg-blue-600 transition-all duration-700 ease-out"
+              style={{ width: `${fraction !== undefined ? fraction * 100 : 5}%` }}
             />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-            />
-          </svg>
-          <span className="text-sm text-gray-600">
-            {phaseLabel}
-            {progress?.scored !== undefined &&
-              progress?.total &&
-              ` (${progress.scored}/${progress.total})`}
-            {progress?.jobs_found !== undefined &&
-              !progress?.total &&
-              ` — ${progress.jobs_found} jobs found`}
-          </span>
+          </div>
+          {/* ETA */}
+          <p className="text-xs text-gray-400">
+            {etaSeconds !== undefined && etaSeconds > 0
+              ? formatEta(etaSeconds)
+              : elapsedSeconds > 0
+                ? "finishing up…"
+                : "estimating time…"}
+          </p>
         </div>
       ) : (
         <button

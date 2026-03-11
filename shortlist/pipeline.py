@@ -67,7 +67,7 @@ def run_pipeline(
     if not skip_collect:
         collectors = _get_collectors(config=config, db=db)
         for name, collector in collectors.items():
-            _emit(on_progress, f"Collecting from {name}...", phase="collecting", detail=f"Scraping {name}…")
+            _emit(on_progress, f"Collecting from {name}...", phase="collecting", detail=f"Searching {name}…")
             source_start = datetime.now().isoformat()
             try:
                 jobs = collector.fetch_new()
@@ -105,6 +105,41 @@ def run_pipeline(
     db.commit()
     passed = len(new_jobs) - jobs_filtered
     _emit(on_progress, f"  → {passed} passed, {jobs_filtered} filtered out", phase="filtering", detail=f"{passed} passed, {jobs_filtered} rejected", passed=passed, rejected=jobs_filtered)
+
+    # Step 2b: Fetch full descriptions for filtered jobs that need them
+    # LinkedIn jobs collected without descriptions get fetched now (only survivors)
+    from shortlist.collectors.linkedin import fetch_description_for_url
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    needs_desc = db.execute(
+        "SELECT id, url, description FROM jobs WHERE status = 'filtered' "
+        "AND sources_seen LIKE '%linkedin%' "
+        "AND length(description) < 200 "
+        "AND first_seen = last_seen"  # new jobs only — existing ones already have descriptions
+    ).fetchall()
+
+    if needs_desc:
+        _emit(on_progress, f"Fetching details for {len(needs_desc)} jobs…",
+              phase="fetching", detail=f"Fetching details for {len(needs_desc)} jobs…")
+
+        def _fetch_one(row):
+            desc = fetch_description_for_url(row["url"])
+            return row["id"], desc
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_fetch_one, row): row for row in needs_desc}
+            fetched = 0
+            for future in as_completed(futures):
+                try:
+                    row_id, desc = future.result()
+                    if desc:
+                        db.execute("UPDATE jobs SET description = ? WHERE id = ?", (desc, row_id))
+                        fetched += 1
+                except Exception as e:
+                    logger.warning(f"Failed to fetch description: {e}")
+            db.commit()
+            _emit(on_progress, f"  → {fetched}/{len(needs_desc)} descriptions fetched",
+                  phase="fetching", detail=f"{fetched} descriptions fetched")
 
     # Step 3: Score filtered jobs (parallel)
     llm_calls = 0
