@@ -24,7 +24,7 @@ JOBS = [
            location="Remote", salary_text="£180,000 - £220,000"),
     RawJob(title="Head of Engineering", company="Klarna (SE)", url="https://klarna.com/jobs/1",
            description="Lead fintech platform. Remote.", source="hn",
-           location="Remote", salary_text="kr 850,000"),
+           location="Remote", salary_text="kr 85,000/month"),
     RawJob(title="Engineering Director", company="Zalando (DE)", url="https://zalando.de/jobs/1",
            description="Lead e-commerce platform. Remote.", source="hn",
            location="Remote", salary_text="€150,000 - €190,000"),
@@ -97,9 +97,9 @@ class TestInternationalSalaryParsing:
         usd = _parse_max_salary("£180,000 - £220,000")
         assert 270_000 <= usd <= 280_000  # £220k * 1.25
 
-    def test_sek(self):
-        usd = _parse_max_salary("kr 850,000")
-        assert 75_000 <= usd <= 85_000  # 850k * 0.095
+    def test_sek_monthly(self):
+        usd = _parse_max_salary("kr 85,000/month")
+        assert 95_000 <= usd <= 100_000  # 85k * 12 * 0.095
 
     def test_eur(self):
         usd = _parse_max_salary("€150,000 - €190,000")
@@ -134,6 +134,62 @@ class TestInternationalSalaryParsing:
 
     def test_no_salary_returns_none(self):
         assert _parse_max_salary("") is None
+
+    # --- Monthly salaries ---
+
+    def test_monthly_sek(self):
+        usd = _parse_max_salary("kr 85,000/month")
+        assert 95_000 <= usd <= 100_000  # 85k * 12 * 0.095
+
+    def test_monthly_ils(self):
+        usd = _parse_max_salary("₪65,000/month")
+        assert 215_000 <= usd <= 220_000  # 65k * 12 * 0.28
+
+    def test_monthly_brl(self):
+        usd = _parse_max_salary("R$45,000/month")
+        assert 95_000 <= usd <= 100_000  # 45k * 12 * 0.18
+
+    # --- Indian shorthand ---
+
+    def test_inr_lakh(self):
+        usd = _parse_max_salary("₹40L")
+        assert 47_000 <= usd <= 49_000  # 40 * 100k * 0.012
+
+    def test_inr_lpa(self):
+        usd = _parse_max_salary("₹40 LPA")
+        assert 47_000 <= usd <= 49_000
+
+    def test_inr_crore(self):
+        usd = _parse_max_salary("₹1.5Cr")
+        assert 175_000 <= usd <= 185_000  # 1.5 * 10M * 0.012
+
+    # --- EU formats ---
+
+    def test_eur_dot_thousands_with_decimals(self):
+        usd = _parse_max_salary("€250.000,00")
+        assert 270_000 <= usd <= 280_000
+
+    def test_eur_space_separator(self):
+        usd = _parse_max_salary("€250 000")
+        assert 270_000 <= usd <= 280_000
+
+    # --- Currency after number ---
+
+    def test_post_eur(self):
+        usd = _parse_max_salary("250,000 EUR")
+        assert 270_000 <= usd <= 280_000
+
+    def test_post_gbp(self):
+        usd = _parse_max_salary("350,000 GBP")
+        assert 430_000 <= usd <= 440_000
+
+    def test_post_eur_symbol(self):
+        usd = _parse_max_salary("280.000 €")
+        assert 305_000 <= usd <= 310_000
+
+    def test_post_gbp_symbol(self):
+        usd = _parse_max_salary("350,000 £")
+        assert 430_000 <= usd <= 440_000
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +241,7 @@ class TestUKUser:
         assert apply_hard_filters(job, config).passed
 
     def test_low_sek_rejected(self, config):
-        job = JOBS[2]  # Klarna kr 850k → ≈$80k
+        job = JOBS[2]  # Klarna kr 85k/month → ≈$97k/yr
         assert not apply_hard_filters(job, config).passed
 
     def test_low_brl_rejected(self, config):
@@ -224,7 +280,7 @@ class TestUSUser:
         assert not apply_hard_filters(job, config).passed
 
     def test_sek_rejected(self, config):
-        job = JOBS[2]  # Klarna kr 850k → ≈$80k
+        job = JOBS[2]  # Klarna kr 85k/month → ≈$97k/yr
         assert not apply_hard_filters(job, config).passed
 
     def test_is_pickiest(self, config):
