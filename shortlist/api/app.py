@@ -1,12 +1,40 @@
 """FastAPI application factory."""
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import update
 
 from shortlist.api.routes import auth, jobs, profile, resumes, runs
 
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Clear stale runs on startup (zombie runs from previous deploys)."""
+    from shortlist.api.db import get_session
+    from shortlist.api.models import Run
+
+    try:
+        async for session in get_session():
+            result = await session.execute(
+                update(Run)
+                .where(Run.status.in_(("pending", "running")))
+                .values(status="failed", error="Server restarted")
+            )
+            await session.commit()
+            if result.rowcount:
+                logger.info(f"Cleared {result.rowcount} stale run(s) on startup")
+    except Exception as e:
+        logger.warning(f"Could not clear stale runs on startup: {e}")
+
+    yield
+
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Shortlist", version="0.1.0")
+    app = FastAPI(title="Shortlist", version="0.1.0", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,

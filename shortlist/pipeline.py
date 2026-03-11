@@ -32,13 +32,26 @@ def _progress(msg: str):
     logger.info(msg)
 
 
+def _emit(on_progress, msg: str, **kwargs):
+    """Print progress AND call the structured callback if provided."""
+    _progress(msg)
+    if on_progress:
+        kwargs.setdefault("detail", msg)
+        on_progress(kwargs)
+
+
 def _ensure_llm(config: Config) -> None:
     """Configure the LLM if not already configured."""
     if llm._provider is None:
         llm.configure(config.llm.model)
 
 
-def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False) -> Path:
+def run_pipeline(
+    config: Config,
+    project_root: Path,
+    skip_collect: bool = False,
+    on_progress: callable = None,
+) -> Path:
     """Run the full pipeline and return the brief path."""
     _ensure_llm(config)
     db_path = project_root / "jobs.db"
@@ -54,27 +67,27 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
     if not skip_collect:
         collectors = _get_collectors(config=config, db=db)
         for name, collector in collectors.items():
-            _progress(f"Collecting from {name}...")
+            _emit(on_progress, f"Collecting from {name}...", phase="collecting", detail=f"Scraping {name}…")
             source_start = datetime.now().isoformat()
             try:
                 jobs = collector.fetch_new()
                 for job in jobs:
                     upsert_job(db, job)
                 jobs_collected += len(jobs)
-                _progress(f"  → {name}: {len(jobs)} jobs")
+                _emit(on_progress, f"  → {name}: {len(jobs)} jobs", phase="collecting", detail=f"{name}: {len(jobs)} jobs", collected=jobs_collected)
 
                 _log_source_run(db, name, source_start, "success", len(jobs))
             except Exception as e:
                 error_msg = f"{name}: {str(e)}"
                 errors.append(error_msg)
-                _progress(f"  → {name}: failed ({e})")
+                _emit(on_progress, f"  → {name}: failed ({e})", phase="collecting", detail=f"{name}: failed")
                 _log_source_run(db, name, source_start, "failure", 0, str(e))
-        _progress(f"Collection done: {jobs_collected} jobs total")
+        _emit(on_progress, f"Collection done: {jobs_collected} jobs total", phase="collecting", detail=f"Found {jobs_collected} jobs total", collected=jobs_collected)
     else:
-        _progress("Skipping collection (--no-collect)")
+        _emit(on_progress, "Skipping collection (--no-collect)", phase="collecting", detail="Skipping collection")
 
     # Step 2: Filter new jobs
-    _progress("Filtering jobs...")
+    _emit(on_progress, "Filtering jobs...", phase="filtering", detail="Filtering jobs…")
     new_jobs = db.execute("SELECT * FROM jobs WHERE status = 'new'").fetchall()
     for row in new_jobs:
         job = _row_to_raw_job(row)
@@ -91,7 +104,7 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
             jobs_filtered += 1
     db.commit()
     passed = len(new_jobs) - jobs_filtered
-    _progress(f"  → {passed} passed, {jobs_filtered} filtered out")
+    _emit(on_progress, f"  → {passed} passed, {jobs_filtered} filtered out", phase="filtering", detail=f"{passed} passed, {jobs_filtered} rejected", passed=passed, rejected=jobs_filtered)
 
     # Step 3: Score filtered jobs (parallel)
     llm_calls = 0
@@ -103,8 +116,12 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
 
     score_inputs = [(row["id"], _row_to_raw_job(row)) for row in filtered_jobs]
     if score_inputs:
-        _progress(f"Scoring {len(score_inputs)} jobs (parallel, 10 workers)...")
-    score_results = score_jobs_parallel(score_inputs, config, max_workers=10)
+        _emit(on_progress, f"Scoring {len(score_inputs)} jobs (parallel, 10 workers)...", phase="scoring", detail=f"Scoring {len(score_inputs)} jobs…", scored=0, total=len(score_inputs))
+
+    def _on_scored(done, total):
+        _emit(on_progress, f"  Scored {done}/{total}", phase="scoring", detail=f"Scoring jobs…", scored=done, total=total)
+
+    score_results = score_jobs_parallel(score_inputs, config, max_workers=10, on_scored=_on_scored)
 
     for row_id, score_result in score_results:
         if score_result:
@@ -127,7 +144,7 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
 
     scored_count = db.execute("SELECT COUNT(*) FROM jobs WHERE status = 'scored'").fetchone()[0]
     if score_inputs:
-        _progress(f"  → {scored_count} jobs scored ≥60")
+        _emit(on_progress, f"  → {scored_count} jobs scored ≥60", phase="scoring", detail=f"{scored_count} scored ≥60")
 
     # Step 4: Enrich companies + re-score
     scored_jobs = db.execute(
@@ -137,7 +154,7 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
     ).fetchall()
 
     if scored_jobs:
-        _progress(f"Enriching {len(scored_jobs)} companies...")
+        _emit(on_progress, f"Enriching {len(scored_jobs)} companies...", phase="enriching", detail=f"Researching {len(scored_jobs)} companies…")
 
     for row in scored_jobs:
         company = row["company"]
@@ -185,7 +202,7 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
     ).fetchall()
 
     if companies_to_probe:
-        _progress(f"Discovering career pages for {len(companies_to_probe)} companies...")
+        _emit(on_progress, f"Discovering career pages for {len(companies_to_probe)} companies...", phase="enriching", detail=f"Discovering career pages…")
 
     for company_row in companies_to_probe:
         domain = company_row["domain"]
@@ -236,7 +253,7 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
     ]
 
     if tailor_inputs:
-        _progress(f"Tailoring resumes for {len(tailor_inputs)} top matches (parallel, 10 workers)...")
+        _emit(on_progress, f"Tailoring resumes for {len(tailor_inputs)} top matches (parallel, 10 workers)...", phase="tailoring", detail=f"Tailoring {len(tailor_inputs)} resumes…")
         results = tailor_jobs_parallel(
             tailor_inputs, config, project_root, drafts_dir, today,
             max_workers=10,
@@ -250,15 +267,15 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
                 )
                 llm_calls += 2  # select + tailor
                 tailored_count += 1
-        _progress(f"  → {tailored_count} resumes tailored")
+        _emit(on_progress, f"  → {tailored_count} resumes tailored", phase="tailoring", detail=f"{tailored_count} resumes tailored")
 
     db.commit()
 
     # Step 6: Generate brief
-    _progress("Generating brief...")
+    _emit(on_progress, "Generating brief...", phase="finishing", detail="Generating brief…")
     briefs_dir = project_root / config.brief.output_dir
     brief_path = generate_brief(db, briefs_dir)
-    _progress(f"  → {brief_path}")
+    _emit(on_progress, f"  → {brief_path}", phase="finishing", detail="Brief generated")
 
     # Log run
     db.execute(

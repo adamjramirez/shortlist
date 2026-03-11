@@ -29,7 +29,7 @@ def no_enrichment(monkeypatch):
     monkeypatch.setattr("shortlist.pipeline.tailor_jobs_parallel", lambda *a, **kw: [])
 
 
-def _mock_score_jobs_parallel(jobs, config, max_workers=10):
+def _mock_score_jobs_parallel(jobs, config, max_workers=10, on_scored=None):
     """Deterministic mock for parallel scoring."""
     results = []
     for row_id, job in jobs:

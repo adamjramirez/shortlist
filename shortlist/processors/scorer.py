@@ -150,6 +150,7 @@ def score_jobs_parallel(
     jobs: list[tuple[int, RawJob]],
     config: Config,
     max_workers: int = 10,
+    on_scored: callable = None,
 ) -> list[tuple[int, ScoreResult | None]]:
     """Score multiple jobs in parallel using a thread pool.
 
@@ -157,6 +158,7 @@ def score_jobs_parallel(
         jobs: list of (row_id, RawJob) tuples
         config: scoring config
         max_workers: number of concurrent LLM calls
+        on_scored: optional callback(done, total) after each job is scored
 
     Returns:
         list of (row_id, ScoreResult | None) tuples
@@ -180,5 +182,7 @@ def score_jobs_parallel(
             except Exception as e:
                 logger.error(f"Scoring thread failed for job {row_id}: {e}")
                 results.append((row_id, None))
+            if on_scored:
+                on_scored(len(results), len(jobs))
 
     return results

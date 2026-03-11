@@ -60,30 +60,52 @@ export default function RunButton({ onComplete }: Props) {
 
   const progress = run?.progress as {
     phase?: string;
+    detail?: string;
     scored?: number;
     total?: number;
     jobs_found?: number;
   };
 
+  const phaseLabels: Record<string, string> = {
+    starting: "Starting up…",
+    collecting: "Scraping job boards…",
+    "saving results": "Saving results…",
+    done: "Complete!",
+  };
+
+  const phaseLabel = progress?.detail || phaseLabels[progress?.phase || ""] || progress?.phase || run?.status || "";
+
   return (
     <div>
       {isActive ? (
         <div className="flex items-center gap-3">
-          <div className="h-2 w-32 overflow-hidden rounded-full bg-gray-200">
-            <div
-              className="h-full rounded-full bg-blue-600 transition-all"
-              style={{
-                width: progress?.total
-                  ? `${((progress.scored ?? 0) / progress.total) * 100}%`
-                  : "30%",
-              }}
+          <svg
+            className="h-4 w-4 animate-spin text-blue-600"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
             />
-          </div>
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+            />
+          </svg>
           <span className="text-sm text-gray-600">
-            {progress?.phase || run?.status}
+            {phaseLabel}
             {progress?.scored !== undefined &&
               progress?.total &&
               ` (${progress.scored}/${progress.total})`}
+            {progress?.jobs_found !== undefined &&
+              !progress?.total &&
+              ` — ${progress.jobs_found} jobs found`}
           </span>
         </div>
       ) : (
