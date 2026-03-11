@@ -275,48 +275,142 @@ _CURRENCY_TO_USD = {
     "R$": 0.18,     # BRL
     "A$": 0.65,     # AUD (explicit)
     "C$": 0.73,     # CAD (explicit)
+    # Currency codes (used when currency appears after the number)
+    "USD": 1.0, "GBP": 1.25, "EUR": 1.10, "JPY": 0.0067,
+    "INR": 0.012, "ILS": 0.28, "SEK": 0.095, "NOK": 0.095,
+    "DKK": 0.095, "BRL": 0.18, "AUD": 0.65, "CAD": 0.73,
+    "SGD": 0.75, "NZD": 0.60, "HKD": 0.13, "PLN": 0.25,
+    "CZK": 0.044, "MXN": 0.058,
 }
 
-# Regex: currency symbol/code, optional space, digits with separators, optional k/K
-_SALARY_PATTERN = re.compile(
-    r"(?P<currency>[£€¥₹₪]|\$|A\$|C\$|R\$|CHF|kr)\s*(?P<amount>[\d.,]+)\s*(?P<k>k)?\b",
+# Symbols that appear BEFORE the number
+_PRE_SYMBOLS = r"[£€¥₹₪]|\$|A\$|C\$|R\$|CHF|kr"
+# Currency codes/symbols that appear AFTER the number
+_POST_CODES = r"USD|GBP|EUR|INR|ILS|SEK|NOK|DKK|CHF|BRL|AUD|CAD|JPY|SGD|NZD|HKD|PLN|CZK|MXN|kr|[£€¥₹₪]"
+
+# Pattern 1: symbol before number — £220,000 / €250.000 / $280k / ₹40L / ₹1.5Cr
+_PRE_PATTERN = re.compile(
+    rf"(?P<currency>{_PRE_SYMBOLS})\s*(?P<amount>[\d][\d.,\s]*[\d]|[\d]+)"
+    rf"(?:\s*(?P<suffix>k|L|LPA|Cr|lakh|lakhs|crore|crores))?\b",
     re.IGNORECASE,
 )
+
+# Pattern 2: number before currency code — 250,000 EUR / 280 000 GBP / 280.000 €
+# Note: \b doesn't work after unicode symbols (€, £), so we use lookahead instead
+_POST_PATTERN = re.compile(
+    rf"(?P<amount>[\d][\d.,\s]*[\d]|[\d]+)\s*(?P<suffix>k|L|LPA|Cr|lakh|lakhs|crore|crores)?"
+    rf"\s*(?P<currency>{_POST_CODES})(?:\b|$|\s)",
+    re.IGNORECASE,
+)
+
+
+def _normalize_amount(amount_str: str) -> int | None:
+    """Parse a number string handling US, EU, and space-separated formats.
+
+    Handles: 280,000 / 280.000 / 280 000 / 250.000,00 / 1,50,00,000
+    """
+    # Strip spaces used as thousands separators (EU/Nordic: "250 000")
+    clean = amount_str.replace(" ", "")
+
+    # EU format with decimal: "250.000,00" → strip decimal part, dots are thousands
+    if re.match(r"^\d{1,3}(\.\d{3})+,\d{2}$", clean):
+        clean = clean.split(",")[0].replace(".", "")
+    # EU format without decimal: "250.000" → dot is thousands separator
+    elif re.match(r"^\d{1,3}(\.\d{3})+$", clean):
+        clean = clean.replace(".", "")
+    # US/Indian format: "280,000" or "1,50,00,000" → commas are thousands
+    elif "," in clean:
+        clean = clean.replace(",", "")
+    # Dot as decimal point (e.g., "1.5" in "₹1.5Cr")
+    elif "." in clean:
+        try:
+            return None  # will be handled by suffix (Cr, L) caller
+        except ValueError:
+            return None
+
+    try:
+        return int(clean)
+    except ValueError:
+        return None
+
+
+def _parse_amount_with_suffix(amount_str: str, suffix: str) -> int | None:
+    """Parse amount + suffix (k, L, Cr, etc.) into an integer."""
+    suffix_lower = (suffix or "").lower()
+
+    # Handle decimal amounts like "1.5" in "₹1.5Cr"
+    if "." in amount_str.replace(" ", "") and suffix_lower:
+        try:
+            base = float(amount_str.replace(" ", "").replace(",", ""))
+        except ValueError:
+            return None
+    else:
+        base_int = _normalize_amount(amount_str)
+        if base_int is None:
+            return None
+        base = float(base_int)
+
+    multipliers = {
+        "k": 1_000,
+        "l": 100_000, "lpa": 100_000, "lakh": 100_000, "lakhs": 100_000,
+        "cr": 10_000_000, "crore": 10_000_000, "crores": 10_000_000,
+    }
+    multiplier = multipliers.get(suffix_lower, 1)
+    return int(base * multiplier)
+
+
+def _is_monthly(salary_text: str) -> bool:
+    """Check if the salary text indicates a monthly rate."""
+    return bool(re.search(r"/(month|mo|m)\b|per\s+month|monthly|p\.?m\.?\b", salary_text, re.I))
 
 
 def _parse_max_salary(salary_text: str) -> int | None:
     """Extract the maximum salary from a salary string, converted to USD.
 
-    Supports $, £, €, ¥, ₹, ₪, kr, CHF, R$, A$, C$.
+    Handles:
+    - Symbols before number: $280k, £220,000, €250.000, ₹40L, ₹1.5Cr
+    - Codes after number: 250,000 EUR, 280 000 GBP
+    - Monthly rates: kr 85,000/month → annualized
+    - EU number formats: 250.000 / 250 000 / 250.000,00
+
     Returns None if unparseable.
     """
-    matches = _SALARY_PATTERN.findall(salary_text)
-    if not matches:
+    if not salary_text:
         return None
 
+    monthly = _is_monthly(salary_text)
     parsed = []
-    for currency, amount_str, k_suffix in matches:
-        # Normalize number separators: "280.000" (EU) vs "280,000" (US)
-        # If there's a dot with 3 digits after it AND no comma, it's a thousands separator
-        clean = amount_str.replace(",", "")
-        if re.match(r"^\d+\.\d{3}$", clean):
-            clean = clean.replace(".", "")
-        # Otherwise dots are decimal points — strip them for integer comparison
-        elif "." in clean:
-            clean = clean.split(".")[0]
 
-        try:
-            value = int(clean)
-        except ValueError:
+    # Try symbol-before-number matches
+    for m in _PRE_PATTERN.finditer(salary_text):
+        currency = m.group("currency")
+        amount_str = m.group("amount")
+        suffix = m.group("suffix") or ""
+
+        value = _parse_amount_with_suffix(amount_str, suffix)
+        if value is None:
             continue
+        if monthly:
+            value *= 12
 
-        if k_suffix:
-            value *= 1000
-
-        # Convert to USD
         rate = _CURRENCY_TO_USD.get(currency, _CURRENCY_TO_USD.get(currency.upper(), 1.0))
-        usd_value = int(value * rate)
-        parsed.append(usd_value)
+        parsed.append(int(value * rate))
+
+    # Try number-before-code matches
+    for m in _POST_PATTERN.finditer(salary_text):
+        currency_raw = m.group("currency")
+        amount_str = m.group("amount")
+        suffix = m.group("suffix") or ""
+
+        value = _parse_amount_with_suffix(amount_str, suffix)
+        if value is None:
+            continue
+        if monthly:
+            value *= 12
+
+        # Try original case first (kr, €), then uppercase (EUR, GBP)
+        rate = _CURRENCY_TO_USD.get(currency_raw, _CURRENCY_TO_USD.get(currency_raw.upper(), 1.0))
+        parsed.append(int(value * rate))
 
     if not parsed:
         return None
