@@ -239,33 +239,68 @@ def _check_salary(job: RawJob, config: Config) -> FilterResult:
     return FilterResult(passed=True)
 
 
+# Currency symbols and their approximate USD conversion rates.
+# Used only for the hard salary filter (reject/pass), not for display.
+# Rates don't need to be exact — this is a "clearly below minimum" check.
+_CURRENCY_TO_USD = {
+    "$": 1.0,       # USD (also AUD, CAD, SGD — close enough for filtering)
+    "£": 1.25,      # GBP
+    "€": 1.10,      # EUR
+    "¥": 0.0067,    # JPY (also CNY but salaries are usually monthly there)
+    "₹": 0.012,     # INR
+    "₪": 0.28,      # ILS
+    "kr": 0.095,    # SEK/NOK/DKK (averaged)
+    "CHF": 1.15,    # Swiss Franc
+    "R$": 0.18,     # BRL
+    "A$": 0.65,     # AUD (explicit)
+    "C$": 0.73,     # CAD (explicit)
+}
+
+# Regex: currency symbol/code, optional space, digits with separators, optional k/K
+_SALARY_PATTERN = re.compile(
+    r"(?P<currency>[£€¥₹₪]|\$|A\$|C\$|R\$|CHF|kr)\s*(?P<amount>[\d.,]+)\s*(?P<k>k)?\b",
+    re.IGNORECASE,
+)
+
+
 def _parse_max_salary(salary_text: str) -> int | None:
-    """Extract the maximum salary from a salary string. Returns None if unparseable."""
-    # Find all dollar amounts
-    # Matches: $280,000  $280000  $280k  $280K
-    amounts = re.findall(r"\$\s*([\d,]+)\s*k?\b", salary_text, re.IGNORECASE)
-    if not amounts:
+    """Extract the maximum salary from a salary string, converted to USD.
+
+    Supports $, £, €, ¥, ₹, ₪, kr, CHF, R$, A$, C$.
+    Returns None if unparseable.
+    """
+    matches = _SALARY_PATTERN.findall(salary_text)
+    if not matches:
         return None
 
     parsed = []
-    for amount_str in amounts:
+    for currency, amount_str, k_suffix in matches:
+        # Normalize number separators: "280.000" (EU) vs "280,000" (US)
+        # If there's a dot with 3 digits after it AND no comma, it's a thousands separator
         clean = amount_str.replace(",", "")
+        if re.match(r"^\d+\.\d{3}$", clean):
+            clean = clean.replace(".", "")
+        # Otherwise dots are decimal points — strip them for integer comparison
+        elif "." in clean:
+            clean = clean.split(".")[0]
+
         try:
             value = int(clean)
         except ValueError:
             continue
 
-        # Check if this was a "k" format
-        k_match = re.search(rf"\${re.escape(amount_str)}\s*k", salary_text, re.IGNORECASE)
-        if k_match:
+        if k_suffix:
             value *= 1000
 
-        parsed.append(value)
+        # Convert to USD
+        rate = _CURRENCY_TO_USD.get(currency, _CURRENCY_TO_USD.get(currency.upper(), 1.0))
+        usd_value = int(value * rate)
+        parsed.append(usd_value)
 
     if not parsed:
         return None
     max_val = max(parsed)
-    # Values below $30,000 are clearly not annual salaries
+    # Values below $30,000 USD are clearly not annual salaries
     # (probably funding amounts, hourly rates, or parser noise)
     if max_val < 30000:
         return None
