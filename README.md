@@ -460,7 +460,7 @@ LLM API only. A typical run processes ~500 jobs scored + 30 enriched + 15 resume
 - **No Google Jobs** — would need a paid API (SerpAPI etc.)
 - **No JS-rendered career pages** — companies using Workday or custom platforms (Atlassian, Shopify) aren't auto-discovered. Their LinkedIn listings still get collected.
 - **LinkedIn guest API is fragile** — unauthenticated, may break without notice
-- **Location filtering is US-biased** — state abbreviations, zip codes, and the known-city list skew American. International cities like London, Berlin, Tokyo, etc. are recognized, but smaller non-US cities may not be. Remote jobs pass through regardless of geography, so this mainly affects on-site/hybrid filtering for international users.
+- **Remote works globally, on-site filtering is US-biased** — if you're looking for remote roles, location filtering works regardless of where you live. The US bias only affects on-site/hybrid filtering: state abbreviations, zip codes, and the known-city list skew American. Major international cities (London, Berlin, Tokyo, etc.) are recognized, but smaller non-US cities may not be — meaning some on-site international jobs could slip through filters instead of being rejected.
 - **Salary parsing is USD-only** — the salary filter parses `$` amounts. Salaries listed in `€`, `£`, `¥`, or other currencies are ignored (job passes through to scoring). No currency conversion is performed.
 
 ## License
