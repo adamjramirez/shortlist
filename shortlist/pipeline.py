@@ -10,6 +10,7 @@ from shortlist.collectors.hn import HNCollector
 from shortlist.collectors.linkedin import LinkedInCollector
 from shortlist.collectors.nextplay import NextPlayCollector
 from shortlist.config import Config
+from shortlist import llm
 from shortlist.db import init_db, get_db, upsert_job
 from shortlist.processors.filter import apply_hard_filters
 from shortlist.processors.scorer import score_job, score_jobs_parallel, ScoreResult
@@ -31,8 +32,15 @@ def _progress(msg: str):
     logger.info(msg)
 
 
+def _ensure_llm(config: Config) -> None:
+    """Configure the LLM if not already configured."""
+    if llm._provider is None:
+        llm.configure(config.llm.model)
+
+
 def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False) -> Path:
     """Run the full pipeline and return the brief path."""
+    _ensure_llm(config)
     db_path = project_root / "jobs.db"
     db = init_db(db_path)
     db.row_factory = sqlite3.Row

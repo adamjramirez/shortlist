@@ -102,7 +102,7 @@ class TestJobBoardDetection:
 
 
 class TestEnrichCompany:
-    @patch("shortlist.processors.enricher._call_gemini")
+    @patch("shortlist.llm.call_llm")
     def test_returns_intel(self, mock_gemini):
         mock_gemini.return_value = json.dumps({
             "stage": "Series C",
@@ -122,7 +122,7 @@ class TestEnrichCompany:
         assert intel.stage == "Series C"
         assert intel.headcount_estimate == 400
 
-    @patch("shortlist.processors.enricher._call_gemini")
+    @patch("shortlist.llm.call_llm")
     def test_returns_none_on_failure(self, mock_gemini):
         mock_gemini.return_value = None
         assert enrich_company("Unknown", "desc") is None
@@ -158,7 +158,7 @@ class TestCacheEnrichment:
 
 
 class TestRescoreWithEnrichment:
-    @patch("shortlist.processors.enricher._call_gemini")
+    @patch("shortlist.llm.call_llm")
     def test_returns_new_score(self, mock_gemini, config):
         mock_gemini.return_value = json.dumps({
             "new_score": 88,
@@ -176,7 +176,7 @@ class TestRescoreWithEnrichment:
         assert new_score == 88
         assert delta == 3
 
-    @patch("shortlist.processors.enricher._call_gemini")
+    @patch("shortlist.llm.call_llm")
     def test_returns_none_when_no_change(self, mock_gemini, config):
         mock_gemini.return_value = json.dumps({
             "new_score": 85,
