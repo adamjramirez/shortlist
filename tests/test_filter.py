@@ -154,6 +154,54 @@ class TestSalaryFilter:
             result = apply_hard_filters(job, config)
             assert result.passed, f"'{amount}' should not be treated as salary, got: {result.reason}"
 
+    def test_gbp_salary_above_min_passes(self, config):
+        """£220,000 ≈ $275,000 — above $250k min."""
+        job = _make_job(salary_text="£200,000 - £220,000")
+        result = apply_hard_filters(job, config)
+        assert result.passed
+
+    def test_gbp_salary_below_min_fails(self, config):
+        """£120k ≈ $150k — below $250k min."""
+        job = _make_job(salary_text="£100k - £120k")
+        result = apply_hard_filters(job, config)
+        assert not result.passed
+
+    def test_eur_salary_above_min_passes(self, config):
+        """€250,000 ≈ $275,000 — above $250k min."""
+        job = _make_job(salary_text="€230,000 - €250,000")
+        result = apply_hard_filters(job, config)
+        assert result.passed
+
+    def test_eur_salary_below_min_fails(self, config):
+        """€130k ≈ $143k — below $250k min."""
+        job = _make_job(salary_text="€110k - €130k")
+        result = apply_hard_filters(job, config)
+        assert not result.passed
+
+    def test_eur_dot_thousands_separator(self, config):
+        """EU format: €250.000 = 250,000 EUR ≈ $275k."""
+        job = _make_job(salary_text="€250.000")
+        result = apply_hard_filters(job, config)
+        assert result.passed
+
+    def test_chf_salary(self, config):
+        """CHF 280,000 ≈ $322k — above min."""
+        job = _make_job(salary_text="CHF 280,000")
+        result = apply_hard_filters(job, config)
+        assert result.passed
+
+    def test_inr_salary_below_min(self, config):
+        """₹5,000,000 ≈ $60k — below $250k min."""
+        job = _make_job(salary_text="₹5,000,000")
+        result = apply_hard_filters(job, config)
+        assert not result.passed
+
+    def test_unknown_currency_passes(self, config):
+        """Unknown format = can't parse = benefit of the doubt."""
+        job = _make_job(salary_text="250万円")
+        result = apply_hard_filters(job, config)
+        assert result.passed
+
 
 class TestRoleTypeFilter:
     def test_management_title_passes(self, config):
