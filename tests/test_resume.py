@@ -7,8 +7,9 @@ import pytest
 
 from shortlist.processors.resume import (
     select_resume, tailor_resume, save_tailored_resume,
-    TailoredResume, _extract_summary, _parse_json,
+    TailoredResume, _extract_summary, _parse_tailor_json,
 )
+from shortlist.llm import parse_json
 from shortlist.config import Config, Track
 
 
@@ -75,20 +76,20 @@ EXECUTIVE SUMMARY
 
 class TestParseJson:
     def test_parses_raw_json(self):
-        result = _parse_json('{"key": "value"}')
+        result = parse_json('{"key": "value"}')
         assert result["key"] == "value"
 
     def test_parses_markdown_block(self):
-        result = _parse_json('```json\n{"key": "value"}\n```')
+        result = parse_json('```json\n{"key": "value"}\n```')
         assert result["key"] == "value"
 
     def test_finds_json_in_text(self):
-        result = _parse_json('Here is the result: {"key": "value"} done.')
+        result = parse_json('Here is the result: {"key": "value"} done.')
         assert result["key"] == "value"
 
     def test_raises_on_garbage(self):
         with pytest.raises((json.JSONDecodeError, ValueError)):
-            _parse_json("no json here at all")
+            parse_json("no json here at all")
 
 
 class TestSelectResume:
@@ -103,7 +104,7 @@ class TestSelectResume:
         )
         assert result == tmp_path / "resumes/em.tex"
 
-    @patch("shortlist.processors.resume._call_gemini")
+    @patch("shortlist.llm.call_llm")
     def test_multi_resume_calls_llm(self, mock_gemini, config_multi_resume, tmp_path):
         for name in ["vp_enterprise.tex", "vp_growth.tex"]:
             p = tmp_path / "resumes" / name
@@ -118,7 +119,7 @@ class TestSelectResume:
         )
         assert "vp_growth" in str(result)
 
-    @patch("shortlist.processors.resume._call_gemini")
+    @patch("shortlist.llm.call_llm")
     def test_multi_resume_defaults_to_first_on_failure(self, mock_gemini,
                                                         config_multi_resume, tmp_path):
         for name in ["vp_enterprise.tex", "vp_growth.tex"]:
@@ -145,7 +146,7 @@ class TestSelectResume:
 
 
 class TestTailorResume:
-    @patch("shortlist.processors.resume._call_gemini")
+    @patch("shortlist.llm.call_llm")
     def test_returns_tailored_result(self, mock_gemini, mock_resume):
         mock_gemini.return_value = json.dumps({
             "tailored_tex": r"\begin{document}tailored\end{document}",
@@ -159,7 +160,7 @@ class TestTailorResume:
         assert len(result.changes_made) == 2
         assert "excited" in result.interest_note
 
-    @patch("shortlist.processors.resume._call_gemini")
+    @patch("shortlist.llm.call_llm")
     def test_returns_none_on_api_failure(self, mock_gemini, mock_resume):
         mock_gemini.return_value = None
         result = tailor_resume(mock_resume, "VP Eng", "Acme", "desc")

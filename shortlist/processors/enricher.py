@@ -1,26 +1,18 @@
 """Company enrichment and post-enrichment re-scoring.
 
-Uses Gemini to gather company intel, caches in the companies table,
+Uses the configured LLM to gather company intel, caches in the companies table,
 and optionally re-scores jobs when enrichment reveals material info.
 """
 import json
 import logging
-import os
-import re
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 
-from dotenv import load_dotenv
-
-from shortlist import http
+from shortlist import llm
 from shortlist.config import Config
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-GEMINI_DOMAIN = "generativelanguage.googleapis.com"
 CACHE_DAYS = 30  # Don't re-enrich within this window
 
 # Job boards / aggregators — don't enrich these, they're not the real employer
@@ -218,7 +210,7 @@ def is_job_board(company: str) -> bool:
 
 
 def enrich_company(company: str, job_description: str) -> CompanyIntel | None:
-    """Enrich a company using Gemini. Returns None on failure or for job boards."""
+    """Enrich a company using the configured LLM. Returns None on failure or for job boards."""
     if is_job_board(company):
         logger.info(f"Skipping enrichment for job board: {company}")
         return None
@@ -226,12 +218,12 @@ def enrich_company(company: str, job_description: str) -> CompanyIntel | None:
     context = job_description[:500] if job_description else ""
     prompt = ENRICH_PROMPT.format(company=company, context=context)
 
-    result = _call_gemini(prompt)
+    result = llm.call_llm(prompt)
     if not result:
         return None
 
     try:
-        data = _parse_json(result)
+        data = llm.parse_json(result)
         intel = CompanyIntel(
             name=company,
             stage=data.get("stage", "unknown"),
@@ -292,12 +284,12 @@ def rescore_with_enrichment(
         fit_context=config.fit_context or "No additional context.",
     )
 
-    result = _call_gemini(prompt)
+    result = llm.call_llm(prompt)
     if not result:
         return None
 
     try:
-        data = _parse_json(result)
+        data = llm.parse_json(result)
         new_score = max(0, min(100, int(data.get("new_score", original_score))))
         delta = new_score - original_score
         reason = data.get("reasoning", "")
@@ -308,40 +300,3 @@ def rescore_with_enrichment(
     except Exception as e:
         logger.error(f"Failed to parse rescore response: {e}")
         return None
-
-
-def _call_gemini(prompt: str) -> str | None:
-    """Call Gemini API with rate limiting."""
-    from google import genai
-
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        logger.error("GEMINI_API_KEY not set")
-        return None
-
-    client = genai.Client(api_key=api_key)
-    try:
-        http._wait(GEMINI_DOMAIN)
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-        )
-        return response.text
-    except Exception as e:
-        logger.error(f"Gemini API error: {e}")
-        return None
-
-
-def _parse_json(text: str) -> dict:
-    """Parse JSON from LLM response."""
-    text = text.strip()
-    match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if match:
-        text = match.group(1).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
-        raise

@@ -17,6 +17,12 @@ def no_rate_limit(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_llm(monkeypatch):
+    """Skip LLM configuration in pipeline tests."""
+    monkeypatch.setattr("shortlist.pipeline._ensure_llm", lambda _: None)
+
+
+@pytest.fixture(autouse=True)
 def no_enrichment(monkeypatch):
     """Disable enrichment and resume tailoring in pipeline tests."""
     monkeypatch.setattr("shortlist.pipeline.enrich_company", lambda *a, **kw: None)

@@ -2,27 +2,20 @@
 
 For each top-scored job:
 1. Select the best base resume based on matched_track
-2. Use Gemini to suggest emphasis changes (NOT rewriting)
+2. Use the configured LLM to suggest emphasis changes (NOT rewriting)
 3. Save tailored .tex file + "why I'm interested" note
 """
 import json
 import logging
-import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-from shortlist import http
+from shortlist import llm
 from shortlist.config import Config
 
-load_dotenv()
-
 logger = logging.getLogger(__name__)
-
-GEMINI_DOMAIN = "generativelanguage.googleapis.com"
 
 
 @dataclass
@@ -96,7 +89,7 @@ def select_resume(track_key: str, config: Config, job_title: str,
     """Select the best resume for a job based on track and job description.
 
     For tracks with one resume, returns it directly.
-    For tracks with multiple (e.g., VP), uses Gemini to pick.
+    For tracks with multiple (e.g., VP), uses the LLM to pick.
     """
     track = config.tracks.get(track_key) or config.tracks.get(track_key.lower())
     if not track:
@@ -133,15 +126,15 @@ def select_resume(track_key: str, config: Config, job_title: str,
         resume_options="\n\n".join(options),
     )
 
-    result = _call_gemini(prompt)
+    result = llm.call_llm(prompt)
     if result:
         try:
-            data = _parse_json(result)
+            data = llm.parse_json(result)
             idx = int(data.get("selected_index", 0))
             idx = max(0, min(idx, len(paths) - 1))
             logger.info(f"Resume selected: {paths[idx]} — {data.get('reason', '')}")
             return project_root / paths[idx]
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, json.JSONDecodeError):
             pass
 
     # Default to first
@@ -168,12 +161,12 @@ def tailor_resume(resume_path: Path, job_title: str, job_company: str,
         resume_tex=resume_tex,
     )
 
-    result = _call_gemini(prompt)
+    result = llm.call_llm(prompt)
     if not result:
         return None
 
     try:
-        data = _parse_json(result)
+        data = _parse_tailor_json(result)
         return TailoredResume(
             base_resume_path=str(resume_path),
             tailored_tex=data.get("tailored_tex", resume_tex),
@@ -227,27 +220,64 @@ def _extract_summary(tex: str) -> str:
     return ""
 
 
-def _call_gemini(prompt: str) -> str | None:
-    """Call Gemini API with rate limiting. Returns response text or None."""
-    from google import genai
-
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        logger.error("GEMINI_API_KEY not set")
-        return None
-
-    client = genai.Client(api_key=api_key)
+def _parse_tailor_json(text: str) -> dict:
+    """Parse JSON from tailor LLM response, handling LaTeX escapes."""
+    text = text.strip()
+    json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+    if json_match:
+        text = json_match.group(1).strip()
 
     try:
-        http._wait(GEMINI_DOMAIN)
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-        )
-        return response.text
-    except Exception as e:
-        logger.error(f"Gemini API error: {e}")
-        return None
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # LaTeX backslashes break JSON — extract fields manually
+        json_match = re.search(r"\{.*\}", text, re.DOTALL)
+        if json_match:
+            raw = json_match.group(0)
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                pass
+
+            # Try fixing LaTeX escapes: double-escape lone backslashes
+            fixed = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', raw)
+            try:
+                return json.loads(fixed)
+            except json.JSONDecodeError:
+                pass
+
+            # Last resort: extract fields by regex
+            return _extract_tailor_fields(text)
+        raise
+
+
+def _extract_tailor_fields(text: str) -> dict:
+    """Extract tailored resume fields when JSON parsing fails due to LaTeX."""
+    result = {}
+
+    # Extract tailored_tex between the first and last occurrence markers
+    tex_match = re.search(
+        r'"tailored_tex"\s*:\s*"(.*?)(?:"\s*,\s*"changes_made")',
+        text, re.DOTALL,
+    )
+    if tex_match:
+        result["tailored_tex"] = tex_match.group(1).replace("\\n", "\n")
+
+    # Extract changes_made
+    changes_match = re.search(r'"changes_made"\s*:\s*\[(.*?)\]', text, re.DOTALL)
+    if changes_match:
+        changes = re.findall(r'"([^"]+)"', changes_match.group(1))
+        result["changes_made"] = changes
+
+    # Extract interest_note
+    note_match = re.search(r'"interest_note"\s*:\s*"(.*?)"(?:\s*\})', text, re.DOTALL)
+    if note_match:
+        result["interest_note"] = note_match.group(1).replace("\\n", "\n")
+
+    if not result.get("tailored_tex"):
+        raise json.JSONDecodeError("Could not extract tailored_tex", text, 0)
+
+    return result
 
 
 def tailor_job_parallel(
@@ -309,63 +339,3 @@ def tailor_jobs_parallel(
                 logger.warning(f"Resume tailoring thread failed for job {job_id}: {e}")
                 results.append((job_id, None, None))
     return results
-
-
-def _parse_json(text: str) -> dict:
-    """Parse JSON from LLM response, handling markdown code blocks and LaTeX."""
-    text = text.strip()
-    json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if json_match:
-        text = json_match.group(1).strip()
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        # LaTeX backslashes break JSON — extract fields manually
-        json_match = re.search(r"\{.*\}", text, re.DOTALL)
-        if json_match:
-            raw = json_match.group(0)
-            try:
-                return json.loads(raw)
-            except json.JSONDecodeError:
-                pass
-
-            # Try fixing LaTeX escapes: double-escape lone backslashes
-            fixed = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', raw)
-            try:
-                return json.loads(fixed)
-            except json.JSONDecodeError:
-                pass
-
-            # Last resort: extract fields by regex
-            return _extract_tailor_fields(text)
-        raise
-
-
-def _extract_tailor_fields(text: str) -> dict:
-    """Extract tailored resume fields when JSON parsing fails due to LaTeX."""
-    result = {}
-
-    # Extract tailored_tex between the first and last occurrence markers
-    tex_match = re.search(
-        r'"tailored_tex"\s*:\s*"(.*?)(?:"\s*,\s*"changes_made")',
-        text, re.DOTALL,
-    )
-    if tex_match:
-        result["tailored_tex"] = tex_match.group(1).replace("\\n", "\n")
-
-    # Extract changes_made
-    changes_match = re.search(r'"changes_made"\s*:\s*\[(.*?)\]', text, re.DOTALL)
-    if changes_match:
-        changes = re.findall(r'"([^"]+)"', changes_match.group(1))
-        result["changes_made"] = changes
-
-    # Extract interest_note
-    note_match = re.search(r'"interest_note"\s*:\s*"(.*?)"(?:\s*\})', text, re.DOTALL)
-    if note_match:
-        result["interest_note"] = note_match.group(1).replace("\\n", "\n")
-
-    if not result.get("tailored_tex"):
-        raise json.JSONDecodeError("Could not extract tailored_tex", text, 0)
-
-    return result

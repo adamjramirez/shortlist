@@ -31,23 +31,45 @@ This creates:
 - `briefs/` — where daily briefs get written
 - `.gitignore` — keeps secrets and personal files out of git
 
-### Step 3: Get a Gemini API key
+### Step 3: Get an API key
 
-1. Go to [aistudio.google.com](https://aistudio.google.com/)
-2. Sign in with any Google account
-3. Click **"Get API key"** in the left sidebar
-4. Click **"Create API key"** — select or create a Google Cloud project (free)
-5. Copy the key
+Shortlist supports **Gemini** (default), **OpenAI**, and **Anthropic**. Pick one:
 
-Open `.env` and replace the placeholder:
+| Provider | Models | Get a key |
+|----------|--------|-----------|
+| **Gemini** (default) | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com/) → Get API key |
+| **OpenAI** | `gpt-4o`, `gpt-4o-mini` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| **Anthropic** | `claude-sonnet-4-20250514` | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
+
+Open `.env` and set the key for your chosen provider:
 
 ```
-GEMINI_API_KEY=AIzaSy...paste-your-key-here
+# Pick ONE — whichever matches your llm.model in config/profile.yaml
+GEMINI_API_KEY=AIzaSy...your-key-here
+# OPENAI_API_KEY=sk-...your-key-here
+# ANTHROPIC_API_KEY=sk-ant-...your-key-here
 ```
 
-**No quotes, no spaces around the `=`.** Just the key.
+Then set the model in `config/profile.yaml`:
 
-The free tier gives 15 requests/minute, enough for small test runs. For a full run (~500+ jobs), upgrade to pay-as-you-go in Google AI Studio. Costs roughly **$2-3 per run**.
+```yaml
+llm:
+  model: gemini-2.5-flash    # or gpt-4o, claude-sonnet-4-20250514, etc.
+```
+
+**No quotes, no spaces around the `=` in `.env`.** Just the key.
+
+The Gemini free tier gives 15 requests/minute, enough for small test runs. For a full run (~500+ jobs), upgrade to pay-as-you-go. Costs roughly **$2-3 per run** on Gemini, more on OpenAI/Anthropic.
+
+**Install the provider library** for non-Gemini providers:
+
+```bash
+pip install -e ".[openai]"      # for OpenAI models
+pip install -e ".[anthropic]"   # for Anthropic models
+pip install -e ".[all-llm]"     # all providers
+```
+
+Gemini is included by default.
 
 ### Step 3b (optional): NextPlay paid articles
 
@@ -287,12 +309,13 @@ All HTTP requests go through a centralized rate-limited client. You won't get bl
 
 Shortlist validates your config before starting. Read the error messages — they tell you exactly what's wrong and how to fix it.
 
-### "GEMINI_API_KEY not set"
+### "API key not set" or "API key is invalid"
 
 Check your `.env` file:
 - No quotes around the key
 - No spaces around `=`
-- Key starts with `AIza`
+- The key matches your configured provider (`llm.model` in profile.yaml)
+- Gemini keys start with `AIza`, OpenAI with `sk-`, Anthropic with `sk-ant-`
 
 ### No jobs found
 
@@ -313,7 +336,7 @@ Your `fit_context` might be too vague. Be specific about what you want — the L
 
 ## Cost
 
-Gemini API only. Roughly **$2-3 per full run** (~500 jobs scored + 30 enriched + 15 resumes tailored). The free Gemini tier works for test runs but you'll hit rate limits on a full run.
+LLM API only. Roughly **$2-3 per full run** on Gemini (~500 jobs scored + 30 enriched + 15 resumes tailored). OpenAI and Anthropic are more expensive — expect $5-10 per run with GPT-4o or Claude Sonnet. The free Gemini tier works for test runs but you'll hit rate limits on a full run.
 
 ## Limitations
 

@@ -76,7 +76,11 @@ def init():
     env_file = root / ".env"
     if not env_file.exists():
         env_file.write_text(
+            "# LLM API key — set ONE of these based on your config/profile.yaml llm.model setting\n"
+            "# Default model is gemini-2.5-flash (cheapest option)\n"
             "GEMINI_API_KEY=your-key-here\n"
+            "# OPENAI_API_KEY=your-key-here\n"
+            "# ANTHROPIC_API_KEY=your-key-here\n"
             "\n"
             "# Optional: NextPlay Substack session cookie for paid articles.\n"
             "# Without this, shortlist still collects from NextPlay's free articles.\n"
@@ -85,7 +89,7 @@ def init():
             "# Application → Cookies → copy the value of 'substack.sid'.\n"
             "# SUBSTACK_SID=\n"
         )
-        click.echo("Created .env (add your Gemini API key)")
+        click.echo("Created .env (add your API key)")
 
     # Create .gitignore
     gitignore = root / ".gitignore"
@@ -110,26 +114,31 @@ def init():
 def run(config_path, no_collect):
     """Run the full pipeline: collect → filter → score → enrich → tailor → brief."""
     from shortlist.pipeline import run_pipeline
-    from shortlist.config import validate_config, validate_env, test_gemini_key
+    from shortlist.config import validate_config, validate_env, test_llm_key
+    from shortlist import llm
 
     config, root = _get_config(config_path)
 
     # Validate everything before spending time collecting
     click.echo("Checking configuration...")
-    errors = validate_config(config, root) + validate_env(root)
+    errors = validate_config(config, root) + validate_env(root, config)
     if errors:
         click.echo("\n❌ Fix these issues before running:\n", err=True)
         for i, err in enumerate(errors, 1):
             click.echo(f"  {i}. {err}\n", err=True)
         raise SystemExit(1)
 
-    # Test Gemini API key actually works
-    click.echo("Testing Gemini API key...")
-    gemini_err = test_gemini_key(root)
-    if gemini_err:
-        click.echo(f"\n❌ {gemini_err}\n", err=True)
+    # Configure and test LLM
+    model = config.llm.model
+    provider = llm.detect_provider(model)
+    click.echo(f"Testing {provider} API key (model: {model})...")
+    llm_err = test_llm_key(root, config)
+    if llm_err:
+        click.echo(f"\n❌ {llm_err}\n", err=True)
         raise SystemExit(1)
     click.echo("  ✓ API key works\n")
+
+    llm.configure(model)
 
     if no_collect:
         click.echo("Running pipeline (skipping collection)...")

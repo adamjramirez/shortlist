@@ -167,81 +167,99 @@ def validate_config(config: Config, project_root: Path) -> list[str]:
     return errors
 
 
-def validate_env(project_root: Path) -> list[str]:
+def validate_env(project_root: Path, config: "Config | None" = None) -> list[str]:
     """Validate .env file and return list of error messages."""
     import os
     from dotenv import dotenv_values, load_dotenv
+    from shortlist.llm import detect_provider, _ENV_KEYS
 
     env_path = project_root / ".env"
     errors = []
 
     if not env_path.exists():
         errors.append(
-            "Missing .env file. Create one with:\n"
-            "  GEMINI_API_KEY=your-key-here\n"
-            "Get a key at https://aistudio.google.com/ → Get API key"
+            "Missing .env file. Create one with your LLM API key.\n"
+            "  Run 'shortlist init' to generate a template."
         )
         return errors
 
     # override=True ensures .env values win over stale environment
     load_dotenv(env_path, override=True)
-    key = dotenv_values(env_path).get("GEMINI_API_KEY", "")
+    env_vals = dotenv_values(env_path)
+
+    # Determine which provider/key we need
+    model = config.llm.model if config else "gemini-2.5-flash"
+    provider = detect_provider(model)
+    env_key = _ENV_KEYS[provider]
+    key = env_vals.get(env_key, "") or os.environ.get(env_key, "")
+
+    _KEY_HELP = {
+        "gemini": (
+            f"{env_key} not set in .env. Get a key at:\n"
+            "  https://aistudio.google.com/ → Get API key → Create API key\n"
+            f"Then add to .env: {env_key}=AIzaSy...your-key"
+        ),
+        "openai": (
+            f"{env_key} not set in .env. Get a key at:\n"
+            "  https://platform.openai.com/api-keys\n"
+            f"Then add to .env: {env_key}=sk-...your-key"
+        ),
+        "anthropic": (
+            f"{env_key} not set in .env. Get a key at:\n"
+            "  https://console.anthropic.com/settings/keys\n"
+            f"Then add to .env: {env_key}=sk-ant-...your-key"
+        ),
+    }
 
     if not key or key == "your-key-here":
-        errors.append(
-            "GEMINI_API_KEY not set in .env. Get a key at:\n"
-            "  https://aistudio.google.com/ → Get API key → Create API key\n"
-            "Then add to .env: GEMINI_API_KEY=AIzaSy...your-key"
-        )
-    elif not key.startswith("AIza"):
-        errors.append(
-            f"GEMINI_API_KEY looks wrong (starts with '{key[:4]}...'). "
-            f"Google API keys usually start with 'AIza'. "
-            f"Check your .env file."
-        )
+        errors.append(_KEY_HELP.get(provider, f"{env_key} not set in .env."))
+    else:
+        # Basic format check
+        _PREFIX_CHECK = {
+            "gemini": ("AIza", "Google API keys usually start with 'AIza'"),
+            "openai": ("sk-", "OpenAI API keys usually start with 'sk-'"),
+            "anthropic": ("sk-ant-", "Anthropic API keys usually start with 'sk-ant-'"),
+        }
+        expected_prefix, hint = _PREFIX_CHECK.get(provider, ("", ""))
+        if expected_prefix and not key.startswith(expected_prefix):
+            errors.append(
+                f"{env_key} looks wrong (starts with '{key[:6]}...'). "
+                f"{hint} Check your .env file."
+            )
 
     return errors
 
 
-def test_gemini_key(project_root: Path | None = None) -> str | None:
-    """Make a tiny Gemini API call to verify the key works.
+def test_llm_key(project_root: Path | None = None, config: "Config | None" = None) -> str | None:
+    """Make a tiny LLM API call to verify the key works.
 
-    Reads the key directly from .env to avoid stale environment variables.
     Returns None on success, or an error message string.
     """
-    import os
-    from dotenv import dotenv_values
+    from shortlist.llm import detect_provider, _make_provider
 
-    # Read key from .env file directly (not os.environ which may be stale)
-    env_path = (project_root or Path.cwd()) / ".env"
-    env_vals = dotenv_values(env_path) if env_path.exists() else {}
-    key = env_vals.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+    model = config.llm.model if config else "gemini-2.5-flash"
+    provider_name = detect_provider(model)
 
-    if not key or key == "your-key-here":
+    try:
+        provider = _make_provider(provider_name)
+    except ValueError as e:
         return None  # Already caught by validate_env
 
     try:
-        from google import genai
-        client = genai.Client(api_key=key)
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents="Reply with just the word 'ok'.",
-        )
-        if response and response.text:
+        result = provider.call("Reply with just the word 'ok'.", model)
+        if result:
             return None  # Success
-        return "Gemini API returned empty response. Key may be invalid."
+        return f"{provider_name} API returned empty response. Key may be invalid."
     except Exception as e:
         err = str(e).lower()
-        if "api_key" in err or "invalid" in err or "permission" in err or "403" in err or "401" in err:
+        if any(s in err for s in ("api_key", "invalid", "permission", "403", "401", "authentication")):
             return (
-                "Gemini API key is invalid.\n"
-                "  Double-check the key in your .env file.\n"
-                "  Get a new key at: https://aistudio.google.com/ → Get API key"
+                f"{provider_name} API key is invalid.\n"
+                f"  Double-check the key in your .env file."
             )
-        if "quota" in err or "429" in err:
+        if "quota" in err or "429" in err or "rate" in err:
             return (
-                "Gemini API rate limit or quota exceeded.\n"
-                "  The free tier has limits. Check usage at: https://aistudio.google.com/\n"
-                "  Consider upgrading to pay-as-you-go ($2-3 per run)."
+                f"{provider_name} API rate limit or quota exceeded.\n"
+                f"  Check your usage and billing."
             )
-        return f"Gemini API test failed: {e}"
+        return f"{provider_name} API test failed: {e}"

@@ -1,22 +1,15 @@
-"""LLM-based job scoring using Gemini."""
+"""LLM-based job scoring."""
 import json
 import logging
-import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
-from dotenv import load_dotenv
-
 from shortlist.collectors.base import RawJob
 from shortlist.config import Config
-from shortlist import http  # rate limiting for Gemini calls
-
-load_dotenv()
+from shortlist import llm
 
 logger = logging.getLogger(__name__)
-
-GEMINI_DOMAIN = "generativelanguage.googleapis.com"
 
 
 @dataclass
@@ -125,30 +118,12 @@ def build_scoring_prompt(job: RawJob, config: Config) -> str:
 
 def parse_score_response(response_text: str) -> ScoreResult | None:
     """Parse the LLM response into a ScoreResult."""
-    # Try to extract JSON from response
-    text = response_text.strip()
-
-    # Strip markdown code block if present
-    json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if json_match:
-        text = json_match.group(1).strip()
-
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        # Try to find JSON object in the response
-        json_match = re.search(r"\{.*\}", text, re.DOTALL)
-        if json_match:
-            try:
-                data = json.loads(json_match.group(0))
-            except json.JSONDecodeError:
-                logger.warning(f"Could not parse score response: {text[:200]}")
-                return None
-        else:
-            logger.warning(f"No JSON found in score response: {text[:200]}")
-            return None
+        data = llm.parse_json(response_text)
+    except (json.JSONDecodeError, ValueError):
+        logger.warning(f"Could not parse score response: {response_text[:200]}")
+        return None
 
-    # Extract fields with defaults
     fit_score = data.get("fit_score", 0)
     fit_score = max(0, min(100, int(fit_score)))
 
@@ -163,28 +138,12 @@ def parse_score_response(response_text: str) -> ScoreResult | None:
 
 
 def score_job(job: RawJob, config: Config) -> ScoreResult | None:
-    """Score a single job using Gemini. Returns None on API failure."""
-    from google import genai
-
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        logger.error("GEMINI_API_KEY not set")
-        return None
-
-    client = genai.Client(api_key=api_key)
+    """Score a single job. Returns None on API failure."""
     prompt = build_scoring_prompt(job, config)
-
-    try:
-        # Rate limit before calling Gemini (uses google-genai client, not our http module)
-        http._wait(GEMINI_DOMAIN)
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-        )
-        return parse_score_response(response.text)
-    except Exception as e:
-        logger.error(f"Gemini API error scoring {job.company}/{job.title}: {e}")
+    result = llm.call_llm(prompt)
+    if not result:
         return None
+    return parse_score_response(result)
 
 
 def score_jobs_parallel(
@@ -197,7 +156,7 @@ def score_jobs_parallel(
     Args:
         jobs: list of (row_id, RawJob) tuples
         config: scoring config
-        max_workers: number of concurrent Gemini calls
+        max_workers: number of concurrent LLM calls
 
     Returns:
         list of (row_id, ScoreResult | None) tuples
