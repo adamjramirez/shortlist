@@ -1,0 +1,114 @@
+"""Tests for POST /api/profile/generate — AI resume analysis."""
+from io import BytesIO
+
+import pytest
+import pytest_asyncio
+from cryptography.fernet import Fernet
+
+from shortlist.api.llm_client import FakeProfileGenerator
+from shortlist.api.routes.profile import get_profile_generator
+
+SAMPLE_TEX = b"\\documentclass{article}\n\\begin{document}\nSenior engineer with 8 years Python\n\\end{document}"
+
+
+@pytest.fixture(autouse=True)
+def encryption_key(monkeypatch):
+    from shortlist.api.crypto import _get_fernet
+    _get_fernet.cache_clear()
+    monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+
+
+@pytest.fixture()
+def fake_generator():
+    return FakeProfileGenerator()
+
+
+@pytest.fixture(autouse=True)
+def override_generator(app, fake_generator):
+    app.dependency_overrides[get_profile_generator] = lambda: fake_generator
+    yield
+    app.dependency_overrides.pop(get_profile_generator, None)
+
+
+@pytest_asyncio.fixture
+async def resume_id(client, auth_headers):
+    """Upload a resume and return its ID."""
+    files = {"file": ("test.tex", BytesIO(SAMPLE_TEX), "application/x-tex")}
+    resp = await client.post("/api/resumes", files=files, headers=auth_headers)
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+@pytest_asyncio.fixture
+async def profile_with_key(client, auth_headers):
+    """Save a profile with an API key configured."""
+    resp = await client.put(
+        "/api/profile",
+        json={"llm": {"model": "gemini-2.5-flash", "api_key": "test-key-123"}},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_generate_profile(client, auth_headers, resume_id, profile_with_key, fake_generator):
+    resp = await client.post(
+        "/api/profile/generate",
+        json={"resume_id": resume_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fit_context"] == "Generated fit context from resume."
+    assert "backend_engineer" in data["tracks"]
+    assert data["filters"]["salary"]["min_base"] == 150000
+    assert fake_generator.last_resume_text is not None
+    assert "Senior engineer" in fake_generator.last_resume_text
+
+
+@pytest.mark.asyncio
+async def test_generate_no_api_key(client, auth_headers, resume_id, app):
+    """Should fail if no API key is configured and no generator injected."""
+    app.dependency_overrides[get_profile_generator] = lambda: None
+
+    resp = await client.post(
+        "/api/profile/generate",
+        json={"resume_id": resume_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 400
+    assert "API key" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_generate_resume_not_found(client, auth_headers, profile_with_key):
+    resp = await client.post(
+        "/api/profile/generate",
+        json={"resume_id": 999},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_generate_does_not_save(client, auth_headers, resume_id, profile_with_key):
+    """Generate returns suggestions without saving them."""
+    resp = await client.post(
+        "/api/profile/generate",
+        json={"resume_id": resume_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+
+    profile_resp = await client.get("/api/profile", headers=auth_headers)
+    profile = profile_resp.json()
+    assert profile["fit_context"] == ""
+
+
+@pytest.mark.asyncio
+async def test_generate_unauthenticated(client):
+    resp = await client.post(
+        "/api/profile/generate",
+        json={"resume_id": 1},
+    )
+    assert resp.status_code == 401
