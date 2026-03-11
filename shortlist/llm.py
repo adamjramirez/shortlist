@@ -45,20 +45,21 @@ class LLMProvider(Protocol):
 
 class GeminiProvider:
     def __init__(self, api_key: str):
-        from google import genai
-        self.client = genai.Client(api_key=api_key)
+        self.api_key = api_key
 
     def call(self, prompt: str, model: str) -> str | None:
-        from google.genai import types
+        import httpx
         http._wait(_RATE_LIMIT_DOMAINS["gemini"])
-        response = self.client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                http_options=types.HttpOptions(timeout=60_000),  # 60s timeout
-            ),
-        )
-        return response.text
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        resp = httpx.post(url, json=payload, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return None
+        parts = candidates[0].get("content", {}).get("parts", [])
+        return parts[0].get("text", "") if parts else None
 
 
 class OpenAIProvider:

@@ -1,6 +1,13 @@
 """FastAPI application factory."""
 import logging
+import sys
 from contextlib import asynccontextmanager
+
+# Configure shortlist loggers to output to stdout (uvicorn overrides root logger)
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+logging.getLogger("shortlist").addHandler(_handler)
+logging.getLogger("shortlist").setLevel(logging.INFO)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,5 +60,27 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     async def health():
         return {"status": "ok"}
+
+    @app.get("/api/debug/llm-test")
+    async def llm_test():
+        """Test LLM connectivity from Fly. Remove after debugging."""
+        import asyncio, os, time, httpx
+        key = os.environ.get("GEMINI_API_KEY", "")
+        if not key:
+            return {"error": "no key"}
+
+        async def _call():
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+            payload = {"contents": [{"parts": [{"text": "Say hi"}]}]}
+            start = time.time()
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(url, json=payload)
+                elapsed = round(time.time() - start, 1)
+                if resp.status_code == 200:
+                    text = resp.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    return {"ok": True, "text": text, "time": elapsed}
+                return {"ok": False, "status": resp.status_code, "body": resp.text[:200], "time": elapsed}
+
+        return await _call()
 
     return app
