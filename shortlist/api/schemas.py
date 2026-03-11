@@ -50,6 +50,7 @@ class ProfileUpdate(BaseModel):
     preferences: dict | None = None
     llm: dict | None = None
     brief: dict | None = None
+    substack_sid: str | None = None
 
 
 class ProfileResponse(BaseModel):
@@ -59,6 +60,7 @@ class ProfileResponse(BaseModel):
     preferences: dict
     llm: dict
     brief: dict
+    substack_sid: str = ""
 
 
 # --- Resume ---

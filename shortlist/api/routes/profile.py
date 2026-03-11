@@ -33,6 +33,7 @@ EMPTY_CONFIG = {
     "preferences": {},
     "llm": {},
     "brief": {},
+    "substack_sid": "",
 }
 
 

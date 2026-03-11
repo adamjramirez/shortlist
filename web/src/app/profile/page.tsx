@@ -60,6 +60,7 @@ export default function ProfilePage() {
   const [llmModel, setLlmModel] = useState("gemini-2.5-flash");
   const [apiKey, setApiKey] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [substackSid, setSubstackSid] = useState("");
 
   const hasProfile =
     !!fitContext || tracks.length > 0 || Object.keys(profile?.tracks || {}).length > 0;
@@ -74,6 +75,7 @@ export default function ProfilePage() {
       setFilters(jsonToFilters(p.filters));
       setLlmModel(p.llm?.model || "gemini-2.5-flash");
       setHasApiKey(!!p.llm?.has_api_key);
+      setSubstackSid(p.substack_sid || "");
     });
   }, [user, authLoading]);
 
@@ -152,12 +154,15 @@ export default function ProfilePage() {
       const llm: Record<string, unknown> = { model: llmModel };
       if (apiKey) llm.api_key = apiKey;
 
-      const updated = await profileApi.update({
+      const payload: Record<string, unknown> = {
         fit_context: fitContext,
         tracks: tracksToJson(tracks),
         filters: filtersToJson(filters),
         llm,
-      });
+      };
+      if (substackSid) payload.substack_sid = substackSid;
+
+      const updated = await profileApi.update(payload);
       setProfile(updated);
       setTracks(jsonToTracks(updated.tracks));
       setFilters(jsonToFilters(updated.filters));
@@ -419,6 +424,37 @@ export default function ProfilePage() {
             subtitle="Jobs that fail these are automatically rejected before scoring."
           >
             <FiltersEditor filters={filters} onChange={markDirty(setFilters)} />
+          </SectionCard>
+
+          {/* 6. Advanced */}
+          <SectionCard
+            step={6}
+            title="Advanced"
+            subtitle="Optional settings for power users."
+          >
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                NextPlay Substack cookie{" "}
+                {substackSid && (
+                  <span className="font-normal text-green-600">✓ set</span>
+                )}
+              </label>
+              <input
+                type="password"
+                value={substackSid}
+                onChange={(e) => {
+                  setSubstackSid(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="Paste your substack.sid cookie to include paid content"
+                className={inputClass}
+              />
+              <p className="mt-1.5 text-xs text-gray-400">
+                Optional. Enables access to paid NextPlay newsletter content for
+                additional job sources. Find it in your browser cookies for
+                substack.com.
+              </p>
+            </div>
           </SectionCard>
 
           {/* Re-analyze option */}

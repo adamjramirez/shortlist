@@ -18,6 +18,7 @@ export interface Profile {
   preferences: Record<string, unknown>;
   llm: LlmConfig;
   brief: Record<string, unknown>;
+  substack_sid?: string;
 }
 
 export interface LlmConfig {
