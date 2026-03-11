@@ -90,6 +90,28 @@ async def list_runs(
     return [_run_to_response(r) for r in result.scalars().all()]
 
 
+@router.post("/{run_id}/cancel", response_model=RunResponse)
+async def cancel_run(
+    run_id: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(Run).where(Run.id == run_id, Run.user_id == user.id)
+    )
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status not in ACTIVE_STATUSES:
+        raise HTTPException(status_code=400, detail="Run is not active")
+
+    run.status = "cancelled"
+    run.finished_at = datetime.now(timezone.utc)
+    run.error = "Cancelled by user"
+    await session.flush()
+    return _run_to_response(run)
+
+
 @router.get("/{run_id}", response_model=RunResponse)
 async def get_run(
     run_id: int,

@@ -164,4 +164,6 @@ export const runs = {
   list: () => request<Run[]>("/runs"),
 
   get: (id: number) => request<Run>(`/runs/${id}`),
+
+  cancel: (id: number) => request<Run>(`/runs/${id}/cancel`, { method: "POST" }),
 };

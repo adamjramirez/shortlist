@@ -138,6 +138,35 @@ async def test_get_other_users_run(client, auth_headers, mock_worker):
 
 
 @pytest.mark.asyncio
+async def test_cancel_run(client, auth_headers, mock_worker):
+    await _setup_profile(client, auth_headers)
+    create = await client.post("/api/runs", headers=auth_headers)
+    run_id = create.json()["id"]
+
+    resp = await client.post(f"/api/runs/{run_id}/cancel", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "cancelled"
+
+    # Can start a new run after cancelling
+    resp = await client.post("/api/runs", headers=auth_headers)
+    assert resp.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_cancel_completed_run_fails(client, auth_headers, mock_worker):
+    await _setup_profile(client, auth_headers)
+    create = await client.post("/api/runs", headers=auth_headers)
+    run_id = create.json()["id"]
+
+    # Cancel it first
+    await client.post(f"/api/runs/{run_id}/cancel", headers=auth_headers)
+
+    # Can't cancel again
+    resp = await client.post(f"/api/runs/{run_id}/cancel", headers=auth_headers)
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_runs_require_auth(client):
     assert (await client.post("/api/runs")).status_code == 401
     assert (await client.get("/api/runs")).status_code == 401

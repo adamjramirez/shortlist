@@ -58,6 +58,19 @@ export default function RunButton({ onComplete }: Props) {
     }
   };
 
+  const handleCancel = async () => {
+    if (!run) return;
+    try {
+      const updated = await runsApi.cancel(run.id);
+      setRun(updated);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    } catch {
+      // If cancel fails, force-clear locally so user isn't stuck
+      setRun(null);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    }
+  };
+
   const progress = run?.progress as {
     phase?: string;
     detail?: string;
@@ -138,14 +151,22 @@ export default function RunButton({ onComplete }: Props) {
               style={{ width: `${fraction !== undefined ? fraction * 100 : 5}%` }}
             />
           </div>
-          {/* ETA */}
-          <p className="text-xs text-gray-400">
-            {etaSeconds !== undefined && etaSeconds > 0
-              ? formatEta(etaSeconds)
-              : elapsedSeconds > 0
-                ? "finishing up…"
-                : "estimating time…"}
-          </p>
+          {/* ETA + cancel */}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-400">
+              {etaSeconds !== undefined && etaSeconds > 0
+                ? formatEta(etaSeconds)
+                : elapsedSeconds > 0
+                  ? "finishing up…"
+                  : "estimating time…"}
+            </p>
+            <button
+              onClick={handleCancel}
+              className="text-xs text-gray-400 hover:text-red-500"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       ) : (
         <button
@@ -158,6 +179,11 @@ export default function RunButton({ onComplete }: Props) {
       {run?.status === "failed" && (
         <p className="mt-2 text-sm text-red-600">
           Run failed: {run.error || "Unknown error"}
+        </p>
+      )}
+      {run?.status === "cancelled" && (
+        <p className="mt-2 text-sm text-gray-500">
+          Run cancelled
         </p>
       )}
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
