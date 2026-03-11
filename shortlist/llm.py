@@ -49,10 +49,14 @@ class GeminiProvider:
         self.client = genai.Client(api_key=api_key)
 
     def call(self, prompt: str, model: str) -> str | None:
+        from google.genai import types
         http._wait(_RATE_LIMIT_DOMAINS["gemini"])
         response = self.client.models.generate_content(
             model=model,
             contents=prompt,
+            config=types.GenerateContentConfig(
+                http_options=types.HttpOptions(timeout=60_000),  # 60s timeout
+            ),
         )
         return response.text
 
@@ -60,7 +64,7 @@ class GeminiProvider:
 class OpenAIProvider:
     def __init__(self, api_key: str):
         from openai import OpenAI
-        self.client = OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key, timeout=60.0)
 
     def call(self, prompt: str, model: str) -> str | None:
         http._wait(_RATE_LIMIT_DOMAINS["openai"])
@@ -74,7 +78,7 @@ class OpenAIProvider:
 class AnthropicProvider:
     def __init__(self, api_key: str):
         from anthropic import Anthropic
-        self.client = Anthropic(api_key=api_key)
+        self.client = Anthropic(api_key=api_key, timeout=60.0)
 
     def call(self, prompt: str, model: str) -> str | None:
         http._wait(_RATE_LIMIT_DOMAINS["anthropic"])
@@ -154,9 +158,15 @@ def call_llm(prompt: str) -> str | None:
             "LLM not configured. Call llm.configure(model) before using call_llm()."
         )
     try:
-        return _provider.call(prompt, _model)
+        import time
+        start = time.monotonic()
+        result = _provider.call(prompt, _model)
+        elapsed = time.monotonic() - start
+        if elapsed > 30:
+            logger.warning(f"LLM call took {elapsed:.1f}s (slow)")
+        return result
     except Exception as e:
-        logger.error(f"LLM API error: {e}")
+        logger.error(f"LLM API error ({type(e).__name__}): {e}")
         return None
 
 

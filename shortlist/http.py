@@ -79,15 +79,22 @@ def _should_proxy(domain: str) -> bool:
     return domain in PROXY_DOMAINS and bool(_get_proxy_urls())
 
 
+_wait_lock = threading.Lock()
+
+
 def _wait(domain: str) -> None:
-    """Block until it's safe to make a request to this domain."""
-    limit = DOMAIN_LIMITS.get(domain, DEFAULT_LIMIT)
-    elapsed = time.time() - _last_request[domain]
-    if elapsed < limit:
-        sleep_time = limit - elapsed
-        logger.debug(f"Rate limit: sleeping {sleep_time:.1f}s for {domain}")
-        time.sleep(sleep_time)
-    _last_request[domain] = time.time()
+    """Block until it's safe to make a request to this domain.
+
+    Thread-safe: lock ensures only one thread checks/updates the timestamp at a time.
+    """
+    with _wait_lock:
+        limit = DOMAIN_LIMITS.get(domain, DEFAULT_LIMIT)
+        elapsed = time.time() - _last_request[domain]
+        if elapsed < limit:
+            sleep_time = limit - elapsed
+            logger.debug(f"Rate limit: sleeping {sleep_time:.1f}s for {domain}")
+            time.sleep(sleep_time)
+        _last_request[domain] = time.time()
 
 
 def _domain(url: str) -> str:

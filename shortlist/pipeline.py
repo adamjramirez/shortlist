@@ -2,6 +2,7 @@
 import json
 import logging
 import sqlite3
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -46,12 +47,18 @@ def _ensure_llm(config: Config) -> None:
         llm.configure(config.llm.model)
 
 
+class CancelledError(Exception):
+    """Raised when a pipeline run is cancelled."""
+    pass
+
+
 def run_pipeline(
     config: Config,
     project_root: Path,
     skip_collect: bool = False,
     on_progress: callable = None,
     on_jobs_ready: callable = None,
+    cancel_event: "threading.Event | None" = None,
 ) -> Path:
     """Run the full pipeline and return the brief path."""
     _ensure_llm(config)
@@ -61,6 +68,10 @@ def run_pipeline(
 
     from shortlist.collectors.linkedin import fetch_description_for_url
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _check_cancel():
+        if cancel_event and cancel_event.is_set():
+            raise CancelledError("Run cancelled by user")
 
     run_start = datetime.now().isoformat()
     errors = []
@@ -126,6 +137,7 @@ def run_pipeline(
 
     def _score_filtered():
         """Score all filtered jobs up to max_jobs limit. Returns (scored, matches)."""
+        _check_cancel()
         nonlocal llm_calls, jobs_scored_so_far
         remaining = max_jobs - jobs_scored_so_far
         if remaining <= 0:
@@ -217,6 +229,7 @@ def run_pipeline(
 
         # Process fast sources immediately (HN, NextPlay)
         for name, collector in fast_collectors.items():
+            _check_cancel()
             _emit(on_progress, f"Collecting from {name}...",
                   phase="collecting", detail=f"Searching {name}…")
             source_start = datetime.now().isoformat()
@@ -256,10 +269,13 @@ def run_pipeline(
 
         # Wait for LinkedIn background collection to finish
         if linkedin_collector:
+            _check_cancel()
             _emit(on_progress, "Waiting for LinkedIn results…",
                   phase="collecting", detail=f"Waiting for LinkedIn… ({total_matches} matches so far)",
                   matches=total_matches)
-            linkedin_done.wait()
+            # Poll with timeout so we can check for cancellation
+            while not linkedin_done.wait(timeout=2.0):
+                _check_cancel()
 
             source_start = datetime.now().isoformat()
             if linkedin_result["error"]:
@@ -308,6 +324,7 @@ def run_pipeline(
     scored_count = db.execute("SELECT COUNT(*) FROM jobs WHERE status = 'scored'").fetchone()[0]
 
     # Step 4: Enrich companies + re-score
+    _check_cancel()
     scored_jobs = db.execute(
         "SELECT * FROM jobs WHERE status = 'scored' AND enrichment IS NULL "
         "ORDER BY fit_score DESC LIMIT ?",
@@ -398,6 +415,7 @@ def run_pipeline(
     db.commit()
 
     # Step 5: Tailor resumes for top scored jobs (parallel)
+    _check_cancel()
     top_jobs = db.execute(
         "SELECT * FROM jobs WHERE status = 'scored' AND tailored_resume_path IS NULL "
         "ORDER BY fit_score DESC LIMIT ?",

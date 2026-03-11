@@ -207,6 +207,10 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
             data["elapsed_seconds"] = int(elapsed)
             progress.update(data)
 
+        # Cancel event — checked by pipeline at phase boundaries
+        import threading as _threading
+        cancel_event = _threading.Event()
+
         # Incremental save: called from sync thread after each source is scored
         loop = asyncio.get_event_loop()
         sqlite_db_ref = [None]  # mutable ref so sync callback can access it
@@ -223,12 +227,21 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
                 logger.warning(f"Incremental job copy failed: {e}")
 
         async def flush_progress():
-            """Push progress to DB every 2s while pipeline runs."""
+            """Push progress to DB every 2s. Also check if run was cancelled."""
             try:
                 while True:
                     await asyncio.sleep(2)
                     if progress:
                         await update_run(progress=dict(progress))
+                    # Check if user cancelled
+                    async with async_session() as session:
+                        result = await session.execute(
+                            select(Run.status).where(Run.id == run_id)
+                        )
+                        status = result.scalar_one_or_none()
+                        if status == "cancelled":
+                            logger.info(f"Run {run_id} cancelled by user, setting cancel event")
+                            cancel_event.set()
             except asyncio.CancelledError:
                 pass
 
@@ -244,6 +257,7 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
                         pipeline_config, project_root,
                         on_progress=on_progress,
                         on_jobs_ready=on_jobs_ready,
+                        cancel_event=cancel_event,
                     )
 
                 brief_path = await asyncio.to_thread(_run_pipeline)
@@ -279,11 +293,16 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
         )
 
     except Exception as e:
-        logger.exception(f"Run {run_id} failed")
-        await update_run(
-            status="failed",
-            finished_at=datetime.now(timezone.utc),
-            error=str(e)[:500],
-        )
+        from shortlist.pipeline import CancelledError
+        if isinstance(e, CancelledError):
+            logger.info(f"Run {run_id} cancelled")
+            # Status already set to 'cancelled' by the cancel endpoint
+        else:
+            logger.exception(f"Run {run_id} failed")
+            await update_run(
+                status="failed",
+                finished_at=datetime.now(timezone.utc),
+                error=str(e)[:500],
+            )
     finally:
         await engine.dispose()

@@ -178,7 +178,10 @@ def score_jobs_parallel(
         for future in as_completed(futures):
             row_id, job = futures[future]
             try:
-                results.append(future.result())
+                results.append(future.result(timeout=90))
+            except TimeoutError:
+                logger.error(f"Scoring timed out for job {row_id}")
+                results.append((row_id, None))
             except Exception as e:
                 logger.error(f"Scoring thread failed for job {row_id}: {e}")
                 results.append((row_id, None))
