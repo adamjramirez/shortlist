@@ -146,11 +146,17 @@ def score_job(job: RawJob, config: Config) -> ScoreResult | None:
     return parse_score_response(result)
 
 
+class ScoringCancelledError(Exception):
+    """Raised when scoring is cancelled mid-run."""
+    pass
+
+
 def score_jobs_parallel(
     jobs: list[tuple[int, RawJob]],
     config: Config,
     max_workers: int = 10,
     on_scored: callable = None,
+    cancel_event: "threading.Event | None" = None,
 ) -> list[tuple[int, ScoreResult | None]]:
     """Score multiple jobs in parallel using a thread pool.
 
@@ -159,10 +165,12 @@ def score_jobs_parallel(
         config: scoring config
         max_workers: number of concurrent LLM calls
         on_scored: optional callback(done, total) after each job is scored
+        cancel_event: if set, stop scoring and return partial results
 
     Returns:
         list of (row_id, ScoreResult | None) tuples
     """
+    import threading
     results: list[tuple[int, ScoreResult | None]] = []
 
     if not jobs:
@@ -170,12 +178,19 @@ def score_jobs_parallel(
 
     def _score_one(item: tuple[int, RawJob]) -> tuple[int, ScoreResult | None]:
         row_id, job = item
+        if cancel_event and cancel_event.is_set():
+            return row_id, None
         result = score_job(job, config)
         return row_id, result
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_score_one, item): item for item in jobs}
         for future in as_completed(futures):
+            if cancel_event and cancel_event.is_set():
+                # Cancel remaining futures and return what we have
+                for f in futures:
+                    f.cancel()
+                break
             row_id, job = futures[future]
             try:
                 results.append(future.result(timeout=90))

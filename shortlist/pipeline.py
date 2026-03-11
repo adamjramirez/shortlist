@@ -162,7 +162,8 @@ def run_pipeline(
                   scored=jobs_scored_so_far + done,
                   total=jobs_scored_so_far + total)
 
-        score_results = score_jobs_parallel(score_inputs, config, max_workers=10, on_scored=_on_scored)
+        score_results = score_jobs_parallel(score_inputs, config, max_workers=10, on_scored=_on_scored, cancel_event=cancel_event)
+        _check_cancel()
 
         matches = 0
         for row_id, score_result in score_results:
@@ -215,14 +216,18 @@ def run_pipeline(
                 linkedin_done.set()
                 return
             try:
-                _emit(on_progress, "Collecting from linkedin (background)…",
-                      phase="collecting", detail=f"Searching linkedin…")
+                logger.info("Collecting from linkedin (background)…")
                 jobs = linkedin_collector.fetch_new()
                 linkedin_result["jobs"] = jobs
             except Exception as e:
                 linkedin_result["error"] = str(e)
             finally:
                 linkedin_done.set()
+
+        # Emit initial status BEFORE starting LinkedIn thread
+        fast_names = list(fast_collectors.keys())
+        _emit(on_progress, f"Starting search…",
+              phase="collecting", detail=f"Searching {', '.join(fast_names)}…")
 
         linkedin_thread = threading.Thread(target=_collect_linkedin, daemon=True)
         linkedin_thread.start()
