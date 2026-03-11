@@ -82,7 +82,17 @@ preferences:
   travel: minimal                   # none, minimal, moderate, heavy
   series_a_fresh_funding: yellow_flag
 
-# LLM settings
+# LLM settings — supports Gemini, OpenAI, and Anthropic
+# Set the matching API key in .env (GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY)
+# For non-Gemini providers: pip install -e ".[openai]" or ".[anthropic]"
+#
+# Model options (estimated cost per run with ~500 jobs):
+#   gemini-2.5-flash          ~$0.25/run  — cheap, good quality, recommended for daily use
+#   gpt-4o-mini               ~$0.25/run  — cheap, good quality
+#   claude-3-5-haiku-20241022 ~$1.30/run  — mid-range, better nuance
+#   gemini-2.5-pro            ~$2.65/run  — premium Gemini
+#   gpt-4o                    ~$3.75/run  — premium OpenAI
+#   claude-sonnet-4-20250514  ~$5.00/run  — best scoring quality
 llm:
   model: gemini-2.5-flash
   max_jobs_per_run: 500             # cap per pipeline run
