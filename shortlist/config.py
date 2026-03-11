@@ -114,3 +114,89 @@ def load_config(path: Path) -> Config:
         llm=_build_dataclass(LLMConfig, raw.get("llm")),
         brief=_build_dataclass(BriefConfig, raw.get("brief")),
     )
+
+
+class ConfigError(Exception):
+    """Raised when config validation fails. Message is user-friendly."""
+    pass
+
+
+def validate_config(config: Config, project_root: Path) -> list[str]:
+    """Validate config and return list of error messages. Empty = valid."""
+    errors = []
+
+    if not config.name or config.name == "Your Name":
+        errors.append("Set your name in config/profile.yaml (currently 'Your Name')")
+
+    if not config.fit_context or "Describe what" in config.fit_context:
+        errors.append(
+            "Write a fit_context in config/profile.yaml — describe what roles you're "
+            "looking for, your background, and what should score high vs. low"
+        )
+
+    if not config.tracks:
+        errors.append(
+            "Add at least one track to config/profile.yaml (e.g., 'em' with title, "
+            "resume path, and search_queries)"
+        )
+
+    for key, track in config.tracks.items():
+        if not track.title:
+            errors.append(f"Track '{key}': missing title")
+
+        paths = track.get_resume_paths()
+        if not paths:
+            errors.append(
+                f"Track '{key}': no resume configured. Add 'resume: resumes/your_resume.tex' "
+                f"to the track in config/profile.yaml"
+            )
+        for p in paths:
+            full = project_root / p
+            if not full.exists():
+                errors.append(
+                    f"Track '{key}': resume not found at {p} — "
+                    f"put your LaTeX resume at {full}"
+                )
+
+        if not track.search_queries:
+            errors.append(
+                f"Track '{key}': no search_queries. Add keywords like "
+                f"'Engineering Manager' for LinkedIn searches"
+            )
+
+    return errors
+
+
+def validate_env(project_root: Path) -> list[str]:
+    """Validate .env file and return list of error messages."""
+    import os
+    from dotenv import load_dotenv
+
+    env_path = project_root / ".env"
+    errors = []
+
+    if not env_path.exists():
+        errors.append(
+            "Missing .env file. Create one with:\n"
+            "  GEMINI_API_KEY=your-key-here\n"
+            "Get a key at https://aistudio.google.com/ → Get API key"
+        )
+        return errors
+
+    load_dotenv(env_path)
+    key = os.environ.get("GEMINI_API_KEY", "")
+
+    if not key or key == "your-key-here":
+        errors.append(
+            "GEMINI_API_KEY not set in .env. Get a key at:\n"
+            "  https://aistudio.google.com/ → Get API key → Create API key\n"
+            "Then add to .env: GEMINI_API_KEY=AIzaSy...your-key"
+        )
+    elif not key.startswith("AIza"):
+        errors.append(
+            f"GEMINI_API_KEY looks wrong (starts with '{key[:4]}...'). "
+            f"Google API keys usually start with 'AIza'. "
+            f"Check your .env file."
+        )
+
+    return errors

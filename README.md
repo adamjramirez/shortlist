@@ -1,187 +1,276 @@
 # Shortlist
 
-Personal job search automation. Collects jobs overnight from multiple sources, filters and scores them against your criteria using an LLM, tailors your resume for top matches, and produces a daily markdown briefing.
+Personal job search automation. Runs overnight, collects jobs from multiple sources, scores them against your criteria with an LLM, tailors your resume for top matches, and produces a daily markdown briefing.
 
-## What it does
+---
 
-```
-Collect → Dedup → Filter → Score → Enrich → Tailor → Brief
-```
+## Setup (10 minutes)
 
-1. **Collects** from HN Who's Hiring, LinkedIn (no auth needed), Substack newsletters, and company career pages (Greenhouse, Lever, Ashby — auto-detected)
-2. **Filters** by location, salary, and role type — very permissive, only rejects clear mismatches
-3. **Scores 0-100** with Gemini against your profile — reads the full JD, returns reasoning and flags
-4. **Enriches** top companies — stage, headcount, Glassdoor, growth signals
-5. **Tailors your resume** for each top match — reorders bullets, adjusts emphasis (never invents facts)
-6. **Generates a markdown brief** — ranked matches with scores, company intel, apply links, and tailored resume drafts
-
-Scoring and resume tailoring run in parallel (10 workers). A full run of ~1000 jobs takes about 15 minutes.
-
-## Quick start
+### Step 1: Install
 
 ```bash
-# Install
-git clone https://github.com/youruser/shortlist.git
+git clone https://github.com/adamjramirez/shortlist.git
 cd shortlist
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -e .
-
-# Set up
-shortlist init
-
-# Edit your config
-$EDITOR config/profile.yaml   # your search criteria, role tracks, location
-$EDITOR .env                   # add your Gemini API key
-
-# Add your resume(s) to resumes/ (LaTeX format)
-
-# Run
-shortlist run
 ```
 
-## Requirements
+Requires **Python 3.12 or later**. Check with `python --version`.
 
-- **Python 3.12+**
-- **Gemini API key** (free to start)
-- **Your resume in LaTeX** — one or more `.tex` files. You can have multiple variants for different role types (the LLM picks the best one per job).
+### Step 2: Initialize
 
-No Docker, no database server, no infrastructure. It's SQLite and a CLI.
+```bash
+shortlist init
+```
 
-### Getting a Gemini API key
+This creates:
+- `config/profile.yaml` — your search configuration (edit this next)
+- `.env` — where your API key goes
+- `resumes/` — where your resume files go
+- `briefs/` — where daily briefs get written
+- `.gitignore` — keeps secrets and personal files out of git
+
+### Step 3: Get a Gemini API key
 
 1. Go to [aistudio.google.com](https://aistudio.google.com/)
-2. Sign in with your Google account
+2. Sign in with any Google account
 3. Click **"Get API key"** in the left sidebar
-4. Click **"Create API key"** → select any Google Cloud project (or create one — it's free)
-5. Copy the key and paste it into your `.env` file:
-   ```
-   GEMINI_API_KEY=AIzaSy...your-key-here
-   ```
+4. Click **"Create API key"** — select or create a Google Cloud project (free)
+5. Copy the key
 
-The free tier gives you 15 requests/minute on Flash, which is enough for small test runs. For a full run (~1000 jobs), you'll hit the free tier limits — upgrade to pay-as-you-go in Google AI Studio settings. A full run costs roughly $2-3.
+Open `.env` and replace the placeholder:
 
-## Configuration
-
-After `shortlist init`, edit `config/profile.yaml`:
-
-```yaml
-name: Your Name
-
-fit_context: |
-  Describe what you're looking for. Be specific.
-  What's your background? What kind of companies?
-  What should score high vs. low?
-
-tracks:
-  em:
-    title: Engineering Manager
-    resume: resumes/em.tex
-    target_orgs: large
-    min_reports: 10
-    search_queries:
-      - "Engineering Manager"
-      - "Director of Engineering"
-
-filters:
-  location:
-    remote: true
-    local_zip: "10001"
-    local_cities:
-      - new york
-      - brooklyn
-  salary:
-    min_base: 200000
-  role_type:
-    reject_explicit_ic: true
+```
+GEMINI_API_KEY=AIzaSy...paste-your-key-here
 ```
 
-The `fit_context` field is the most important — it's sent directly to the LLM scorer. Write it like you'd brief a recruiter: what roles fit, what doesn't, what signals matter.
+**No quotes, no spaces around the `=`.** Just the key.
 
-The `search_queries` under each track become LinkedIn searches. More specific = better results.
+The free tier gives 15 requests/minute, enough for small test runs. For a full run (~500+ jobs), upgrade to pay-as-you-go in Google AI Studio. Costs roughly **$2-3 per run**.
+
+### Step 4: Add your resume
+
+Put your resume in `resumes/` as a LaTeX `.tex` file.
+
+```
+resumes/my_resume.tex
+```
+
+If you have multiple resume variants for different role types (e.g., one for management, one for technical leadership), add them all. Shortlist will pick the best one per job.
+
+**LaTeX format is required.** The tailoring engine modifies `.tex` source to reorder bullets and adjust emphasis. If you don't have a LaTeX resume, you can still use shortlist — the scoring and brief will work, but resume tailoring won't.
+
+### Step 5: Configure your search
+
+Open `config/profile.yaml` and edit it. Here's what each section does:
+
+```yaml
+name: Your Name                    # Used in scoring prompts
+
+fit_context: |                     # MOST IMPORTANT FIELD
+  Describe yourself in 5-15 lines. # This is sent directly to the LLM.
+  What roles fit you?              # Be specific — it determines scoring quality.
+  What's your background?          
+  What should score high vs low?   
+```
+
+**`fit_context` is the single most important thing to get right.** Write it like you'd brief a recruiter who knows nothing about you. Include:
+- Your level and target roles
+- Your background (what industries, what size companies)
+- What signals should score HIGH (e.g., "Series B fintech", "AI infrastructure")
+- What signals should score LOW (e.g., "pure research", "pre-product startups")
+
+```yaml
+tracks:                            # Role types you're targeting
+  em:                              
+    title: Engineering Manager     # Human-readable label
+    resume: resumes/my_resume.tex  # Path to resume for this track
+    target_orgs: any               # any, large, series_b_plus
+    min_reports: 5                 # Ideal team size
+    search_queries:                # Keywords for LinkedIn searches
+      - "Engineering Manager"      
+      - "Head of Engineering"      
+```
+
+Each track generates LinkedIn searches from its `search_queries`. More specific queries = better results. If you're targeting multiple role types (e.g., EM and VP), create a track for each.
+
+**Multiple resumes per track:** If you have variants (e.g., enterprise vs. growth VP resume), use `resumes:` (plural) instead of `resume:`:
+
+```yaml
+  vp:
+    title: VP Engineering
+    resumes:
+      - resumes/vp_enterprise.tex
+      - resumes/vp_growth.tex
+    search_queries:
+      - "VP Engineering"
+```
+
+The LLM will read each job description and pick the best resume variant.
+
+```yaml
+filters:
+  location:
+    remote: true                   # Accept remote roles
+    local_zip: "10001"             # Your zip code (used in scoring)
+    local_cities:                  # Cities you'd commute to (lowercase)
+      - new york
+      - brooklyn
+
+  salary:
+    min_base: 200000               # Only reject if EXPLICITLY below this
+
+  role_type:
+    reject_explicit_ic: true       # Reject "individual contributor" roles
+```
+
+**Filters are very permissive by design.** Salary only rejects jobs that explicitly list a number below your minimum — if no salary is listed, the job passes through to scoring. Same for location: if it's ambiguous, it passes.
 
 See `config/example-profile.yaml` for a fully commented template.
 
-## Commands
+### Step 6: Run it
 
 ```bash
-shortlist run                  # Full pipeline: collect → score → tailor → brief
-shortlist run --no-collect     # Skip collection, process existing jobs only
-shortlist collect              # Just collect from all sources
-shortlist brief                # Just regenerate today's brief
-shortlist today                # Print today's brief to stdout
-shortlist status "Acme" applied   # Track your application status
-shortlist health               # Check source health
-shortlist init                 # Set up a new project
+shortlist run
 ```
 
-## Output
+You'll see progress as it runs:
 
-### Daily brief (`briefs/YYYY-MM-DD.md`)
+```
+Running full pipeline...
+Collecting from hn...
+  → hn: 380 jobs
+Collecting from linkedin...
+  → linkedin: 95 jobs
+Collecting from nextplay...
+  → nextplay: 42 jobs
+Collection done: 517 jobs total
+Filtering jobs...
+  → 410 passed, 107 filtered out
+Scoring 410 jobs (parallel, 10 workers)...
+  → 28 jobs scored ≥60
+Enriching 15 companies...
+Tailoring resumes for 15 top matches (parallel, 10 workers)...
+  → 14 resumes tailored
+Generating brief...
+  → briefs/2026-03-10.md
 
-Each job in the brief includes:
-- **Score and reasoning** — why it fits (or doesn't)
+✅ Brief generated: briefs/2026-03-10.md
+   Run 'shortlist today' to read it.
+```
+
+First run takes 10-20 minutes depending on how many jobs are found. Subsequent runs are faster because already-seen jobs are skipped.
+
+---
+
+## Daily usage
+
+```bash
+shortlist run                      # Full run: collect new jobs + process + brief
+shortlist run --no-collect         # Re-process existing jobs without fetching new ones
+shortlist today                    # Print today's brief to terminal
+shortlist brief                    # Regenerate the brief without re-scoring
+shortlist status "Acme" applied    # Track your application status
+shortlist health                   # Check if sources are working
+```
+
+### Reading the brief
+
+The brief is a markdown file at `briefs/YYYY-MM-DD.md`. Open it in any markdown viewer, VS Code, or just read it in the terminal.
+
+Each job entry includes:
+- **Score (0-100) and reasoning** — why it's a match
 - **Company intel** — stage, headcount, Glassdoor rating, growth signals
-- **Apply link** — with alternate links if the same job was found on multiple sources
-- **Tailored resume** — link to the customized `.tex` file
-- **"Why I'm interested" note** — 3 sentences you can use in a cover letter
+- **Apply link** — with alternate links if found on multiple sources
+- **Tailored resume** — link to customized `.tex` file in `resumes/drafts/`
+- **"Why I'm interested" note** — 3 sentences for a cover letter
 
-Markers:
-- 🆕 New today
-- 👁️ Seen before
-- ⏰ Stale (>7 days)
-- 🔍 Recruiter listing (real job, but company name is hidden — ask "who's the company?" when applying)
+**Markers tell you what's new:**
+- 🆕 First time in the brief
+- 👁️ Seen in a previous brief
+- ⏰ Stale — been in the brief for 7+ days with no action
+- 🔍 Recruiter listing — real job, but company name is hidden. Ask "who's the company?" when applying.
 
-### Tailored resumes (`resumes/drafts/`)
+### Tailored resumes
 
-For each top match, shortlist generates:
-- `YYYY-MM-DD-company-track.tex` — your resume with bullets reordered and summary adjusted for the JD
+For each top match, shortlist generates two files in `resumes/drafts/`:
+- `YYYY-MM-DD-company-track.tex` — your resume with bullets reordered for the specific JD
 - `YYYY-MM-DD-company-track.note.md` — "why I'm interested" + list of changes made
 
-The tailoring is surgical — it reorders existing bullets and adjusts emphasis. It never invents experience or metrics.
+**The tailoring is surgical** — it reorders existing bullets and adjusts your summary. It never invents experience or fabricates metrics. Always review before sending.
+
+---
 
 ## How it works
 
 ### Sources
 
-| Source | What it gets | How |
-|--------|-------------|-----|
-| HN Who's Hiring | Monthly thread, all postings | Algolia API |
-| LinkedIn | Keyword searches per track | Guest API (no auth) |
-| NextPlay Substack | Career page links from articles | RSS + HTML parsing |
-| Career pages | Full job boards from companies | Greenhouse/Lever/Ashby JSON APIs |
+| Source | What | How |
+|--------|------|-----|
+| **HN Who's Hiring** | Monthly thread, all postings | Algolia API |
+| **LinkedIn** | Keyword searches from your config | Guest API (no login needed) |
+| **NextPlay Substack** | Career page links from newsletter | RSS + HTML parsing |
+| **Career pages** | Full company job boards | Greenhouse, Lever, Ashby APIs |
 
-Career pages are discovered automatically: when a company scores well, shortlist probes their website for an ATS board and pulls all their listings.
+Career pages are discovered automatically. When a company scores well, shortlist visits their website, finds their ATS (applicant tracking system), and pulls all their open roles.
 
 ### Scoring
 
-Each job gets a Gemini prompt with your full profile (`fit_context`, tracks, requirements) and the complete job description. The LLM returns:
-- `fit_score` (0-100)
-- `matched_track` (which of your role tracks it fits)
-- `reasoning` (2-3 sentences)
-- `yellow_flags` (concerns)
-- `salary_estimate` and `salary_confidence`
+For each job, Gemini gets:
+- Your full profile (`fit_context`, tracks, requirements)
+- The complete job description
 
-After scoring, top companies get enriched (stage, headcount, Glassdoor), which can adjust the score ±20.
+It returns a score (0-100), matched track, reasoning, yellow flags, and salary estimate.
+
+After scoring, top companies get enriched with additional intel (funding stage, headcount, Glassdoor), which can adjust the score ±20 points.
 
 ### Rate limiting
 
-All HTTP goes through a centralized rate-limited client. Per-domain throttling:
-- Gemini: 0.5s between calls
-- LinkedIn, Greenhouse, Lever, Ashby: 2s between calls
-- HN Algolia: 1s between calls
+All HTTP requests go through a centralized rate-limited client. You won't get blocked or rate-limited from any source. Per-domain throttling is built in.
 
-You won't get rate-limited or blocked.
+---
+
+## Troubleshooting
+
+### "❌ Fix these issues before running"
+
+Shortlist validates your config before starting. Read the error messages — they tell you exactly what's wrong and how to fix it.
+
+### "GEMINI_API_KEY not set"
+
+Check your `.env` file:
+- No quotes around the key
+- No spaces around `=`
+- Key starts with `AIza`
+
+### No jobs found
+
+- Check `shortlist health` — are sources returning errors?
+- Your `search_queries` might be too specific. Try broader terms.
+- LinkedIn guest API occasionally returns empty results. Run again later.
+
+### Low scores across the board
+
+Your `fit_context` might be too vague. Be specific about what you want — the LLM can only score well if it understands your priorities.
+
+### Resume tailoring fails
+
+- Resume must be LaTeX (`.tex`) format
+- Check the file path in `config/profile.yaml` matches the actual file in `resumes/`
+
+---
 
 ## Cost
 
-Gemini API only. Roughly **$2-3 per full run** on Flash pricing (~1000 jobs scored + 50 enriched + 30 resumes tailored). Free tier may work for smaller runs.
+Gemini API only. Roughly **$2-3 per full run** (~500 jobs scored + 30 enriched + 15 resumes tailored). The free Gemini tier works for test runs but you'll hit rate limits on a full run.
 
 ## Limitations
 
-- **No Google Jobs** — would need SerpAPI or similar
-- **No JS-rendered career pages** — companies using Workday or custom platforms (Atlassian, Shopify, GitLab) aren't auto-discovered. Their LinkedIn listings still get collected.
-- **LinkedIn guest API is fragile** — unauthenticated, limited to ~25 results per search, may break without notice
-- **LaTeX resumes only** — the tailoring assumes `.tex` format
+- **LaTeX resumes only** — tailoring requires `.tex` format
+- **No Google Jobs** — would need a paid API (SerpAPI etc.)
+- **No JS-rendered career pages** — companies using Workday or custom platforms (Atlassian, Shopify) aren't auto-discovered. Their LinkedIn listings still get collected.
+- **LinkedIn guest API is fragile** — unauthenticated, may break without notice
 
 ## License
 

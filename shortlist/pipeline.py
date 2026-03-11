@@ -24,6 +24,13 @@ from shortlist.brief import generate_brief
 logger = logging.getLogger(__name__)
 
 
+def _progress(msg: str):
+    """Print progress to stderr so user sees it. Also log."""
+    import sys
+    print(msg, file=sys.stderr, flush=True)
+    logger.info(msg)
+
+
 def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False) -> Path:
     """Run the full pipeline and return the brief path."""
     db_path = project_root / "jobs.db"
@@ -39,22 +46,27 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
     if not skip_collect:
         collectors = _get_collectors(config=config, db=db)
         for name, collector in collectors.items():
+            _progress(f"Collecting from {name}...")
             source_start = datetime.now().isoformat()
             try:
                 jobs = collector.fetch_new()
                 for job in jobs:
                     upsert_job(db, job)
                 jobs_collected += len(jobs)
+                _progress(f"  → {name}: {len(jobs)} jobs")
 
                 _log_source_run(db, name, source_start, "success", len(jobs))
             except Exception as e:
                 error_msg = f"{name}: {str(e)}"
                 errors.append(error_msg)
+                _progress(f"  → {name}: failed ({e})")
                 _log_source_run(db, name, source_start, "failure", 0, str(e))
+        _progress(f"Collection done: {jobs_collected} jobs total")
     else:
-        logger.info("Skipping collection (--no-collect)")
+        _progress("Skipping collection (--no-collect)")
 
     # Step 2: Filter new jobs
+    _progress("Filtering jobs...")
     new_jobs = db.execute("SELECT * FROM jobs WHERE status = 'new'").fetchall()
     for row in new_jobs:
         job = _row_to_raw_job(row)
@@ -70,6 +82,8 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
             )
             jobs_filtered += 1
     db.commit()
+    passed = len(new_jobs) - jobs_filtered
+    _progress(f"  → {passed} passed, {jobs_filtered} filtered out")
 
     # Step 3: Score filtered jobs (parallel)
     llm_calls = 0
@@ -80,6 +94,8 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
     ).fetchall()
 
     score_inputs = [(row["id"], _row_to_raw_job(row)) for row in filtered_jobs]
+    if score_inputs:
+        _progress(f"Scoring {len(score_inputs)} jobs (parallel, 10 workers)...")
     score_results = score_jobs_parallel(score_inputs, config, max_workers=10)
 
     for row_id, score_result in score_results:
@@ -101,12 +117,19 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
             logger.warning(f"Failed to score job {row_id}")
     db.commit()
 
+    scored_count = db.execute("SELECT COUNT(*) FROM jobs WHERE status = 'scored'").fetchone()[0]
+    if score_inputs:
+        _progress(f"  → {scored_count} jobs scored ≥60")
+
     # Step 4: Enrich companies + re-score
     scored_jobs = db.execute(
         "SELECT * FROM jobs WHERE status = 'scored' AND enrichment IS NULL "
         "ORDER BY fit_score DESC LIMIT ?",
         (config.brief.top_n,),
     ).fetchall()
+
+    if scored_jobs:
+        _progress(f"Enriching {len(scored_jobs)} companies...")
 
     for row in scored_jobs:
         company = row["company"]
@@ -148,11 +171,13 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
     db.commit()
 
     # Step 4b: Discover career pages for enriched companies
-    # Find companies with a website_domain but no ATS/career_page stored yet
     companies_to_probe = db.execute(
         "SELECT id, name, domain FROM companies "
         "WHERE domain IS NOT NULL AND ats_platform IS NULL AND domain != ''"
     ).fetchall()
+
+    if companies_to_probe:
+        _progress(f"Discovering career pages for {len(companies_to_probe)} companies...")
 
     for company_row in companies_to_probe:
         domain = company_row["domain"]
@@ -203,10 +228,12 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
     ]
 
     if tailor_inputs:
+        _progress(f"Tailoring resumes for {len(tailor_inputs)} top matches (parallel, 10 workers)...")
         results = tailor_jobs_parallel(
             tailor_inputs, config, project_root, drafts_dir, today,
             max_workers=10,
         )
+        tailored_count = 0
         for job_id, tailored, output_path in results:
             if tailored and output_path:
                 db.execute(
@@ -214,12 +241,16 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
                     (str(output_path), job_id),
                 )
                 llm_calls += 2  # select + tailor
+                tailored_count += 1
+        _progress(f"  → {tailored_count} resumes tailored")
 
     db.commit()
 
-    # Step 5: Generate brief
+    # Step 6: Generate brief
+    _progress("Generating brief...")
     briefs_dir = project_root / config.brief.output_dir
     brief_path = generate_brief(db, briefs_dir)
+    _progress(f"  → {brief_path}")
 
     # Log run
     db.execute(
