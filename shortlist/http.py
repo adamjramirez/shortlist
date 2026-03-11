@@ -2,8 +2,10 @@
 
 All external requests go through this module. No exceptions.
 Rate limiting is automatic based on the request domain.
+LinkedIn requests are routed through a proxy when PROXY_URL is set.
 """
 import logging
+import os
 import time
 from collections import defaultdict
 from urllib.parse import urlparse
@@ -17,7 +19,7 @@ DOMAIN_LIMITS: dict[str, float] = {
     "jobs.ashbyhq.com": 2.0,
     "boards-api.greenhouse.io": 2.0,
     "api.lever.co": 2.0,
-    "www.linkedin.com": 2.0,
+    "www.linkedin.com": 1.0,
     "hn.algolia.com": 1.0,
     "nextplayso.substack.com": 2.0,
     "generativelanguage.googleapis.com": 0.5,  # Gemini Flash handles rapid fire
@@ -35,7 +37,41 @@ DEFAULT_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
+# Domains that should be routed through the proxy when available
+PROXY_DOMAINS = {"www.linkedin.com"}
+
 _last_request: dict[str, float] = defaultdict(float)
+
+
+def _get_proxy_urls() -> list[str]:
+    """Get proxy URLs from environment. Supports rotating through multiple ports."""
+    base = os.environ.get("PROXY_URL")
+    if not base:
+        return []
+
+    extra = os.environ.get("PROXY_URLS")  # comma-separated additional URLs
+    if extra:
+        return [base] + [u.strip() for u in extra.split(",") if u.strip()]
+    return [base]
+
+
+_proxy_index = 0
+
+
+def _next_proxy() -> str | None:
+    """Round-robin through available proxy URLs."""
+    global _proxy_index
+    urls = _get_proxy_urls()
+    if not urls:
+        return None
+    url = urls[_proxy_index % len(urls)]
+    _proxy_index += 1
+    return url
+
+
+def _should_proxy(domain: str) -> bool:
+    """Check if this domain should use the proxy."""
+    return domain in PROXY_DOMAINS and bool(_get_proxy_urls())
 
 
 def _wait(domain: str) -> None:
@@ -56,10 +92,24 @@ def _domain(url: str) -> str:
 def get(url: str, *, params: dict | None = None, headers: dict | None = None,
         cookies: dict | None = None, timeout: int = DEFAULT_TIMEOUT,
         follow_redirects: bool = True) -> httpx.Response:
-    """Rate-limited GET request."""
-    _wait(_domain(url))
+    """Rate-limited GET request. Routes through proxy for LinkedIn."""
+    domain = _domain(url)
+    _wait(domain)
+    merged_headers = {**DEFAULT_HEADERS, **(headers or {})}
+
+    proxy_url = _next_proxy() if _should_proxy(domain) else None
+    if proxy_url:
+        with httpx.Client(proxy=proxy_url, timeout=timeout,
+                          follow_redirects=follow_redirects) as client:
+            resp = client.get(url, params=params, headers=merged_headers,
+                              cookies=cookies)
+            if resp.status_code == 200:
+                return resp
+            # Proxy failed — fall back to direct
+            logger.warning(f"Proxy returned {resp.status_code} for {domain}, falling back to direct")
+
     return httpx.get(
-        url, params=params, headers={**DEFAULT_HEADERS, **(headers or {})},
+        url, params=params, headers=merged_headers,
         cookies=cookies, timeout=timeout, follow_redirects=follow_redirects,
     )
 
