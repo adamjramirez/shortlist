@@ -72,6 +72,7 @@ filters:
 
   salary:
     min_base: 200000                # only reject if explicitly listed below this
+    currency: USD                   # currency of your min_base (USD, GBP, EUR, INR, etc.)
 
   role_type:
     reject_explicit_ic: true        # reject roles that say "individual contributor"

@@ -216,6 +216,25 @@ def _is_local_area(location: str, local_cities: set[str]) -> bool:
     return False
 
 
+def _min_base_to_usd(config: Config) -> int:
+    """Convert the user's min_base to USD using approximate rates."""
+    min_base = config.filters.salary.min_base
+    currency = config.filters.salary.currency.upper()
+    if currency == "USD":
+        return min_base
+
+    # Map currency codes to the same rates used for job salary parsing
+    _CODE_TO_RATE = {
+        "USD": 1.0, "GBP": 1.25, "EUR": 1.10, "JPY": 0.0067,
+        "INR": 0.012, "ILS": 0.28, "SEK": 0.095, "NOK": 0.095,
+        "DKK": 0.095, "CHF": 1.15, "BRL": 0.18, "AUD": 0.65,
+        "CAD": 0.73, "SGD": 0.75, "NZD": 0.60, "HKD": 0.13,
+        "PLN": 0.25, "CZK": 0.044, "MXN": 0.058,
+    }
+    rate = _CODE_TO_RATE.get(currency, 1.0)
+    return int(min_base * rate)
+
+
 def _check_salary(job: RawJob, config: Config) -> FilterResult:
     """Reject only if salary is explicitly listed AND max < min_base."""
     if not job.salary_text:
@@ -225,15 +244,17 @@ def _check_salary(job: RawJob, config: Config) -> FilterResult:
     if min_base <= 0:
         return FilterResult(passed=True)
 
-    max_salary = _parse_max_salary(job.salary_text)
-    if max_salary is None:
+    max_salary_usd = _parse_max_salary(job.salary_text)
+    if max_salary_usd is None:
         # Couldn't parse — benefit of the doubt
         return FilterResult(passed=True)
 
-    if max_salary < min_base:
+    min_base_usd = _min_base_to_usd(config)
+
+    if max_salary_usd < min_base_usd:
         return FilterResult(
             passed=False,
-            reason=f"Salary: {job.salary_text} (max ${max_salary:,} < ${min_base:,} minimum)",
+            reason=f"Salary: {job.salary_text} (≈${max_salary_usd:,} USD < ≈${min_base_usd:,} USD minimum)",
         )
 
     return FilterResult(passed=True)
