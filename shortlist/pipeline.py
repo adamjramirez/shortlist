@@ -235,8 +235,7 @@ def run_pipeline(
         # Process fast sources immediately (HN, NextPlay)
         for name, collector in fast_collectors.items():
             _check_cancel()
-            _emit(on_progress, f"Collecting from {name}...",
-                  phase="collecting", detail=f"Searching {name}…")
+            logger.info(f"Collecting from {name}...")
             source_start = datetime.now().isoformat()
             try:
                 jobs = collector.fetch_new()
