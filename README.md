@@ -33,13 +33,28 @@ This creates:
 
 ### Step 3: Get an API key
 
-Shortlist supports **Gemini** (default), **OpenAI**, and **Anthropic**. Pick one:
+Shortlist supports **Gemini** (default), **OpenAI**, and **Anthropic**. Pick a model based on your budget:
 
-| Provider | Models | Get a key |
-|----------|--------|-----------|
-| **Gemini** (default) | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com/) → Get API key |
-| **OpenAI** | `gpt-4o`, `gpt-4o-mini` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
-| **Anthropic** | `claude-sonnet-4-20250514` | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
+| Model | Provider | Est. cost/run | Quality | Best for |
+|-------|----------|--------------|---------|----------|
+| `gemini-2.5-flash` ⭐ | Gemini | **~$0.25** | Good | Daily runs, budget-friendly |
+| `gpt-4o-mini` | OpenAI | **~$0.25** | Good | Already have an OpenAI key |
+| `claude-3-5-haiku-20241022` | Anthropic | **~$1.30** | Better | Balance of cost and quality |
+| `gemini-2.5-pro` | Gemini | **~$2.65** | Great | Better scoring, occasional use |
+| `gpt-4o` | OpenAI | **~$3.75** | Great | Best OpenAI quality |
+| `claude-sonnet-4-20250514` | Anthropic | **~$5.00** | Best | Best scoring quality |
+
+*Estimates based on a typical run: ~500 jobs scored, 30 companies enriched, 15 resumes tailored (~1M tokens total).*
+
+**Our recommendation:** Start with `gemini-2.5-flash` or `gpt-4o-mini` — they're cheap enough to run daily. If you want better scoring nuance (especially for ambiguous roles), upgrade to `gemini-2.5-pro` or `claude-sonnet-4-20250514`.
+
+Get your API key:
+
+| Provider | Get a key |
+|----------|-----------|
+| **Gemini** | [aistudio.google.com](https://aistudio.google.com/) → Get API key |
+| **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| **Anthropic** | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
 
 Open `.env` and set the key for your chosen provider:
 
@@ -54,12 +69,12 @@ Then set the model in `config/profile.yaml`:
 
 ```yaml
 llm:
-  model: gemini-2.5-flash    # or gpt-4o, claude-sonnet-4-20250514, etc.
+  model: gemini-2.5-flash    # see table above for options
 ```
 
 **No quotes, no spaces around the `=` in `.env`.** Just the key.
 
-The Gemini free tier gives 15 requests/minute, enough for small test runs. For a full run (~500+ jobs), upgrade to pay-as-you-go. Costs roughly **$2-3 per run** on Gemini, more on OpenAI/Anthropic.
+Gemini has a free tier (15 requests/minute) — enough for test runs but you'll hit rate limits on a full run.
 
 **Install the provider library** for non-Gemini providers:
 
@@ -289,7 +304,7 @@ That's it. The pipeline handles deduplication (via description hashing), filteri
 
 ### Scoring
 
-For each job, Gemini gets:
+For each job, your configured LLM gets:
 - Your full profile (`fit_context`, tracks, requirements)
 - The complete job description
 
@@ -336,7 +351,7 @@ Your `fit_context` might be too vague. Be specific about what you want — the L
 
 ## Cost
 
-LLM API only. Roughly **$2-3 per full run** on Gemini (~500 jobs scored + 30 enriched + 15 resumes tailored). OpenAI and Anthropic are more expensive — expect $5-10 per run with GPT-4o or Claude Sonnet. The free Gemini tier works for test runs but you'll hit rate limits on a full run.
+LLM API only. A typical run processes ~500 jobs scored + 30 enriched + 15 resumes tailored (~1M tokens). Costs range from **$0.25/run** (Gemini Flash, GPT-4o-mini) to **$5/run** (Claude Sonnet). See the [model table](#step-3-get-an-api-key) for per-model estimates. The free Gemini tier works for test runs but you'll hit rate limits on a full run.
 
 ## Limitations
 
