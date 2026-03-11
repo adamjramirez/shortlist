@@ -49,6 +49,22 @@ GEMINI_API_KEY=AIzaSy...paste-your-key-here
 
 The free tier gives 15 requests/minute, enough for small test runs. For a full run (~500+ jobs), upgrade to pay-as-you-go in Google AI Studio. Costs roughly **$2-3 per run**.
 
+### Step 3b (optional): NextPlay paid articles
+
+One of the job sources ([NextPlay](https://nextplay.substack.com/)) is a Substack newsletter. Free articles are collected automatically. Some paid articles also contain job listings — to include those:
+
+1. Subscribe to NextPlay (paid tier)
+2. Log in at [nextplay.substack.com](https://nextplay.substack.com/)
+3. Open browser DevTools → Application → Cookies → `nextplay.substack.com`
+4. Copy the value of `substack.sid`
+5. Add it to `.env`:
+
+```
+SUBSTACK_SID=s%3A...your-cookie-here
+```
+
+**This is optional.** Without it you still get the majority of NextPlay job listings from their free content.
+
 ### Step 4: Add your resume
 
 Put your resume in `resumes/` as a LaTeX `.tex` file.

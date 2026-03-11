@@ -75,7 +75,16 @@ def init():
     # Create .env template
     env_file = root / ".env"
     if not env_file.exists():
-        env_file.write_text("GEMINI_API_KEY=your-key-here\n")
+        env_file.write_text(
+            "GEMINI_API_KEY=your-key-here\n"
+            "\n"
+            "# Optional: NextPlay Substack session cookie for paid articles.\n"
+            "# Without this, shortlist still collects from NextPlay's free articles.\n"
+            "# With it, you also get job listings from their paid newsletter.\n"
+            "# To get it: log in to nextplay.substack.com, open browser DevTools →\n"
+            "# Application → Cookies → copy the value of 'substack.sid'.\n"
+            "# SUBSTACK_SID=\n"
+        )
         click.echo("Created .env (add your Gemini API key)")
 
     # Create .gitignore

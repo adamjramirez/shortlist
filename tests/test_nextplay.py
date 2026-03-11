@@ -137,14 +137,98 @@ class TestExtractUrls:
         assert not any("bretton.com" in d for d in homepages)
 
 
-class TestFetchNew:
-    @patch("shortlist.collectors.nextplay.fetch_career_page")
+MOCK_API_RESPONSE = [
+    {
+        "title": "37 fastest-growing startups",
+        "canonical_url": "https://nextplayso.substack.com/p/37-fastest-growing",
+        "audience": "everyone",
+        "body_html": """
+            <p>Check out these companies:</p>
+            <a href="https://jobs.ashbyhq.com/suno">Suno on Ashby</a>
+            <a href="https://job-boards.greenhouse.io/nabis">Nabis on Greenhouse</a>
+            <a href="https://jobs.lever.co/soraschools">Sora on Lever</a>
+            <a href="https://www.acme.com/about">About Acme (not career)</a>
+            <a href="https://www.linkedin.com/company/foo/jobs/">Foo on LinkedIn (skipped)</a>
+            <a href="https://jobs.ashbyhq.com/suno/another-job">Suno dupe</a>
+            <a href="https://www.bretton.com/careers#open-positions">Bretton direct careers</a>
+            <a href="https://resolve.ai/careers#open-positions">Resolve direct careers</a>
+            <a href="https://www.wonderful.ai/jobs">Wonderful direct jobs</a>
+            <a href="https://coolstartup.io/">CoolStartup homepage only</a>
+        """,
+    },
+]
+
+
+class TestFetchApi:
     @patch("shortlist.http.get")
-    def test_fetches_career_pages(self, mock_get, mock_fetch):
+    def test_returns_articles_from_api(self, mock_get):
         mock_resp = MagicMock()
-        mock_resp.text = MOCK_RSS
+        mock_resp.json.return_value = MOCK_API_RESPONSE
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
+
+        c = NextPlayCollector(probe_ats=False)
+        articles = c._fetch_api()
+
+        assert len(articles) == 1
+        assert articles[0]["title"] == "37 fastest-growing startups"
+        assert "ashbyhq.com/suno" in articles[0]["content"]
+
+    @patch("shortlist.http.get")
+    def test_skips_paid_without_cookie(self, mock_get):
+        posts = [
+            {"title": "Free post", "canonical_url": "u1", "audience": "everyone",
+             "body_html": "<p>content</p>"},
+            {"title": "Paid post", "canonical_url": "u2", "audience": "only_paid",
+             "body_html": ""},  # no body without cookie
+        ]
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = posts
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        c = NextPlayCollector(probe_ats=False)
+        articles = c._fetch_api()
+
+        assert len(articles) == 1
+        assert articles[0]["title"] == "Free post"
+
+    @patch("shortlist.http.get")
+    def test_includes_paid_with_cookie(self, mock_get):
+        posts = [
+            {"title": "Free post", "canonical_url": "u1", "audience": "everyone",
+             "body_html": "<p>free</p>"},
+            {"title": "Paid post", "canonical_url": "u2", "audience": "only_paid",
+             "body_html": "<p>paid content with <a href='https://jobs.lever.co/secret'>jobs</a></p>"},
+        ]
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = posts
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        c = NextPlayCollector(substack_sid="test-token", probe_ats=False)
+        articles = c._fetch_api()
+
+        assert len(articles) == 2
+        # Verify cookie was passed
+        assert mock_get.call_args[1]["cookies"]["substack.sid"] == "test-token"
+
+    @patch("shortlist.http.get")
+    def test_api_failure_returns_none(self, mock_get):
+        mock_get.side_effect = Exception("network error")
+        c = NextPlayCollector(probe_ats=False)
+        assert c._fetch_api() is None
+
+
+class TestFetchNew:
+    @patch("shortlist.collectors.nextplay.fetch_career_page")
+    @patch("shortlist.collectors.nextplay.NextPlayCollector._fetch_api")
+    def test_fetches_career_pages(self, mock_api, mock_fetch):
+        mock_api.return_value = [
+            {"title": "37 fastest-growing startups",
+             "url": "https://nextplayso.substack.com/p/37-fastest-growing",
+             "content": MOCK_API_RESPONSE[0]["body_html"]},
+        ]
 
         mock_fetch.return_value = [
             RawJob(title="VP Eng", company="test", url="https://example.com",
@@ -158,13 +242,34 @@ class TestFetchNew:
         assert mock_fetch.call_count == 3
         assert len(jobs) == 3
 
-    @patch("shortlist.http.get")
-    def test_feed_failure_returns_empty(self, mock_get):
-        mock_get.side_effect = Exception("network error")
-        c = NextPlayCollector()
-        assert c.fetch_new() == []
+    @patch("shortlist.collectors.nextplay.NextPlayCollector._fetch_api")
+    @patch("shortlist.collectors.nextplay.NextPlayCollector._fetch_rss")
+    def test_falls_back_to_rss(self, mock_rss, mock_api):
+        """If API fails, falls back to RSS."""
+        mock_api.return_value = None
+        mock_rss.return_value = []
+
+        c = NextPlayCollector(probe_ats=False)
+        c.fetch_new()
+
+        mock_rss.assert_called_once()
+
+    @patch("shortlist.collectors.nextplay.NextPlayCollector._fetch_api")
+    def test_api_and_rss_failure_returns_empty(self, mock_api):
+        mock_api.return_value = None
+        with patch("shortlist.http.get") as mock_get:
+            mock_get.side_effect = Exception("network error")
+            c = NextPlayCollector()
+            assert c.fetch_new() == []
 
 class TestArticleCaching:
+    def _mock_api_articles(self):
+        return [
+            {"title": "37 fastest-growing startups",
+             "url": "https://nextplayso.substack.com/p/37-fastest-growing",
+             "content": MOCK_API_RESPONSE[0]["body_html"]},
+        ]
+
     def test_skips_already_crawled(self, tmp_path):
         from shortlist.db import init_db
         db = init_db(tmp_path / "test.db")
@@ -177,12 +282,8 @@ class TestArticleCaching:
         )
         db.commit()
 
-        with patch("shortlist.http.get") as mock_get, \
+        with patch.object(NextPlayCollector, "_fetch_api", return_value=self._mock_api_articles()), \
              patch("shortlist.collectors.nextplay.fetch_career_page") as mock_fetch:
-            mock_resp = MagicMock()
-            mock_resp.text = MOCK_RSS
-            mock_resp.raise_for_status = MagicMock()
-            mock_get.return_value = mock_resp
 
             c = NextPlayCollector(probe_ats=False, db=db)
             jobs = c.fetch_new()
@@ -196,12 +297,8 @@ class TestArticleCaching:
         db = init_db(tmp_path / "test.db")
         db.row_factory = __import__("sqlite3").Row
 
-        with patch("shortlist.http.get") as mock_get, \
+        with patch.object(NextPlayCollector, "_fetch_api", return_value=self._mock_api_articles()), \
              patch("shortlist.collectors.nextplay.fetch_career_page") as mock_fetch:
-            mock_resp = MagicMock()
-            mock_resp.text = MOCK_RSS
-            mock_resp.raise_for_status = MagicMock()
-            mock_get.return_value = mock_resp
             mock_fetch.return_value = []
 
             c = NextPlayCollector(probe_ats=False, db=db)
@@ -217,12 +314,8 @@ class TestArticleCaching:
 
     def test_no_db_doesnt_crash(self):
         """Without a DB, caching is a no-op."""
-        with patch("shortlist.http.get") as mock_get, \
+        with patch.object(NextPlayCollector, "_fetch_api", return_value=self._mock_api_articles()), \
              patch("shortlist.collectors.nextplay.fetch_career_page") as mock_fetch:
-            mock_resp = MagicMock()
-            mock_resp.text = MOCK_RSS
-            mock_resp.raise_for_status = MagicMock()
-            mock_get.return_value = mock_resp
             mock_fetch.return_value = []
 
             c = NextPlayCollector(probe_ats=False, db=None)

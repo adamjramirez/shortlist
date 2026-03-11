@@ -149,6 +149,7 @@ Domain limits in `DOMAIN_LIMITS`:
 # .env (gitignored)
 GEMINI_API_KEY=...
 PROXY_URL=http://...@gate.decodo.com:10001    # Currently unused
+SUBSTACK_SID=...                                # Optional, unlocks NextPlay paid articles
 
 # Config
 config/profile.yaml   # max_jobs_per_run: 500, top_n: 30, track definitions

@@ -9,6 +9,7 @@ Two extraction strategies:
 2. Probe: for company homepages, try known ATS slug patterns
 """
 import logging
+import os
 import re
 import sqlite3
 from urllib.parse import urlparse
@@ -28,6 +29,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 FEED_URL = "https://nextplayso.substack.com/feed"
+API_URL = "https://nextplayso.substack.com/api/v1/posts"
 
 # Domains to skip entirely
 SKIP_DOMAINS = {
@@ -78,8 +80,9 @@ def _domain_to_slugs(domain: str) -> list[str]:
 class NextPlayCollector:
     """Collects jobs by scraping NextPlay Substack for career page links."""
 
-    def __init__(self, max_articles: int = 10,
+    def __init__(self, substack_sid: str | None = None, max_articles: int = 10,
                  probe_ats: bool = True, db: sqlite3.Connection | None = None):
+        self.substack_sid = substack_sid or os.getenv("SUBSTACK_SID", "")
         self.max_articles = max_articles
         self.probe_ats = probe_ats
         self.db = db
@@ -190,12 +193,72 @@ class NextPlayCollector:
         return all_jobs
 
     def _fetch_feed(self) -> list[dict]:
-        """Fetch the NextPlay RSS feed and return article content."""
+        """Fetch articles via Substack API (includes paid content with cookie).
+
+        Falls back to RSS feed if the API fails.
+        With SUBSTACK_SID: returns free + paid articles with full content.
+        Without: returns free articles only (paid articles have no body).
+        """
+        articles = self._fetch_api()
+        if articles is not None:
+            return articles
+
+        # Fallback to RSS (free articles only)
+        logger.info("NextPlay: API failed, falling back to RSS feed")
+        return self._fetch_rss()
+
+    def _fetch_api(self) -> list[dict] | None:
+        """Fetch articles from the Substack API. Returns None on failure."""
+        cookies = {}
+        if self.substack_sid:
+            cookies["substack.sid"] = self.substack_sid
+
+        try:
+            resp = http.get(
+                API_URL,
+                params={"limit": str(self.max_articles)},
+                cookies=cookies,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            posts = resp.json()
+        except Exception as e:
+            logger.warning(f"NextPlay API fetch failed: {e}")
+            return None
+
+        articles = []
+        skipped_paid = 0
+        for post in posts:
+            body = post.get("body_html", "") or ""
+            url = post.get("canonical_url", "") or ""
+            title = post.get("title", "") or ""
+
+            if not body:
+                if post.get("audience") == "only_paid":
+                    skipped_paid += 1
+                continue
+
+            articles.append({
+                "title": title,
+                "content": body,
+                "url": url,
+            })
+
+        if skipped_paid:
+            logger.info(
+                f"NextPlay: skipped {skipped_paid} paid articles "
+                f"(set SUBSTACK_SID in .env to include them)"
+            )
+
+        return articles
+
+    def _fetch_rss(self) -> list[dict]:
+        """Fetch the NextPlay RSS feed (free articles only)."""
         try:
             resp = http.get(FEED_URL, timeout=30)
             resp.raise_for_status()
         except Exception as e:
-            logger.error(f"NextPlay feed fetch failed: {e}")
+            logger.error(f"NextPlay RSS feed fetch failed: {e}")
             return []
 
         return self._parse_rss(resp.text)
