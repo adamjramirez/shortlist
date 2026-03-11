@@ -160,13 +160,17 @@ def call_llm(prompt: str) -> str | None:
     try:
         import time
         start = time.monotonic()
+        logger.info(f"LLM call starting ({_model})…")
         result = _provider.call(prompt, _model)
         elapsed = time.monotonic() - start
+        logger.info(f"LLM call completed in {elapsed:.1f}s")
         if elapsed > 30:
             logger.warning(f"LLM call took {elapsed:.1f}s (slow)")
         return result
     except Exception as e:
-        logger.error(f"LLM API error ({type(e).__name__}): {e}")
+        import time
+        elapsed = time.monotonic() - start
+        logger.error(f"LLM API error after {elapsed:.1f}s ({type(e).__name__}): {e}")
         return None
 
 

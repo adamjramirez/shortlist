@@ -85,16 +85,23 @@ _wait_lock = threading.Lock()
 def _wait(domain: str) -> None:
     """Block until it's safe to make a request to this domain.
 
-    Thread-safe: lock ensures only one thread checks/updates the timestamp at a time.
+    Thread-safe: lock protects timestamp read/write but is NOT held during sleep.
+    Each thread reserves a future time slot, then sleeps until that slot arrives.
     """
+    limit = DOMAIN_LIMITS.get(domain, DEFAULT_LIMIT)
     with _wait_lock:
-        limit = DOMAIN_LIMITS.get(domain, DEFAULT_LIMIT)
-        elapsed = time.time() - _last_request[domain]
-        if elapsed < limit:
-            sleep_time = limit - elapsed
-            logger.debug(f"Rate limit: sleeping {sleep_time:.1f}s for {domain}")
-            time.sleep(sleep_time)
-        _last_request[domain] = time.time()
+        now = time.time()
+        earliest = _last_request[domain] + limit
+        if earliest <= now:
+            # No wait needed — go now
+            _last_request[domain] = now
+            return
+        # Reserve this slot
+        _last_request[domain] = earliest
+        sleep_time = earliest - now
+
+    logger.debug(f"Rate limit: sleeping {sleep_time:.1f}s for {domain}")
+    time.sleep(sleep_time)
 
 
 def _domain(url: str) -> str:
