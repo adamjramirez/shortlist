@@ -9,7 +9,6 @@ Two extraction strategies:
 2. Probe: for company homepages, try known ATS slug patterns
 """
 import logging
-import os
 import re
 import sqlite3
 from urllib.parse import urlparse
@@ -79,9 +78,8 @@ def _domain_to_slugs(domain: str) -> list[str]:
 class NextPlayCollector:
     """Collects jobs by scraping NextPlay Substack for career page links."""
 
-    def __init__(self, substack_sid: str | None = None, max_articles: int = 10,
+    def __init__(self, max_articles: int = 10,
                  probe_ats: bool = True, db: sqlite3.Connection | None = None):
-        self.substack_sid = substack_sid or os.getenv("SUBSTACK_SID", "")
         self.max_articles = max_articles
         self.probe_ats = probe_ats
         self.db = db
@@ -193,12 +191,8 @@ class NextPlayCollector:
 
     def _fetch_feed(self) -> list[dict]:
         """Fetch the NextPlay RSS feed and return article content."""
-        cookies = {}
-        if self.substack_sid:
-            cookies["substack.sid"] = self.substack_sid
-
         try:
-            resp = http.get(FEED_URL, cookies=cookies, timeout=30)
+            resp = http.get(FEED_URL, timeout=30)
             resp.raise_for_status()
         except Exception as e:
             logger.error(f"NextPlay feed fetch failed: {e}")

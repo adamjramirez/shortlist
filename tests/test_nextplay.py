@@ -86,7 +86,7 @@ class TestDomainToSlugs:
 
 class TestExtractUrls:
     def test_finds_ats_links(self):
-        c = NextPlayCollector(substack_sid="fake", probe_ats=False)
+        c = NextPlayCollector(probe_ats=False)
         articles = c._parse_rss(MOCK_RSS)
         career_urls, _ = c._extract_urls(articles)
 
@@ -95,7 +95,7 @@ class TestExtractUrls:
         assert any("lever.co/soraschools" in u for u in career_urls)
 
     def test_finds_direct_career_paths(self):
-        c = NextPlayCollector(substack_sid="fake", probe_ats=False)
+        c = NextPlayCollector(probe_ats=False)
         articles = c._parse_rss(MOCK_RSS)
         career_urls, _ = c._extract_urls(articles)
 
@@ -104,7 +104,7 @@ class TestExtractUrls:
         assert any("wonderful.ai/jobs" in u for u in career_urls)
 
     def test_dedupes_same_ats_org(self):
-        c = NextPlayCollector(substack_sid="fake", probe_ats=False)
+        c = NextPlayCollector(probe_ats=False)
         articles = c._parse_rss(MOCK_RSS)
         career_urls, _ = c._extract_urls(articles)
 
@@ -112,7 +112,7 @@ class TestExtractUrls:
         assert len(suno_urls) == 1
 
     def test_skips_linkedin(self):
-        c = NextPlayCollector(substack_sid="fake", probe_ats=False)
+        c = NextPlayCollector(probe_ats=False)
         articles = c._parse_rss(MOCK_RSS)
         career_urls, homepages = c._extract_urls(articles)
 
@@ -120,7 +120,7 @@ class TestExtractUrls:
         assert not any("linkedin.com" in u for u in all_urls)
 
     def test_collects_homepage_domains_for_probing(self):
-        c = NextPlayCollector(substack_sid="fake", probe_ats=False)
+        c = NextPlayCollector(probe_ats=False)
         articles = c._parse_rss(MOCK_RSS)
         _, homepages = c._extract_urls(articles)
 
@@ -129,7 +129,7 @@ class TestExtractUrls:
 
     def test_doesnt_probe_domains_with_career_links(self):
         """If we already found a career link for a domain, don't probe it."""
-        c = NextPlayCollector(substack_sid="fake", probe_ats=False)
+        c = NextPlayCollector(probe_ats=False)
         articles = c._parse_rss(MOCK_RSS)
         _, homepages = c._extract_urls(articles)
 
@@ -151,7 +151,7 @@ class TestFetchNew:
                    description="Lead team", source="ashby")
         ]
 
-        c = NextPlayCollector(substack_sid="fake", probe_ats=False)
+        c = NextPlayCollector(probe_ats=False)
         jobs = c.fetch_new()
 
         # Should call fetch_career_page for ATS links only (suno, nabis, soraschools)
@@ -161,19 +161,8 @@ class TestFetchNew:
     @patch("shortlist.http.get")
     def test_feed_failure_returns_empty(self, mock_get):
         mock_get.side_effect = Exception("network error")
-        c = NextPlayCollector(substack_sid="fake")
+        c = NextPlayCollector()
         assert c.fetch_new() == []
-
-    def test_passes_substack_sid_cookie(self):
-        c = NextPlayCollector(substack_sid="test-token")
-        with patch("shortlist.http.get") as mock_get:
-            mock_resp = MagicMock()
-            mock_resp.text = "<rss></rss>"
-            mock_resp.raise_for_status = MagicMock()
-            mock_get.return_value = mock_resp
-            c._fetch_feed()
-            assert mock_get.call_args[1]["cookies"]["substack.sid"] == "test-token"
-
 
 class TestArticleCaching:
     def test_skips_already_crawled(self, tmp_path):
@@ -195,7 +184,7 @@ class TestArticleCaching:
             mock_resp.raise_for_status = MagicMock()
             mock_get.return_value = mock_resp
 
-            c = NextPlayCollector(substack_sid="fake", probe_ats=False, db=db)
+            c = NextPlayCollector(probe_ats=False, db=db)
             jobs = c.fetch_new()
 
             # Should NOT call fetch_career_page because article was already crawled
@@ -215,7 +204,7 @@ class TestArticleCaching:
             mock_get.return_value = mock_resp
             mock_fetch.return_value = []
 
-            c = NextPlayCollector(substack_sid="fake", probe_ats=False, db=db)
+            c = NextPlayCollector(probe_ats=False, db=db)
             c.fetch_new()
 
             # Article should now be recorded
@@ -236,7 +225,7 @@ class TestArticleCaching:
             mock_get.return_value = mock_resp
             mock_fetch.return_value = []
 
-            c = NextPlayCollector(substack_sid="fake", probe_ats=False, db=None)
+            c = NextPlayCollector(probe_ats=False, db=None)
             jobs = c.fetch_new()
             # Should still work — just no caching
             assert mock_fetch.call_count == 3  # 3 ATS links
@@ -256,7 +245,7 @@ class TestProbeHomepages:
         original = career_page.FETCHERS["greenhouse"]
         career_page.FETCHERS["greenhouse"] = mock_gh
         try:
-            c = NextPlayCollector(substack_sid="fake", probe_ats=True)
+            c = NextPlayCollector(probe_ats=True)
             jobs = c._probe_homepages(["coolstartup.io"])
             mock_discover.assert_called_with("coolstartup.io")
             mock_gh.assert_called_with("coolstartup")
@@ -267,7 +256,7 @@ class TestProbeHomepages:
     @patch("shortlist.collectors.nextplay.discover_ats_from_domain")
     def test_skips_when_no_ats_found(self, mock_discover):
         mock_discover.return_value = (None, None)
-        c = NextPlayCollector(substack_sid="fake", probe_ats=True)
+        c = NextPlayCollector(probe_ats=True)
         jobs = c._probe_homepages(["unknown.com"])
         assert jobs == []
 
@@ -275,7 +264,7 @@ class TestProbeHomepages:
     @patch("shortlist.collectors.nextplay.fetch_greenhouse_jobs")
     def test_skips_already_seen_slugs(self, mock_gh, mock_discover):
         mock_discover.return_value = ("greenhouse", "coolstartup")
-        c = NextPlayCollector(substack_sid="fake", probe_ats=True)
+        c = NextPlayCollector(probe_ats=True)
         c._seen_slugs.add("greenhouse:coolstartup")
         c._probe_homepages(["coolstartup.io"])
         mock_gh.assert_not_called()
