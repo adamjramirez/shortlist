@@ -64,6 +64,47 @@ filters:
     remote: true
     local_zip: "75098"
     max_commute_minutes: 30
+    local_cities:
+      - dallas
+      - fort worth
+      - plano
+      - frisco
+      - mckinney
+      - allen
+      - richardson
+      - arlington
+      - irving
+      - garland
+      - denton
+      - carrollton
+      - lewisville
+      - the colony
+      - prosper
+      - celina
+      - anna
+      - melissa
+      - wylie
+      - murphy
+      - sachse
+      - rowlett
+      - rockwall
+      - mesquite
+      - grand prairie
+      - addison
+      - farmers branch
+      - coppell
+      - flower mound
+      - highland park
+      - university park
+      - grapevine
+      - southlake
+      - colleyville
+      - keller
+      - roanoke
+      - trophy club
+      - northlake
+      - little elm
+      - dfw
   salary:
     min_base: 250000
   role_type:

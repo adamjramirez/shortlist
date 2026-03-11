@@ -12,16 +12,8 @@ class FilterResult:
     reason: str = ""
 
 
-# DFW metro area cities (within ~30 min of 75098 / McKinney)
-DFW_CITIES = {
-    "dallas", "fort worth", "plano", "frisco", "mckinney", "allen",
-    "richardson", "arlington", "irving", "garland", "denton", "carrollton",
-    "lewisville", "the colony", "prosper", "celina", "anna", "melissa",
-    "wylie", "murphy", "sachse", "rowlett", "rockwall", "mesquite",
-    "grand prairie", "addison", "farmers branch", "coppell", "flower mound",
-    "highland park", "university park", "grapevine", "southlake", "colleyville",
-    "keller", "roanoke", "trophy club", "northlake", "little elm",
-}
+# Default empty — users configure local cities in profile.yaml
+_LOCAL_CITIES: set[str] = set()
 
 # Strings that look like locations (state/country abbreviations, country names, city patterns)
 _STATE_ABBREVS = {
@@ -203,26 +195,24 @@ def _check_location(job: RawJob, config: Config) -> FilterResult:
     if "remote" in combined:
         return FilterResult(passed=True)
 
-    # Check for DFW area
-    if _is_dfw_area(location_lower):
+    # Check for local area
+    local_cities = set(c.lower() for c in config.filters.location.local_cities)
+    if local_cities and _is_local_area(location_lower, local_cities):
         return FilterResult(passed=True)
 
-    # Has a real location, not remote, not DFW
+    # Has a real location, not remote, not local
     if location:
-        return FilterResult(passed=False, reason=f"Location: {job.location} (not remote or DFW)")
+        return FilterResult(passed=False, reason=f"Location: {job.location} (not remote or local)")
 
     return FilterResult(passed=True)
 
 
-def _is_dfw_area(location: str) -> bool:
-    """Check if a location string refers to the DFW metro area."""
+def _is_local_area(location: str, local_cities: set[str]) -> bool:
+    """Check if a location string refers to one of the user's local cities."""
     location_lower = location.lower()
-    for city in DFW_CITIES:
+    for city in local_cities:
         if city in location_lower:
             return True
-    # Check for TX/Texas with DFW-area indicators
-    if "dfw" in location_lower:
-        return True
     return False
 
 

@@ -83,7 +83,7 @@ Score this job for fit with the candidate profile. Return a JSON object with exa
 ```
 
 ### Scoring Guide
-- **90-100:** Exceptional fit. Right level, right scope, right company, remote/DFW, salary likely $250k+.
+- **90-100:** Exceptional fit. Right level, right scope, right company, right location, salary meets minimum.
 - **80-89:** Strong fit. Most criteria met, maybe one minor gap.
 - **70-79:** Good fit with caveats. Might be slightly below scope, or salary uncertain.
 - **60-69:** Worth reviewing. Some fit but significant unknowns or trade-offs.

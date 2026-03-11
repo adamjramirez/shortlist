@@ -29,6 +29,7 @@ class LocationFilter:
     remote: bool = True
     local_zip: str = ""
     max_commute_minutes: int = 30
+    local_cities: list[str] = field(default_factory=list)  # cities near you
 
 
 @dataclass

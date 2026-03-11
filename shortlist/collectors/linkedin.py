@@ -17,17 +17,24 @@ DETAIL_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
 # f_E: 1=internship, 2=entry, 3=associate, 4=mid-senior, 5=director, 6=executive
 # f_TPR: r86400=past 24h, r604800=past week, r2592000=past month
 
-DEFAULT_SEARCHES = [
-    {"keywords": "VP Engineering", "f_WT": "2", "f_E": "5,6"},
-    {"keywords": "VP of Engineering", "f_WT": "2", "f_E": "5,6"},
-    {"keywords": "Engineering Manager", "f_WT": "2", "f_E": "4,5"},
-    {"keywords": "Head of Engineering", "f_WT": "2", "f_E": "4,5"},
-    {"keywords": "Director of Engineering", "f_WT": "2", "f_E": "5"},
-    {"keywords": "AI Engineering Manager", "f_WT": "2", "f_E": "4,5"},
-    {"keywords": "Head of AI", "f_WT": "2", "f_E": "4,5"},
-    {"keywords": "Director of AI", "f_WT": "2", "f_E": "5"},
-    {"keywords": "CTO", "f_WT": "2", "f_E": "6"},
-]
+DEFAULT_SEARCHES: list[dict] = []  # populated from config tracks
+
+
+def searches_from_config(config) -> list[dict]:
+    """Build LinkedIn search params from track search_queries in config."""
+    searches = []
+    seen = set()
+    for track in config.tracks.values():
+        for query in track.search_queries:
+            if query.lower() in seen:
+                continue
+            seen.add(query.lower())
+            searches.append({
+                "keywords": query,
+                "f_WT": "2",       # remote
+                "f_E": "4,5,6",   # mid-senior, director, executive
+            })
+    return searches or [{"keywords": "Engineering Manager", "f_WT": "2", "f_E": "4,5"}]
 
 MAX_429_RETRIES = 2
 BACKOFF_ON_429 = 30.0

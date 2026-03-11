@@ -10,7 +10,13 @@ from shortlist.config import Config, Filters, LocationFilter, SalaryFilter, Role
 def config():
     return Config(
         filters=Filters(
-            location=LocationFilter(remote=True, local_zip="75098", max_commute_minutes=30),
+            location=LocationFilter(
+                remote=True, local_zip="75098", max_commute_minutes=30,
+                local_cities=[
+                    "dallas", "fort worth", "plano", "frisco", "mckinney",
+                    "allen", "richardson", "arlington", "irving",
+                ],
+            ),
             salary=SalaryFilter(min_base=250000),
             role_type=RoleTypeFilter(reject_explicit_ic=True),
         ),
@@ -47,12 +53,12 @@ class TestLocationFilter:
         result = apply_hard_filters(job, config)
         assert result.passed
 
-    def test_dfw_area_passes(self, config):
+    def test_local_area_passes(self, config):
         job = _make_job(location="Dallas, TX")
         result = apply_hard_filters(job, config)
         assert result.passed
 
-    def test_dfw_metro_cities_pass(self, config):
+    def test_local_metro_cities_pass(self, config):
         for city in ["McKinney, TX", "Plano, TX", "Frisco, TX", "Allen, TX", "Dallas, TX", "Fort Worth, TX"]:
             job = _make_job(location=city)
             result = apply_hard_filters(job, config)
@@ -79,7 +85,7 @@ class TestLocationFilter:
         result = apply_hard_filters(job, config)
         assert not result.passed
 
-    def test_non_dfw_non_remote_fails(self, config):
+    def test_non_local_non_remote_fails(self, config):
         job = _make_job(location="New York, NY")
         result = apply_hard_filters(job, config)
         assert not result.passed
@@ -96,7 +102,7 @@ class TestLocationFilter:
         result = apply_hard_filters(job, config)
         assert result.passed
 
-    def test_hybrid_dfw_passes(self, config):
+    def test_hybrid_local_passes(self, config):
         job = _make_job(location="Hybrid - Dallas, TX")
         result = apply_hard_filters(job, config)
         assert result.passed

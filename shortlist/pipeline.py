@@ -37,7 +37,7 @@ def run_pipeline(config: Config, project_root: Path, skip_collect: bool = False)
 
     # Step 1: Collect from all sources
     if not skip_collect:
-        collectors = _get_collectors(db=db)
+        collectors = _get_collectors(config=config, db=db)
         for name, collector in collectors.items():
             source_start = datetime.now().isoformat()
             try:
@@ -244,7 +244,7 @@ def run_collect_only(config: Config, project_root: Path) -> int:
     db.row_factory = sqlite3.Row
 
     total = 0
-    collectors = _get_collectors(db=db)
+    collectors = _get_collectors(config=config, db=db)
     for name, collector in collectors.items():
         source_start = datetime.now().isoformat()
         try:
@@ -286,13 +286,23 @@ def _row_to_raw_job(row) -> RawJob:
     )
 
 
-def _get_collectors(db: sqlite3.Connection | None = None) -> dict:
+def _get_collectors(config: Config | None = None, db: sqlite3.Connection | None = None) -> dict:
     """Get all enabled collectors."""
-    return {
+    collectors = {
         "hn": HNCollector(),
-        "linkedin": LinkedInCollector(time_filter="r604800"),  # past week
-        "nextplay": NextPlayCollector(db=db),
     }
+
+    # LinkedIn: build searches from config track queries
+    if config and config.tracks:
+        from shortlist.collectors.linkedin import searches_from_config
+        searches = searches_from_config(config)
+        collectors["linkedin"] = LinkedInCollector(searches=searches, time_filter="r604800")
+    else:
+        collectors["linkedin"] = LinkedInCollector(time_filter="r604800")
+
+    collectors["nextplay"] = NextPlayCollector(db=db)
+
+    return collectors
 
 
 def _log_source_run(

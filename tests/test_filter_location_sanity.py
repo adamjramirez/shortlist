@@ -10,7 +10,10 @@ from shortlist.config import Config, Filters, LocationFilter, SalaryFilter, Role
 def config():
     return Config(
         filters=Filters(
-            location=LocationFilter(remote=True, local_zip="75098", max_commute_minutes=30),
+            location=LocationFilter(
+                remote=True, local_zip="75098", max_commute_minutes=30,
+                local_cities=["dallas", "fort worth", "plano", "frisco", "mckinney"],
+            ),
             salary=SalaryFilter(min_base=250000),
             role_type=RoleTypeFilter(reject_explicit_ic=True),
         ),
@@ -121,8 +124,8 @@ class TestLocationFilterWithGarbageLocations:
         result = apply_hard_filters(job, config)
         assert result.passed, f"'Onsite' without city should pass, got: {result.reason}"
 
-    def test_real_non_dfw_location_still_rejected(self, config):
-        """Real locations that aren't remote or DFW should still be rejected."""
+    def test_real_non_local_location_still_rejected(self, config):
+        """Real locations that aren't remote or local should still be rejected."""
         job = _make_job(location="San Francisco, CA")
         result = apply_hard_filters(job, config)
         assert not result.passed
@@ -132,7 +135,7 @@ class TestLocationFilterWithGarbageLocations:
         result = apply_hard_filters(job, config)
         assert result.passed
 
-    def test_dfw_still_passes(self, config):
+    def test_local_still_passes(self, config):
         job = _make_job(location="Dallas, TX")
         result = apply_hard_filters(job, config)
         assert result.passed
