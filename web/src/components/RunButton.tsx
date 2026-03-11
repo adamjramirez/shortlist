@@ -179,12 +179,15 @@ export default function RunButton({ onComplete, onProgress }: Props) {
           </div>
         </div>
       ) : (
-        <button
-          onClick={handleRun}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          Run now
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRun}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Run now
+          </button>
+          <span className="text-xs text-gray-400">3/hour · 10/day</span>
+        </div>
       )}
       {run?.status === "failed" && (
         <p className="mt-2 text-sm text-red-600">

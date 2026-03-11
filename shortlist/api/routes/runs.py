@@ -56,7 +56,7 @@ async def create_run(
     if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="A run is already in progress")
 
-    # Rate limit: max 3 runs per hour, 10 per day
+    # Rate limit: max 3 runs per hour, 10 per day (all runs count)
     one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
     one_day_ago = datetime.now(timezone.utc) - timedelta(days=1)
 
