@@ -170,7 +170,7 @@ def validate_config(config: Config, project_root: Path) -> list[str]:
 def validate_env(project_root: Path) -> list[str]:
     """Validate .env file and return list of error messages."""
     import os
-    from dotenv import load_dotenv
+    from dotenv import dotenv_values, load_dotenv
 
     env_path = project_root / ".env"
     errors = []
@@ -183,8 +183,9 @@ def validate_env(project_root: Path) -> list[str]:
         )
         return errors
 
-    load_dotenv(env_path)
-    key = os.environ.get("GEMINI_API_KEY", "")
+    # override=True ensures .env values win over stale environment
+    load_dotenv(env_path, override=True)
+    key = dotenv_values(env_path).get("GEMINI_API_KEY", "")
 
     if not key or key == "your-key-here":
         errors.append(
@@ -200,3 +201,47 @@ def validate_env(project_root: Path) -> list[str]:
         )
 
     return errors
+
+
+def test_gemini_key(project_root: Path | None = None) -> str | None:
+    """Make a tiny Gemini API call to verify the key works.
+
+    Reads the key directly from .env to avoid stale environment variables.
+    Returns None on success, or an error message string.
+    """
+    import os
+    from dotenv import dotenv_values
+
+    # Read key from .env file directly (not os.environ which may be stale)
+    env_path = (project_root or Path.cwd()) / ".env"
+    env_vals = dotenv_values(env_path) if env_path.exists() else {}
+    key = env_vals.get("GEMINI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+
+    if not key or key == "your-key-here":
+        return None  # Already caught by validate_env
+
+    try:
+        from google import genai
+        client = genai.Client(api_key=key)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="Reply with just the word 'ok'.",
+        )
+        if response and response.text:
+            return None  # Success
+        return "Gemini API returned empty response. Key may be invalid."
+    except Exception as e:
+        err = str(e).lower()
+        if "api_key" in err or "invalid" in err or "permission" in err or "403" in err or "401" in err:
+            return (
+                "Gemini API key is invalid.\n"
+                "  Double-check the key in your .env file.\n"
+                "  Get a new key at: https://aistudio.google.com/ → Get API key"
+            )
+        if "quota" in err or "429" in err:
+            return (
+                "Gemini API rate limit or quota exceeded.\n"
+                "  The free tier has limits. Check usage at: https://aistudio.google.com/\n"
+                "  Consider upgrading to pay-as-you-go ($2-3 per run)."
+            )
+        return f"Gemini API test failed: {e}"

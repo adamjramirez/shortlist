@@ -43,7 +43,7 @@ def cli():
 @cli.command()
 def init():
     """Set up a new shortlist project in the current directory."""
-    import shutil
+    from importlib import resources
 
     root = Path.cwd()
     config_dir = root / "config"
@@ -55,13 +55,16 @@ def init():
         if not click.confirm("Overwrite?"):
             return
 
-    # Find the example config relative to this package
-    example = Path(__file__).parent.parent / "config" / "example-profile.yaml"
-    if not example.exists():
+    # Load example config from package data (works in any install mode)
+    try:
+        example_text = resources.files("shortlist.data").joinpath(
+            "example-profile.yaml"
+        ).read_text()
+    except Exception:
         click.echo("Error: example-profile.yaml not found in package.")
         return
 
-    shutil.copy(example, target)
+    target.write_text(example_text)
     click.echo(f"Created {target}")
 
     # Create directories
@@ -98,17 +101,26 @@ def init():
 def run(config_path, no_collect):
     """Run the full pipeline: collect → filter → score → enrich → tailor → brief."""
     from shortlist.pipeline import run_pipeline
-    from shortlist.config import validate_config, validate_env
+    from shortlist.config import validate_config, validate_env, test_gemini_key
 
     config, root = _get_config(config_path)
 
-    # Validate before doing anything
+    # Validate everything before spending time collecting
+    click.echo("Checking configuration...")
     errors = validate_config(config, root) + validate_env(root)
     if errors:
-        click.echo("❌ Fix these issues before running:\n", err=True)
+        click.echo("\n❌ Fix these issues before running:\n", err=True)
         for i, err in enumerate(errors, 1):
             click.echo(f"  {i}. {err}\n", err=True)
         raise SystemExit(1)
+
+    # Test Gemini API key actually works
+    click.echo("Testing Gemini API key...")
+    gemini_err = test_gemini_key(root)
+    if gemini_err:
+        click.echo(f"\n❌ {gemini_err}\n", err=True)
+        raise SystemExit(1)
+    click.echo("  ✓ API key works\n")
 
     if no_collect:
         click.echo("Running pipeline (skipping collection)...")

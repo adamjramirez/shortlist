@@ -1,0 +1,96 @@
+# Shortlist — Profile Configuration
+# Copy this to config/profile.yaml and edit for your search.
+
+name: Your Name
+
+# Describe what you're looking for. This gets sent to the LLM scorer.
+# Be specific — the more context, the better the scoring.
+fit_context: |
+  Looking for senior engineering leadership roles (Director/VP level).
+  Strong background in backend systems, distributed architecture, and team building.
+  Prefer product-focused companies over pure consulting/services.
+  
+  Strong fit signals:
+  - Companies building developer tools or infrastructure
+  - Series B+ with product-market fit
+  - Teams of 20-50 engineers needing scaling leadership
+  
+  Avoid / score down:
+  - Pure research roles (not my strength)
+  - Very early stage (pre-product)
+  - Roles focused primarily on frontend/mobile
+
+# Define the role tracks you're targeting.
+# Each track has search queries (used for LinkedIn) and resume paths.
+tracks:
+  # Example: Engineering Manager track
+  em:
+    title: Engineering Manager
+    resume: resumes/em.tex          # path to your LaTeX resume for this track
+    target_orgs: large              # large, any, series_b_plus
+    min_reports: 10                 # minimum team size you're targeting
+    search_queries:                 # used for LinkedIn searches
+      - "Engineering Manager"
+      - "Senior Engineering Manager"
+      - "Head of Engineering"
+      - "Director of Engineering"
+
+  # Example: VP track with multiple resume variants
+  # vp:
+  #   title: VP Engineering
+  #   resumes:                        # multiple variants — LLM picks the best fit
+  #     - resumes/vp_enterprise.tex
+  #     - resumes/vp_growth.tex
+  #   target_orgs: series_b_plus
+  #   min_reports: 20
+  #   search_queries:
+  #     - "VP Engineering"
+  #     - "VP of Engineering"
+  #     - "Vice President Engineering"
+
+  # Example: Specific domain track
+  # ai:
+  #   title: AI Engineering
+  #   resume: resumes/ai.tex
+  #   target_orgs: any
+  #   min_reports: 5
+  #   search_queries:
+  #     - "AI Engineering Manager"
+  #     - "Head of AI"
+  #     - "ML Engineering Manager"
+
+filters:
+  location:
+    remote: true                    # accept remote roles
+    local_zip: "10001"              # your zip code (used in scorer prompt)
+    max_commute_minutes: 30
+    local_cities:                   # cities you'd commute to (lowercase)
+      - new york
+      - brooklyn
+      - jersey city
+      # Add your local cities here. If you're remote-only, leave this empty.
+
+  salary:
+    min_base: 200000                # only reject if explicitly listed below this
+
+  role_type:
+    reject_explicit_ic: true        # reject roles that say "individual contributor"
+
+# Soft preferences (used in scoring, not hard filters)
+preferences:
+  equity: nice_to_have              # nice_to_have, required, irrelevant
+  travel: minimal                   # none, minimal, moderate, heavy
+  series_a_fresh_funding: yellow_flag
+
+# LLM settings
+llm:
+  model: gemini-2.5-flash
+  max_jobs_per_run: 500             # cap per pipeline run
+  cost_budget_daily: 2.00           # rough budget (not enforced, just for reference)
+
+# Brief output settings
+brief:
+  output_dir: briefs/
+  top_n: 30                         # max jobs to show in top matches
+  show_filtered: true
+  stale_threshold_days: 7           # mark jobs as stale after this many days
