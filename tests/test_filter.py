@@ -203,6 +203,83 @@ class TestSalaryFilter:
         assert result.passed
 
 
+class TestCrossCurrencySalary:
+    """Test that min_base in non-USD currencies works against job salaries in any currency."""
+
+    def test_inr_min_base_usd_job_passes(self):
+        """User sets min_base in INR, job is in USD — should compare correctly."""
+        config = Config(
+            filters=Filters(
+                location=LocationFilter(remote=True),
+                # ₹40,00,000 (40 lakh) ≈ $48,000 USD
+                salary=SalaryFilter(min_base=4000000, currency="INR"),
+                role_type=RoleTypeFilter(reject_explicit_ic=False),
+            ),
+        )
+        # $280k is way above ≈$48k min
+        job = _make_job(salary_text="$280,000")
+        result = apply_hard_filters(job, config)
+        assert result.passed
+
+    def test_inr_min_base_usd_job_fails(self):
+        """USD job below INR min_base (converted)."""
+        config = Config(
+            filters=Filters(
+                location=LocationFilter(remote=True),
+                # ₹5,00,00,000 (5 crore) ≈ $600,000 USD
+                salary=SalaryFilter(min_base=50000000, currency="INR"),
+                role_type=RoleTypeFilter(reject_explicit_ic=False),
+            ),
+        )
+        # $280k is below ≈$600k min
+        job = _make_job(salary_text="$280,000")
+        result = apply_hard_filters(job, config)
+        assert not result.passed
+
+    def test_gbp_min_base_usd_job_passes(self):
+        """User in UK sets min_base in GBP, job is in USD."""
+        config = Config(
+            filters=Filters(
+                location=LocationFilter(remote=True),
+                # £150,000 ≈ $187,500 USD
+                salary=SalaryFilter(min_base=150000, currency="GBP"),
+                role_type=RoleTypeFilter(reject_explicit_ic=False),
+            ),
+        )
+        # $280k is above ≈$187k min
+        job = _make_job(salary_text="$280,000")
+        result = apply_hard_filters(job, config)
+        assert result.passed
+
+    def test_gbp_min_base_eur_job(self):
+        """GBP min_base vs EUR job salary — both converted to USD."""
+        config = Config(
+            filters=Filters(
+                location=LocationFilter(remote=True),
+                # £200,000 ≈ $250,000 USD
+                salary=SalaryFilter(min_base=200000, currency="GBP"),
+                role_type=RoleTypeFilter(reject_explicit_ic=False),
+            ),
+        )
+        # €300,000 ≈ $330,000 USD — above £200k min
+        job = _make_job(salary_text="€300,000")
+        result = apply_hard_filters(job, config)
+        assert result.passed
+
+    def test_usd_default_unchanged(self):
+        """Default currency=USD works exactly as before."""
+        config = Config(
+            filters=Filters(
+                location=LocationFilter(remote=True),
+                salary=SalaryFilter(min_base=250000),  # no currency = USD
+                role_type=RoleTypeFilter(reject_explicit_ic=False),
+            ),
+        )
+        job = _make_job(salary_text="$280,000")
+        result = apply_hard_filters(job, config)
+        assert result.passed
+
+
 class TestRoleTypeFilter:
     def test_management_title_passes(self, config):
         job = _make_job(title="Engineering Manager")

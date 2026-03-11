@@ -35,6 +35,7 @@ class LocationFilter:
 @dataclass
 class SalaryFilter:
     min_base: int = 0
+    currency: str = "USD"  # currency of min_base (USD, GBP, EUR, INR, etc.)
 
 
 @dataclass
