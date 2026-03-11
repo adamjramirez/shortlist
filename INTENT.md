@@ -4,7 +4,7 @@
 
 Automate the soul-crushing parts of a senior engineering leader's job search. Collect jobs overnight from multiple sources, filter the noise, score what's left against my specific criteria, and produce a curated daily markdown briefing I can review in 15 minutes with coffee.
 
-Not a job board. Not a product for others. A personal chief of staff for one person's search.
+Not a job board. A personal chief of staff for your job search. Open source at https://github.com/adamjramirez/shortlist.
 
 ## Who uses this
 

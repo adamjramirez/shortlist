@@ -37,7 +37,7 @@ pytest tests/test_filter.py -q               # Just filter tests
 
 ## Stack
 
-- **Python 3.14**, venv at `.venv/`
+- **Python 3.11+**, venv at `.venv/`
 - **SQLite** — `jobs.db` (gitignored)
 - **Gemini 2.5 Flash** — scoring, enrichment, resume tailoring. Key: `GEMINI_API_KEY` in `.env`
 - **Decodo proxy** — `PROXY_URL` in `.env` (currently unused — Google Jobs blocked)

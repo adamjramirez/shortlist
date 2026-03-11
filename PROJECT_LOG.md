@@ -6,11 +6,31 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**Pipeline is fully operational.** 963 jobs in DB, 42 deduped top matches in brief, 50 tailored resumes.
+**Pipeline is fully operational and public.** 963 jobs in DB, 42 deduped top matches in brief, 50 tailored resumes.
 
 **Not yet done:**
 - Cron/launchd for overnight runs
 - 4 recovered location-filter jobs need scoring (status: `new`)
+
+---
+
+## 2026-03-10 — Delivery cleanup + public release
+
+**What got done:**
+1. Assessed delivery readiness — found 5 minor issues
+2. Removed hardcoded `75098` zip fallback in scorer (now empty string)
+3. Fixed DFW-specific comment in filter to generic "local area"
+4. Removed personal `config/profile.yaml` from git tracking, added to `.gitignore`
+5. Fixed README Python version (3.12 → 3.11 to match pyproject.toml)
+6. Added `uv.lock` to `.gitignore`
+7. Purged `config/profile.yaml` from entire git history with `git-filter-repo` (contained personal career details, DFW cities, fit_context)
+8. Force-pushed cleaned history to GitHub
+9. Made repo public: https://github.com/adamjramirez/shortlist
+
+**Decisions:**
+- No PyPI — GitHub repo is sufficient for distribution. Code is visible either way.
+- No secrets were ever committed (only placeholder API key examples)
+- Personal config (profile.yaml) was the only sensitive data in history — now purged
 
 ---
 
