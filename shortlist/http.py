@@ -6,6 +6,7 @@ LinkedIn requests are routed through a proxy when PROXY_URL is set.
 """
 import logging
 import os
+import threading
 import time
 from collections import defaultdict
 from urllib.parse import urlparse
@@ -19,7 +20,7 @@ DOMAIN_LIMITS: dict[str, float] = {
     "jobs.ashbyhq.com": 2.0,
     "boards-api.greenhouse.io": 2.0,
     "api.lever.co": 2.0,
-    "www.linkedin.com": 1.0,
+    "www.linkedin.com": 3.0,   # conservative — with 6 proxies, each IP sees 1 req/18s
     "hn.algolia.com": 1.0,
     "nextplayso.substack.com": 2.0,
     "generativelanguage.googleapis.com": 0.5,  # Gemini Flash handles rapid fire
@@ -41,6 +42,10 @@ DEFAULT_HEADERS = {
 PROXY_DOMAINS = {"www.linkedin.com"}
 
 _last_request: dict[str, float] = defaultdict(float)
+
+# Global lock for LinkedIn — serializes all requests across threads/users
+# so ThreadPoolExecutor workers don't bypass the rate limiter
+_linkedin_lock = threading.Lock()
 
 
 def _get_proxy_urls() -> list[str]:
@@ -94,19 +99,37 @@ def get(url: str, *, params: dict | None = None, headers: dict | None = None,
         follow_redirects: bool = True) -> httpx.Response:
     """Rate-limited GET request. Routes through proxy for LinkedIn."""
     domain = _domain(url)
+    use_proxy = _should_proxy(domain)
+
+    # LinkedIn: serialize all requests globally (across threads/users)
+    if domain in PROXY_DOMAINS:
+        with _linkedin_lock:
+            return _do_get(url, domain, params, headers, cookies, timeout,
+                           follow_redirects, use_proxy)
+
+    return _do_get(url, domain, params, headers, cookies, timeout,
+                   follow_redirects, use_proxy)
+
+
+def _do_get(url: str, domain: str, params, headers, cookies, timeout,
+            follow_redirects, use_proxy) -> httpx.Response:
+    """Internal GET with rate limiting and optional proxy."""
     _wait(domain)
     merged_headers = {**DEFAULT_HEADERS, **(headers or {})}
 
-    proxy_url = _next_proxy() if _should_proxy(domain) else None
-    if proxy_url:
-        with httpx.Client(proxy=proxy_url, timeout=timeout,
-                          follow_redirects=follow_redirects) as client:
-            resp = client.get(url, params=params, headers=merged_headers,
-                              cookies=cookies)
-            if resp.status_code == 200:
-                return resp
-            # Proxy failed — fall back to direct
-            logger.warning(f"Proxy returned {resp.status_code} for {domain}, falling back to direct")
+    if use_proxy:
+        proxy_url = _next_proxy()
+        if proxy_url:
+            try:
+                with httpx.Client(proxy=proxy_url, timeout=timeout,
+                                  follow_redirects=follow_redirects) as client:
+                    resp = client.get(url, params=params, headers=merged_headers,
+                                      cookies=cookies)
+                    if resp.status_code != 407:  # proxy auth failure
+                        return resp
+                    logger.warning(f"Proxy auth failed for {domain}, falling back to direct")
+            except (httpx.ProxyError, httpx.ConnectError) as e:
+                logger.warning(f"Proxy error for {domain}: {e}, falling back to direct")
 
     return httpx.get(
         url, params=params, headers=merged_headers,

@@ -44,7 +44,7 @@ class TestRateLimiting:
     def test_known_domain_uses_configured_limit(self):
         """Known domains use their configured rate limit."""
         assert http.DOMAIN_LIMITS["hn.algolia.com"] == 1.0
-        assert http.DOMAIN_LIMITS["www.linkedin.com"] == 1.0
+        assert http.DOMAIN_LIMITS["www.linkedin.com"] == 3.0
         assert http.DOMAIN_LIMITS["generativelanguage.googleapis.com"] == 0.5
 
     def test_post_also_rate_limited(self):

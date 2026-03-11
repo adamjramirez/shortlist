@@ -51,6 +51,7 @@ def run_pipeline(
     project_root: Path,
     skip_collect: bool = False,
     on_progress: callable = None,
+    on_jobs_ready: callable = None,
 ) -> Path:
     """Run the full pipeline and return the brief path."""
     _ensure_llm(config)
@@ -58,67 +59,50 @@ def run_pipeline(
     db = init_db(db_path)
     db.row_factory = sqlite3.Row
 
+    from shortlist.collectors.linkedin import fetch_description_for_url
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     run_start = datetime.now().isoformat()
     errors = []
     jobs_collected = 0
     jobs_filtered = 0
+    llm_calls = 0
+    total_scored = 0
+    total_matches = 0
+    max_jobs = config.llm.max_jobs_per_run
+    jobs_scored_so_far = 0
 
-    # Step 1: Collect from all sources
-    if not skip_collect:
-        collectors = _get_collectors(config=config, db=db)
-        for name, collector in collectors.items():
-            _emit(on_progress, f"Collecting from {name}...", phase="collecting", detail=f"Searching {name}…")
-            source_start = datetime.now().isoformat()
-            try:
-                jobs = collector.fetch_new()
-                for job in jobs:
-                    upsert_job(db, job)
-                jobs_collected += len(jobs)
-                _emit(on_progress, f"  → {name}: {len(jobs)} jobs", phase="collecting", detail=f"{name}: {len(jobs)} jobs", collected=jobs_collected)
+    def _filter_new_jobs():
+        """Filter all jobs with status='new'. Returns (passed, rejected) counts."""
+        nonlocal jobs_filtered
+        new_jobs = db.execute("SELECT * FROM jobs WHERE status = 'new'").fetchall()
+        rejected = 0
+        for row in new_jobs:
+            job = _row_to_raw_job(row)
+            result = apply_hard_filters(job, config)
+            if result.passed:
+                db.execute("UPDATE jobs SET status = 'filtered' WHERE id = ?", (row["id"],))
+            else:
+                db.execute(
+                    "UPDATE jobs SET status = 'rejected', reject_reason = ? WHERE id = ?",
+                    (result.reason, row["id"]),
+                )
+                rejected += 1
+        db.commit()
+        jobs_filtered += rejected
+        return len(new_jobs) - rejected, rejected
 
-                _log_source_run(db, name, source_start, "success", len(jobs))
-            except Exception as e:
-                error_msg = f"{name}: {str(e)}"
-                errors.append(error_msg)
-                _emit(on_progress, f"  → {name}: failed ({e})", phase="collecting", detail=f"{name}: failed")
-                _log_source_run(db, name, source_start, "failure", 0, str(e))
-        _emit(on_progress, f"Collection done: {jobs_collected} jobs total", phase="collecting", detail=f"Found {jobs_collected} jobs total", collected=jobs_collected)
-    else:
-        _emit(on_progress, "Skipping collection (--no-collect)", phase="collecting", detail="Skipping collection")
+    def _fetch_descriptions():
+        """Fetch full descriptions for filtered LinkedIn jobs missing them."""
+        needs_desc = db.execute(
+            "SELECT id, url, description FROM jobs WHERE status = 'filtered' "
+            "AND sources_seen LIKE '%linkedin%' "
+            "AND length(description) < 200 "
+            "AND first_seen = last_seen"
+        ).fetchall()
+        if not needs_desc:
+            return 0
 
-    # Step 2: Filter new jobs
-    _emit(on_progress, "Filtering jobs...", phase="filtering", detail="Filtering jobs…")
-    new_jobs = db.execute("SELECT * FROM jobs WHERE status = 'new'").fetchall()
-    for row in new_jobs:
-        job = _row_to_raw_job(row)
-        result = apply_hard_filters(job, config)
-        if result.passed:
-            db.execute(
-                "UPDATE jobs SET status = 'filtered' WHERE id = ?", (row["id"],)
-            )
-        else:
-            db.execute(
-                "UPDATE jobs SET status = 'rejected', reject_reason = ? WHERE id = ?",
-                (result.reason, row["id"]),
-            )
-            jobs_filtered += 1
-    db.commit()
-    passed = len(new_jobs) - jobs_filtered
-    _emit(on_progress, f"  → {passed} passed, {jobs_filtered} filtered out", phase="filtering", detail=f"{passed} passed, {jobs_filtered} rejected", passed=passed, rejected=jobs_filtered)
-
-    # Step 2b: Fetch full descriptions for filtered jobs that need them
-    # LinkedIn jobs collected without descriptions get fetched now (only survivors)
-    from shortlist.collectors.linkedin import fetch_description_for_url
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    needs_desc = db.execute(
-        "SELECT id, url, description FROM jobs WHERE status = 'filtered' "
-        "AND sources_seen LIKE '%linkedin%' "
-        "AND length(description) < 200 "
-        "AND first_seen = last_seen"  # new jobs only — existing ones already have descriptions
-    ).fetchall()
-
-    if needs_desc:
         _emit(on_progress, f"Fetching details for {len(needs_desc)} jobs…",
               phase="fetching", detail=f"Fetching details for {len(needs_desc)} jobs…")
 
@@ -126,9 +110,9 @@ def run_pipeline(
             desc = fetch_description_for_url(row["url"])
             return row["id"], desc
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        fetched = 0
+        with ThreadPoolExecutor(max_workers=2) as executor:
             futures = {executor.submit(_fetch_one, row): row for row in needs_desc}
-            fetched = 0
             for future in as_completed(futures):
                 try:
                     row_id, desc = future.result()
@@ -137,49 +121,191 @@ def run_pipeline(
                         fetched += 1
                 except Exception as e:
                     logger.warning(f"Failed to fetch description: {e}")
-            db.commit()
-            _emit(on_progress, f"  → {fetched}/{len(needs_desc)} descriptions fetched",
-                  phase="fetching", detail=f"{fetched} descriptions fetched")
+        db.commit()
+        return fetched
 
-    # Step 3: Score filtered jobs (parallel)
-    llm_calls = 0
-    max_jobs = config.llm.max_jobs_per_run
-    filtered_jobs = db.execute(
-        "SELECT * FROM jobs WHERE status = 'filtered' ORDER BY first_seen DESC LIMIT ?",
-        (max_jobs,),
-    ).fetchall()
+    def _score_filtered():
+        """Score all filtered jobs up to max_jobs limit. Returns (scored, matches)."""
+        nonlocal llm_calls, jobs_scored_so_far
+        remaining = max_jobs - jobs_scored_so_far
+        if remaining <= 0:
+            return 0, 0
 
-    score_inputs = [(row["id"], _row_to_raw_job(row)) for row in filtered_jobs]
-    if score_inputs:
-        _emit(on_progress, f"Scoring {len(score_inputs)} jobs (parallel, 10 workers)...", phase="scoring", detail=f"Scoring {len(score_inputs)} jobs…", scored=0, total=len(score_inputs))
+        filtered_jobs = db.execute(
+            "SELECT * FROM jobs WHERE status = 'filtered' ORDER BY first_seen DESC LIMIT ?",
+            (remaining,),
+        ).fetchall()
 
-    def _on_scored(done, total):
-        _emit(on_progress, f"  Scored {done}/{total}", phase="scoring", detail=f"Scoring jobs…", scored=done, total=total)
+        score_inputs = [(row["id"], _row_to_raw_job(row)) for row in filtered_jobs]
+        if not score_inputs:
+            return 0, 0
 
-    score_results = score_jobs_parallel(score_inputs, config, max_workers=10, on_scored=_on_scored)
+        _emit(on_progress, f"Scoring {len(score_inputs)} jobs…",
+              phase="scoring", detail=f"Scoring {len(score_inputs)} jobs…",
+              scored=jobs_scored_so_far, total=jobs_scored_so_far + len(score_inputs))
 
-    for row_id, score_result in score_results:
-        if score_result:
-            llm_calls += 1
-            status = "scored" if score_result.fit_score >= 60 else "low_score"
-            db.execute(
-                "UPDATE jobs SET status = ?, fit_score = ?, matched_track = ?, "
-                "score_reasoning = ?, yellow_flags = ?, salary_estimate = ?, "
-                "salary_confidence = ? WHERE id = ?",
-                (
-                    status, score_result.fit_score, score_result.matched_track,
-                    score_result.reasoning, json.dumps(score_result.yellow_flags),
-                    score_result.salary_estimate, score_result.salary_confidence,
-                    row_id,
-                ),
-            )
-        else:
-            logger.warning(f"Failed to score job {row_id}")
-    db.commit()
+        def _on_scored(done, total):
+            _emit(on_progress, f"  Scored {done}/{total}", phase="scoring",
+                  detail=f"Scoring jobs…",
+                  scored=jobs_scored_so_far + done,
+                  total=jobs_scored_so_far + total)
+
+        score_results = score_jobs_parallel(score_inputs, config, max_workers=10, on_scored=_on_scored)
+
+        matches = 0
+        for row_id, score_result in score_results:
+            if score_result:
+                llm_calls += 1
+                status = "scored" if score_result.fit_score >= 60 else "low_score"
+                if score_result.fit_score >= 60:
+                    matches += 1
+                db.execute(
+                    "UPDATE jobs SET status = ?, fit_score = ?, matched_track = ?, "
+                    "score_reasoning = ?, yellow_flags = ?, salary_estimate = ?, "
+                    "salary_confidence = ? WHERE id = ?",
+                    (
+                        status, score_result.fit_score, score_result.matched_track,
+                        score_result.reasoning, json.dumps(score_result.yellow_flags),
+                        score_result.salary_estimate, score_result.salary_confidence,
+                        row_id,
+                    ),
+                )
+            else:
+                logger.warning(f"Failed to score job {row_id}")
+        db.commit()
+
+        jobs_scored_so_far += len(score_inputs)
+        return len(score_inputs), matches
+
+    def _notify_jobs_ready():
+        """Tell the worker to copy newly scored jobs to PostgreSQL now."""
+        if on_jobs_ready:
+            on_jobs_ready(db)
+
+    # === Main pipeline: process sources with LinkedIn in background ===
+
+    if not skip_collect:
+        collectors = _get_collectors(config=config, db=db)
+
+        # Separate LinkedIn from fast sources
+        linkedin_collector = collectors.pop("linkedin", None)
+        fast_collectors = collectors  # hn, nextplay, etc.
+
+        # Start LinkedIn collection in background — spreads requests across
+        # the entire run instead of one burst. By the time we need LinkedIn
+        # results, most search pages are already fetched.
+        import threading
+        linkedin_result = {"jobs": [], "error": None}
+        linkedin_done = threading.Event()
+
+        def _collect_linkedin():
+            if not linkedin_collector:
+                linkedin_done.set()
+                return
+            try:
+                _emit(on_progress, "Collecting from linkedin (background)…",
+                      phase="collecting", detail=f"Searching linkedin…")
+                jobs = linkedin_collector.fetch_new()
+                linkedin_result["jobs"] = jobs
+            except Exception as e:
+                linkedin_result["error"] = str(e)
+            finally:
+                linkedin_done.set()
+
+        linkedin_thread = threading.Thread(target=_collect_linkedin, daemon=True)
+        linkedin_thread.start()
+
+        # Process fast sources immediately (HN, NextPlay)
+        for name, collector in fast_collectors.items():
+            _emit(on_progress, f"Collecting from {name}...",
+                  phase="collecting", detail=f"Searching {name}…")
+            source_start = datetime.now().isoformat()
+            try:
+                jobs = collector.fetch_new()
+                for job in jobs:
+                    upsert_job(db, job)
+                jobs_collected += len(jobs)
+                _emit(on_progress, f"  → {name}: {len(jobs)} jobs",
+                      phase="collecting", detail=f"{name}: {len(jobs)} jobs",
+                      collected=jobs_collected)
+                _log_source_run(db, name, source_start, "success", len(jobs))
+            except Exception as e:
+                errors.append(f"{name}: {str(e)}")
+                _emit(on_progress, f"  → {name}: failed ({e})",
+                      phase="collecting", detail=f"{name}: failed")
+                _log_source_run(db, name, source_start, "failure", 0, str(e))
+                continue
+
+            if not jobs:
+                continue
+
+            # Filter → Score → Save immediately
+            passed, rejected = _filter_new_jobs()
+            _emit(on_progress, f"  → {passed} passed, {rejected} rejected",
+                  phase="filtering", detail=f"{passed} passed, {rejected} rejected")
+
+            if passed > 0:
+                scored, matches = _score_filtered()
+                total_scored += scored
+                total_matches += matches
+                if scored:
+                    _emit(on_progress, f"  → {total_matches} matches so far",
+                          phase="scoring", detail=f"{total_matches} matches so far",
+                          matches=total_matches)
+                _notify_jobs_ready()
+
+        # Wait for LinkedIn background collection to finish
+        if linkedin_collector:
+            _emit(on_progress, "Waiting for LinkedIn results…",
+                  phase="collecting", detail=f"Waiting for LinkedIn… ({total_matches} matches so far)",
+                  matches=total_matches)
+            linkedin_done.wait()
+
+            source_start = datetime.now().isoformat()
+            if linkedin_result["error"]:
+                errors.append(f"linkedin: {linkedin_result['error']}")
+                _emit(on_progress, f"  → linkedin: failed ({linkedin_result['error']})",
+                      phase="collecting", detail="LinkedIn: failed")
+                _log_source_run(db, "linkedin", source_start, "failure", 0, linkedin_result["error"])
+            else:
+                li_jobs = linkedin_result["jobs"]
+                for job in li_jobs:
+                    upsert_job(db, job)
+                jobs_collected += len(li_jobs)
+                _emit(on_progress, f"  → linkedin: {len(li_jobs)} jobs",
+                      phase="collecting", detail=f"LinkedIn: {len(li_jobs)} jobs",
+                      collected=jobs_collected)
+                _log_source_run(db, "linkedin", source_start, "success", len(li_jobs))
+
+                if li_jobs:
+                    # Filter → Fetch descriptions → Score → Save
+                    passed, rejected = _filter_new_jobs()
+                    _emit(on_progress, f"  → {passed} passed, {rejected} rejected",
+                          phase="filtering", detail=f"{passed} passed, {rejected} rejected")
+
+                    if passed > 0:
+                        fetched = _fetch_descriptions()
+                        if fetched:
+                            _emit(on_progress, f"  → {fetched} descriptions fetched",
+                                  phase="fetching", detail=f"{fetched} descriptions fetched")
+
+                        scored, matches = _score_filtered()
+                        total_scored += scored
+                        total_matches += matches
+                        if scored:
+                            _emit(on_progress, f"  → {total_matches} matches total",
+                                  phase="scoring", detail=f"{total_matches} matches total",
+                                  matches=total_matches)
+                        _notify_jobs_ready()
+
+        _emit(on_progress, f"Collection done: {jobs_collected} jobs, {total_matches} matches",
+              phase="collecting", detail=f"Found {total_matches} matches from {jobs_collected} jobs",
+              collected=jobs_collected, matches=total_matches)
+    else:
+        _emit(on_progress, "Skipping collection (--no-collect)",
+              phase="collecting", detail="Skipping collection")
 
     scored_count = db.execute("SELECT COUNT(*) FROM jobs WHERE status = 'scored'").fetchone()[0]
-    if score_inputs:
-        _emit(on_progress, f"  → {scored_count} jobs scored ≥60", phase="scoring", detail=f"{scored_count} scored ≥60")
 
     # Step 4: Enrich companies + re-score
     scored_jobs = db.execute(
@@ -318,7 +444,7 @@ def run_pipeline(
         "jobs_scored, llm_calls, brief_path, errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_start, datetime.now().isoformat(), jobs_collected, jobs_filtered,
-            len(filtered_jobs), llm_calls, str(brief_path),
+            total_scored, llm_calls, str(brief_path),
             json.dumps(errors) if errors else None,
         ),
     )

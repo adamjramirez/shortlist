@@ -167,6 +167,23 @@ async def test_cancel_completed_run_fails(client, auth_headers, mock_worker):
 
 
 @pytest.mark.asyncio
+async def test_hourly_rate_limit(client, auth_headers, mock_worker):
+    await _setup_profile(client, auth_headers)
+
+    # First 3 runs succeed (cancel each so we can start another)
+    for _ in range(3):
+        resp = await client.post("/api/runs", headers=auth_headers)
+        assert resp.status_code == 201
+        run_id = resp.json()["id"]
+        await client.post(f"/api/runs/{run_id}/cancel", headers=auth_headers)
+
+    # 4th run hits rate limit
+    resp = await client.post("/api/runs", headers=auth_headers)
+    assert resp.status_code == 429
+    assert "3 runs per hour" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_runs_require_auth(client):
     assert (await client.post("/api/runs")).status_code == 401
     assert (await client.get("/api/runs")).status_code == 401

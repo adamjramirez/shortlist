@@ -1,10 +1,10 @@
 """Pipeline run routes — create, list, get status."""
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shortlist.api.db import get_session
@@ -55,6 +55,26 @@ async def create_run(
     )
     if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="A run is already in progress")
+
+    # Rate limit: max 3 runs per hour, 10 per day
+    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    one_day_ago = datetime.now(timezone.utc) - timedelta(days=1)
+
+    hourly = await session.execute(
+        select(func.count()).select_from(Run).where(
+            Run.user_id == user.id, Run.created_at >= one_hour_ago
+        )
+    )
+    if hourly.scalar() >= 3:
+        raise HTTPException(status_code=429, detail="Maximum 3 runs per hour. Try again later.")
+
+    daily = await session.execute(
+        select(func.count()).select_from(Run).where(
+            Run.user_id == user.id, Run.created_at >= one_day_ago
+        )
+    )
+    if daily.scalar() >= 10:
+        raise HTTPException(status_code=429, detail="Maximum 10 runs per day. Try again tomorrow.")
 
     run = Run(user_id=user.id, status="pending")
     session.add(run)

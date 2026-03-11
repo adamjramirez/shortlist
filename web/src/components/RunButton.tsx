@@ -6,9 +6,10 @@ import type { Run } from "@/lib/types";
 
 interface Props {
   onComplete?: () => void;
+  onProgress?: () => void;
 }
 
-export default function RunButton({ onComplete }: Props) {
+export default function RunButton({ onComplete, onProgress }: Props) {
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState("");
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -30,10 +31,19 @@ export default function RunButton({ onComplete }: Props) {
   useEffect(() => {
     if (!isActive || !runId) return;
 
+    let lastMatches = 0;
     intervalRef.current = setInterval(async () => {
       try {
         const updated = await runsApi.get(runId);
         setRun(updated);
+
+        // Refresh job list when new matches arrive
+        const matches = (updated.progress as Record<string, number>)?.matches ?? 0;
+        if (matches > lastMatches) {
+          lastMatches = matches;
+          onProgress?.();
+        }
+
         if (updated.status !== "pending" && updated.status !== "running") {
           if (intervalRef.current) clearInterval(intervalRef.current);
           if (updated.status === "completed") onComplete?.();
@@ -46,7 +56,7 @@ export default function RunButton({ onComplete }: Props) {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [runId, isActive, onComplete]);
+  }, [runId, isActive, onComplete, onProgress]);
 
   const handleRun = async () => {
     setError("");
