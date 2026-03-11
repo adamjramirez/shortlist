@@ -134,10 +134,14 @@ class TestSelectResume:
         )
         assert "vp_enterprise" in str(result)
 
-    def test_unknown_track_raises(self, config_single_resume, tmp_path):
-        with pytest.raises(ValueError, match="Unknown track"):
-            select_resume("unknown", config_single_resume, "X", "Y", "Z",
-                         project_root=tmp_path)
+    def test_unknown_track_falls_back(self, config_single_resume, tmp_path):
+        """Unknown track falls back to first available track."""
+        resume_path = tmp_path / "resumes" / "em.tex"
+        resume_path.parent.mkdir(parents=True, exist_ok=True)
+        resume_path.write_text("\\documentclass{article}")
+        result = select_resume("unknown", config_single_resume, "X", "Y", "Z",
+                              project_root=tmp_path)
+        assert result == resume_path
 
 
 class TestTailorResume:

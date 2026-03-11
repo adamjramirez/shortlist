@@ -98,13 +98,25 @@ def init():
 def run(config_path, no_collect):
     """Run the full pipeline: collect → filter → score → enrich → tailor → brief."""
     from shortlist.pipeline import run_pipeline
+    from shortlist.config import validate_config, validate_env
+
     config, root = _get_config(config_path)
+
+    # Validate before doing anything
+    errors = validate_config(config, root) + validate_env(root)
+    if errors:
+        click.echo("❌ Fix these issues before running:\n", err=True)
+        for i, err in enumerate(errors, 1):
+            click.echo(f"  {i}. {err}\n", err=True)
+        raise SystemExit(1)
+
     if no_collect:
         click.echo("Running pipeline (skipping collection)...")
     else:
         click.echo("Running full pipeline...")
     brief_path = run_pipeline(config, root, skip_collect=no_collect)
-    click.echo(f"Brief generated: {brief_path}")
+    click.echo(f"\n✅ Brief generated: {brief_path}")
+    click.echo(f"   Run 'shortlist today' to read it.")
 
 
 @cli.command()
@@ -112,7 +124,16 @@ def run(config_path, no_collect):
 def collect(config_path):
     """Collect jobs from all configured sources."""
     from shortlist.pipeline import run_collect_only
+    from shortlist.config import validate_config
+
     config, root = _get_config(config_path)
+    errors = validate_config(config, root)
+    if errors:
+        click.echo("❌ Fix these issues first:\n", err=True)
+        for i, err in enumerate(errors, 1):
+            click.echo(f"  {i}. {err}\n", err=True)
+        raise SystemExit(1)
+
     click.echo("Collecting jobs...")
     count = run_collect_only(config, root)
     click.echo(f"Collected {count} jobs.")

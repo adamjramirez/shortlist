@@ -98,9 +98,14 @@ def select_resume(track_key: str, config: Config, job_title: str,
     For tracks with one resume, returns it directly.
     For tracks with multiple (e.g., VP), uses Gemini to pick.
     """
-    track = config.tracks.get(track_key)
+    track = config.tracks.get(track_key) or config.tracks.get(track_key.lower())
     if not track:
-        raise ValueError(f"Unknown track: {track_key}")
+        # Fall back to first available track
+        if config.tracks:
+            track = next(iter(config.tracks.values()))
+            logger.warning(f"Unknown track '{track_key}', falling back to '{track.title}'")
+        else:
+            raise ValueError(f"Unknown track: {track_key} (no tracks configured)")
 
     paths = track.get_resume_paths()
     if not paths:
