@@ -107,38 +107,40 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 hover:border-gray-300 transition-colors">
       <div
-        className="flex cursor-pointer items-start justify-between"
+        className="flex cursor-pointer items-start justify-between gap-2"
         onClick={handleExpand}
       >
         <div className="flex-1 min-w-0">
           {/* Row 1: Score + Title */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-start sm:items-center gap-2 sm:gap-3">
             <span
               className={`shrink-0 rounded px-2 py-0.5 text-sm font-bold ${scoreColor(job.fit_score)}`}
             >
               {job.fit_score ?? "—"}
             </span>
-            {job.is_new && (
-              <span className="rounded bg-green-100 px-1.5 py-0.5 text-green-700 text-xs font-medium">
-                New
-              </span>
-            )}
-            <h3 className="font-semibold text-gray-900 truncate">{job.title}</h3>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+              {job.is_new && (
+                <span className="rounded bg-green-100 px-1.5 py-0.5 text-green-700 text-xs font-medium">
+                  New
+                </span>
+              )}
+              <h3 className="font-semibold text-gray-900 break-words">{job.title}</h3>
+            </div>
           </div>
 
           {/* Row 2: Company · Location · Salary */}
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm pl-0 sm:pl-0">
             <span className="font-medium text-gray-700">{job.company}</span>
             {job.location && (
               <>
-                <span className="text-gray-300">·</span>
-                <span className="text-gray-500">📍 {job.location}</span>
+                <span className="text-gray-300 hidden sm:inline">·</span>
+                <span className="text-gray-500 text-xs sm:text-sm">📍 {job.location}</span>
               </>
             )}
             {salary && (
               <>
-                <span className="text-gray-300">·</span>
-                <span className="text-gray-600 font-medium">{salary}</span>
+                <span className="text-gray-300 hidden sm:inline">·</span>
+                <span className="text-gray-600 font-medium text-xs sm:text-sm">{salary}</span>
               </>
             )}
           </div>
@@ -151,7 +153,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
               </span>
             )}
             {job.company_intel && (
-              <span className="text-gray-400">{job.company_intel}</span>
+              <span className="text-gray-400 hidden sm:inline">{job.company_intel}</span>
             )}
             {sources && (
               <span className="text-gray-300">via {sources}</span>
@@ -159,9 +161,9 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
           </div>
         </div>
 
-        <div className="flex items-center gap-2 ml-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {job.user_status && (
-            <span className="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+            <span className="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700 hidden sm:inline">
               {job.user_status}
             </span>
           )}
@@ -258,13 +260,13 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                 );
               })()}
 
-              <div className="flex flex-wrap items-center gap-2 pt-2">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 pt-2">
                 {job.url && (
                   <a
                     href={job.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+                    className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 text-center"
                   >
                     View Listing →
                   </a>
@@ -274,7 +276,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                     href={detail.career_page_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
+                    className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 text-center"
                   >
                     Apply Direct →
                   </a>
@@ -380,7 +382,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                   const hasKey = availableProviders.length > 0;
 
                   return (
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap">
                       <button
                         disabled={!hasKey}
                         onClick={async (e) => {

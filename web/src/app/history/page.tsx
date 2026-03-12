@@ -46,15 +46,15 @@ export default function HistoryPage() {
           {runList.map((run) => (
             <div
               key={run.id}
-              className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4"
+              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border border-gray-200 bg-white p-4"
             >
-              <div>
+              <div className="flex items-center gap-3">
                 <span
                   className={`rounded px-2 py-0.5 text-xs font-medium ${statusBadge(run.status)}`}
                 >
                   {run.status}
                 </span>
-                <span className="ml-3 text-sm text-gray-600">
+                <span className="text-sm text-gray-600">
                   {formatDate(run.created_at)}
                 </span>
               </div>

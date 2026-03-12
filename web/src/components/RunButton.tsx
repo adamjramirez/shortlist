@@ -84,7 +84,7 @@ function SourceRow({ name, state }: { name: string; state: SourceState }) {
   return (
     <div className="flex items-center gap-2 text-sm">
       <span className={`text-xs font-bold ${color}`}>{icon}</span>
-      <span className="font-medium text-gray-700 w-24">{label}</span>
+      <span className="font-medium text-gray-700 w-20 sm:w-24 shrink-0">{label}</span>
       <span className="text-gray-500 text-xs flex-1">{detail}</span>
       {elapsed && <span className="text-gray-300 text-xs tabular-nums">{elapsed}</span>}
     </div>

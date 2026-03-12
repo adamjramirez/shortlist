@@ -13,27 +13,130 @@ import { SCORE_VISIBLE, SCORE_STRONG } from "@/lib/constants";
 
 function Landing() {
   return (
-    <div className="mx-auto mt-20 max-w-2xl text-center">
-      <h1 className="text-4xl font-bold tracking-tight text-gray-900">
-        AI-powered job search
-      </h1>
-      <p className="mt-4 text-lg text-gray-600">
-        Score and rank job listings with AI. Get a daily brief of your best matches.
-      </p>
-      <div className="mt-8 flex justify-center gap-4">
-        <Link
-          href="/signup"
-          className="rounded-md bg-blue-600 px-6 py-3 text-white hover:bg-blue-700"
-        >
-          Get started
-        </Link>
-        <Link
-          href="/login"
-          className="rounded-md border border-gray-300 px-6 py-3 text-gray-700 hover:bg-gray-50"
-        >
-          Log in
-        </Link>
+    <div className="-mx-4 -mt-6">
+      {/* Landing nav */}
+      <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-200 bg-white">
+        <span className="text-lg font-semibold text-gray-900">Shortlist</span>
+        <div className="flex items-center gap-3">
+          <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900">
+            Log in
+          </Link>
+          <Link
+            href="/signup"
+            className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Sign up
+          </Link>
+        </div>
       </div>
+
+      {/* Hero */}
+      <section className="px-4 pt-16 pb-12 sm:pt-24 sm:pb-16 text-center">
+        <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-gray-900 max-w-3xl mx-auto leading-tight">
+          Stop scrolling job boards.
+          <br className="hidden sm:block" />{" "}
+          <span className="text-blue-600">Start reviewing matches.</span>
+        </h1>
+        <p className="mt-4 sm:mt-6 text-base sm:text-lg text-gray-600 max-w-xl mx-auto leading-relaxed">
+          Shortlist collects jobs from various boards and sources, scores them against your
+          profile, and shows you only what&apos;s worth your time.
+        </p>
+        <div className="mt-8 flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
+          <Link
+            href="/signup"
+            className="rounded-lg bg-blue-600 px-6 py-3 text-base font-medium text-white hover:bg-blue-700 transition-colors"
+          >
+            Get started — free
+          </Link>
+          <a
+            href="https://github.com/adamjramirez/shortlist"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg border border-gray-300 px-6 py-3 text-base font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            View on GitHub
+          </a>
+        </div>
+        <p className="mt-3 text-xs text-gray-400">
+          Free · Bring your own API key · No credit card
+        </p>
+      </section>
+
+      {/* How it works */}
+      <section className="px-4 py-12 sm:py-16 bg-white border-y border-gray-200">
+        <div className="max-w-3xl mx-auto">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 text-center mb-8 sm:mb-10">
+            How it works
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8">
+            {[
+              {
+                step: "1",
+                title: "Upload your resume",
+                desc: "Paste your resume and Shortlist generates your search profile — target roles, preferences, dealbreakers.",
+              },
+              {
+                step: "2",
+                title: "Run a search",
+                desc: "One click. Hundreds of jobs collected, filtered, and scored against your profile in a few minutes.",
+              },
+              {
+                step: "3",
+                title: "Review matches",
+                desc: "Scored results with reasoning, company intel, and tailored resumes for the ones worth applying to.",
+              },
+            ].map((item) => (
+              <div key={item.step} className="text-center sm:text-left">
+                <div className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-600 mb-3">
+                  {item.step}
+                </div>
+                <h3 className="font-semibold text-gray-900 mb-1">{item.title}</h3>
+                <p className="text-sm text-gray-600 leading-relaxed">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* What you need + cost */}
+      <section className="px-4 py-12 sm:py-16">
+        <div className="max-w-xl mx-auto">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 text-center mb-6">
+            What you need
+          </h2>
+          <ul className="space-y-3 text-sm text-gray-600">
+            <li className="flex gap-3">
+              <span className="text-blue-600 shrink-0">→</span>
+              <span><strong className="text-gray-900">An LLM API key</strong> — Gemini, OpenAI, or Anthropic. Runs cost ~$0.25 with Gemini Flash.</span>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-blue-600 shrink-0">→</span>
+              <span><strong className="text-gray-900">Your resume in LaTeX</strong> — needed for resume tailoring. Scoring works without it.</span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      {/* Final CTA */}
+      <section className="px-4 py-12 sm:py-16 bg-white border-t border-gray-200 text-center">
+        <p className="text-gray-600 mb-6 max-w-md mx-auto">
+          Set up takes about 2 minutes.
+        </p>
+        <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
+          <Link
+            href="/signup"
+            className="rounded-lg bg-blue-600 px-6 py-3 text-base font-medium text-white hover:bg-blue-700 transition-colors"
+          >
+            Get started
+          </Link>
+          <Link
+            href="/login"
+            className="rounded-lg border border-gray-300 px-6 py-3 text-base font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Log in
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }
@@ -88,7 +191,7 @@ function Dashboard() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Your matches</h1>
           <p className="text-sm text-gray-500">{total} jobs scored</p>
@@ -97,7 +200,7 @@ function Dashboard() {
       </div>
 
       {/* Filters */}
-      <div className="mb-4 flex gap-3">
+      <div className="mb-4 flex flex-wrap gap-3">
         <select
           value={minScore ?? ""}
           onChange={(e) =>
