@@ -42,7 +42,7 @@ function Dashboard() {
   const [jobList, setJobs] = useState<JobSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [minScore, setMinScore] = useState<number | undefined>(undefined);
+  const [minScore, setMinScore] = useState<number | undefined>(75);
   const [track, setTrack] = useState<string | undefined>(undefined);
 
   const loadData = useCallback(async () => {
@@ -102,10 +102,8 @@ function Dashboard() {
           }
           className="rounded border border-gray-300 px-3 py-1.5 text-sm"
         >
-          <option value="">All scores</option>
-          <option value="80">80+</option>
-          <option value="60">60+</option>
-          <option value="40">40+</option>
+          <option value="75">75+ (matches)</option>
+          <option value="85">85+ (strong)</option>
         </select>
         {tracks.length > 1 && (
           <select

@@ -35,7 +35,7 @@ async def user_with_jobs(client, auth_headers, session_factory):
                 ),
                 Job(
                     user_id=user_id, title="CTO", company="Gamma LLC",
-                    description_hash="hash3", fit_score=45, matched_track="vp",
+                    description_hash="hash3", fit_score=85, matched_track="vp",
                     score_reasoning="Weak match", yellow_flags="Pre-revenue",
                     status="new", first_seen=now, last_seen=now,
                     sources_seen=["career_page"],
@@ -59,10 +59,10 @@ async def test_list_jobs(client, auth_headers, user_with_jobs):
 
 @pytest.mark.asyncio
 async def test_list_jobs_min_score(client, auth_headers, user_with_jobs):
-    resp = await client.get("/api/jobs?min_score=70", headers=auth_headers)
+    resp = await client.get("/api/jobs?min_score=85", headers=auth_headers)
     jobs = resp.json()["jobs"]
     assert len(jobs) == 2
-    assert all(j["fit_score"] >= 70 for j in jobs)
+    assert all(j["fit_score"] >= 85 for j in jobs)
 
 
 @pytest.mark.asyncio

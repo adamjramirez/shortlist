@@ -81,8 +81,9 @@ async def list_jobs(
 ):
     # Build filters once, apply to both count and data queries
     filters = [Job.user_id == user.id]
-    if min_score is not None:
-        filters.append(Job.fit_score >= min_score)
+    # Enforce minimum score of 75 — lower scores stored but not exposed
+    effective_min = max(min_score or 75, 75)
+    filters.append(Job.fit_score >= effective_min)
     if track:
         filters.append(Job.matched_track == track)
     if user_status:
