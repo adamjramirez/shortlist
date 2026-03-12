@@ -376,6 +376,13 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                         {" "}or ask ChatGPT / Claude to compile it for you.
                       </p>
                     )}
+                    <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                      <p className="font-medium">⚠️ Review before sending</p>
+                      <p className="mt-0.5 text-amber-700">
+                        This resume was adjusted by AI to better match this role. It only uses facts from
+                        your original — nothing is invented — but always verify the final version.
+                      </p>
+                    </div>
                   </div>
                 )}
                 {tailorResult?.changes_made && tailorResult.changes_made.length > 0 && (

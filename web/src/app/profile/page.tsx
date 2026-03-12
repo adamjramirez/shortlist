@@ -277,6 +277,11 @@ export default function ProfilePage() {
                         {r.track}
                       </span>
                     )}
+                    {r.resume_type === "pdf" && (
+                      <span className="text-xs text-gray-400">
+                        PDF — tailored resumes use a standard template
+                      </span>
+                    )}
                   </div>
                   <button
                     onClick={() => handleDeleteResume(r.id)}
@@ -297,6 +302,17 @@ export default function ProfilePage() {
               className="hidden"
             />
           </label>
+          <details className="text-xs text-gray-400 mt-1">
+            <summary className="cursor-pointer hover:text-gray-600">
+              💡 LaTeX (.tex) recommended for best results
+            </summary>
+            <p className="mt-1 pl-4 text-gray-500 leading-relaxed">
+              With a .tex resume, Shortlist can surgically edit your actual resume — reordering
+              bullets and adjusting emphasis while preserving your exact formatting. With a PDF,
+              we generate a new tailored resume using a standard template, which won&apos;t match your
+              original design.
+            </p>
+          </details>
         </div>
       </SectionCard>
 

@@ -112,7 +112,7 @@ function Landing() {
             </li>
             <li className="flex gap-3">
               <span className="text-blue-600 shrink-0">→</span>
-              <span><strong className="text-gray-900">Your resume in LaTeX</strong> — needed for resume tailoring. Scoring works without it.</span>
+              <span><strong className="text-gray-900">Your resume</strong> — LaTeX preferred, PDF also works. Needed for resume tailoring; scoring works without it.</span>
             </li>
           </ul>
         </div>
