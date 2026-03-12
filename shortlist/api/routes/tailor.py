@@ -192,7 +192,11 @@ async def download_resume(
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
 ):
-    """Download a tailored resume. Serves PDF when available (default), or .tex source."""
+    """Download a tailored resume. Serves PDF when available (default), or .tex source.
+
+    If format=pdf but no cached PDF exists, compiles on demand from stored .tex.
+    Falls back to .tex if compilation fails.
+    """
     job = await _get_user_job(job_id, user, session)
 
     if not job.tailored_resume_key:
@@ -200,16 +204,41 @@ async def download_resume(
 
     safe_company = job.company.lower().replace(" ", "-")
 
-    # Serve PDF if requested and available
-    if format == "pdf" and job.tailored_resume_pdf_key:
-        data = await storage.get(job.tailored_resume_pdf_key)
-        return Response(
-            content=data,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="tailored-{safe_company}.pdf"'},
-        )
+    # Serve PDF if requested
+    if format == "pdf":
+        # Use cached PDF if available
+        if job.tailored_resume_pdf_key:
+            data = await storage.get(job.tailored_resume_pdf_key)
+            return Response(
+                content=data,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'attachment; filename="tailored-{safe_company}.pdf"'},
+            )
 
-    # Serve .tex (default for LaTeX users, fallback for PDF users)
+        # Compile on demand from stored .tex
+        tex_data = await storage.get(job.tailored_resume_key)
+        tex_source = tex_data.decode("utf-8")
+
+        from shortlist.processors.latex_compiler import compile_latex
+        pdf_bytes = await asyncio.to_thread(compile_latex, tex_source)
+
+        if pdf_bytes:
+            # Cache for future downloads
+            pdf_key = f"{user.id}/tailored/{job_id}.pdf"
+            await storage.put(pdf_key, pdf_bytes)
+            job.tailored_resume_pdf_key = pdf_key
+            await session.commit()
+            logger.info(f"On-demand PDF compiled for job {job_id}: {len(pdf_bytes)} bytes")
+
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'attachment; filename="tailored-{safe_company}.pdf"'},
+            )
+        else:
+            logger.warning(f"On-demand PDF compilation failed for job {job_id}, falling back to .tex")
+
+    # Serve .tex (explicit request, or PDF compilation fallback)
     data = await storage.get(job.tailored_resume_key)
     return Response(
         content=data,

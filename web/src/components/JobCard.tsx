@@ -76,6 +76,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
   const [letterError, setLetterError] = useState("");
   const [copied, setCopied] = useState(false);
   const [clModel, setClModel] = useState("");
+  const [compilingPdf, setCompilingPdf] = useState(false);
 
   const handleExpand = async () => {
     if (expanded) {
@@ -339,43 +340,45 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                 )}
                 {(job.has_tailored_resume || tailorResult) && (
                   <div className="space-y-2">
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        try {
-                          await jobsApi.downloadResume(job.id, job.has_tailored_pdf ? "pdf" : "tex");
-                          analytics.resumeDownloaded(job.id, job.company);
-                        } catch {
-                          setTailorError("Download failed");
-                        }
-                      }}
-                      className="inline-flex items-center rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100"
-                    >
-                      📄 Download Tailored Resume {job.has_tailored_pdf ? "(.pdf)" : "(.tex)"}
-                    </button>
-                    {job.has_tailored_pdf && (
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
                           try {
                             await jobsApi.downloadResume(job.id, "tex");
+                            analytics.resumeDownloaded(job.id, job.company);
                           } catch {
                             setTailorError("Download failed");
                           }
                         }}
-                        className="text-xs text-gray-400 underline hover:text-gray-600"
+                        className="inline-flex items-center rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100"
                       >
-                        Download .tex source
+                        📄 Download .tex
                       </button>
-                    )}
-                    {!job.has_tailored_pdf && (
-                      <p className="text-xs text-gray-400">
-                        This downloads a LaTeX (.tex) file. To convert to PDF, paste it into{" "}
-                        <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer"
-                           className="underline hover:text-gray-600">Overleaf</a>
-                        {" "}or ask ChatGPT / Claude to compile it for you.
-                      </p>
-                    )}
+                      <button
+                        disabled={compilingPdf}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          setCompilingPdf(true);
+                          setTailorError("");
+                          try {
+                            await jobsApi.downloadResume(job.id, "pdf");
+                            analytics.resumeDownloaded(job.id, job.company);
+                          } catch {
+                            setTailorError("PDF compilation failed — download the .tex instead");
+                          } finally {
+                            setCompilingPdf(false);
+                          }
+                        }}
+                        className={`inline-flex items-center rounded border px-3 py-1.5 text-sm font-medium ${
+                          compilingPdf
+                            ? "border-gray-200 bg-gray-50 text-gray-400 cursor-wait"
+                            : "border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
+                        }`}
+                      >
+                        {compilingPdf ? "⏳ Compiling…" : "📑 Download PDF"}
+                      </button>
+                    </div>
                     <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
                       <p className="font-medium">⚠️ Review before sending</p>
                       <p className="mt-0.5 text-amber-700">

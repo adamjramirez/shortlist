@@ -331,3 +331,90 @@ async def test_track_matched_tex_preferred_over_unmatched_pdf(
         # Should be the .tex content (has \documentclass), not the PDF text
         assert "\\documentclass" in resume_text_arg
         assert "Jane TeX Resume" in resume_text_arg
+
+
+@pytest.mark.asyncio
+async def test_download_pdf_compiles_on_demand(
+    client, auth_headers, user_with_tex_resume, test_storage
+):
+    """Requesting format=pdf for a LaTeX-only tailored resume compiles on demand."""
+    fixture = user_with_tex_resume
+    job_id = fixture["job_id"]
+
+    # First, tailor the resume (stores .tex only)
+    with patch("shortlist.api.routes.tailor._configure_llm", return_value="gemini-2.0-flash"), \
+         patch("shortlist.processors.resume.tailor_resume_from_text") as mock_tailor:
+        mock_tailor.return_value = MagicMock(
+            tailored_tex="\\documentclass{article}\\begin{document}Hello\\end{document}",
+            changes_made=["adjusted summary"],
+            interest_note="Nice",
+        )
+        resp = await client.post(f"/api/jobs/{job_id}/tailor", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["filename"].endswith(".tex")
+
+    # Now request PDF download — should compile on demand
+    with patch("shortlist.processors.latex_compiler.compile_latex") as mock_compile:
+        mock_compile.return_value = b"%PDF-fake-compiled-bytes"
+        resp = await client.get(
+            f"/api/jobs/{job_id}/resume?format=pdf", headers=auth_headers
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        assert b"%PDF-fake-compiled-bytes" == resp.content
+        mock_compile.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_download_pdf_compile_failure_falls_back_to_tex(
+    client, auth_headers, user_with_tex_resume, test_storage
+):
+    """If on-demand compilation fails, fall back to .tex download."""
+    fixture = user_with_tex_resume
+    job_id = fixture["job_id"]
+
+    with patch("shortlist.api.routes.tailor._configure_llm", return_value="gemini-2.0-flash"), \
+         patch("shortlist.processors.resume.tailor_resume_from_text") as mock_tailor:
+        mock_tailor.return_value = MagicMock(
+            tailored_tex="\\documentclass{article}\\begin{document}Hello\\end{document}",
+            changes_made=[],
+            interest_note="",
+        )
+        await client.post(f"/api/jobs/{job_id}/tailor", headers=auth_headers)
+
+    with patch("shortlist.processors.latex_compiler.compile_latex") as mock_compile:
+        mock_compile.return_value = None  # compilation fails
+        resp = await client.get(
+            f"/api/jobs/{job_id}/resume?format=pdf", headers=auth_headers
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/x-tex"
+
+
+@pytest.mark.asyncio
+async def test_download_pdf_uses_cached_pdf(
+    client, auth_headers, user_with_pdf_resume, test_storage
+):
+    """If PDF already exists (PDF user), don't recompile — serve cached."""
+    fixture = user_with_pdf_resume
+    job_id = fixture["job_id"]
+
+    with patch("shortlist.api.routes.tailor._configure_llm", return_value="gemini-2.0-flash"), \
+         patch("shortlist.processors.resume.generate_resume_from_text") as mock_gen, \
+         patch("shortlist.processors.latex_compiler.compile_latex") as mock_compile:
+        mock_gen.return_value = MagicMock(
+            tailored_tex="\\documentclass{article}\\begin{document}PDF user\\end{document}",
+            changes_made=[],
+            interest_note="",
+        )
+        mock_compile.return_value = b"%PDF-original-compilation"
+        await client.post(f"/api/jobs/{job_id}/tailor", headers=auth_headers)
+
+    # Download — should NOT call compile_latex again
+    with patch("shortlist.processors.latex_compiler.compile_latex") as mock_compile2:
+        resp = await client.get(
+            f"/api/jobs/{job_id}/resume?format=pdf", headers=auth_headers
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        mock_compile2.assert_not_called()
