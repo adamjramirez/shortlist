@@ -124,7 +124,7 @@ async def generate_profile(
     config = user.profile.config if user.profile else {}
     llm_config = config.get("llm", {})
     encrypted_key = llm_config.get("encrypted_api_key")
-    model = llm_config.get("model", "gemini-2.5-flash")
+    model = llm_config.get("model", "gemini-2.0-flash")
 
     if not encrypted_key and generator is None:
         raise HTTPException(

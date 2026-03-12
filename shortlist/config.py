@@ -189,7 +189,7 @@ def validate_env(project_root: Path, config: "Config | None" = None) -> list[str
     env_vals = dotenv_values(env_path)
 
     # Determine which provider/key we need
-    model = config.llm.model if config else "gemini-2.5-flash"
+    model = config.llm.model if config else "gemini-2.0-flash"
     provider = detect_provider(model)
     env_key = _ENV_KEYS[provider]
     key = env_vals.get(env_key, "") or os.environ.get(env_key, "")
@@ -238,7 +238,7 @@ def test_llm_key(project_root: Path | None = None, config: "Config | None" = Non
     """
     from shortlist.llm import detect_provider, _make_provider
 
-    model = config.llm.model if config else "gemini-2.5-flash"
+    model = config.llm.model if config else "gemini-2.0-flash"
     provider_name = detect_provider(model)
 
     try:

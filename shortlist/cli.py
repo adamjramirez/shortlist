@@ -77,7 +77,7 @@ def init():
     if not env_file.exists():
         env_file.write_text(
             "# LLM API key — set ONE of these based on your config/profile.yaml llm.model setting\n"
-            "# Default model is gemini-2.5-flash (cheapest option)\n"
+            "# Default model is gemini-2.0-flash (cheapest option)\n"
             "GEMINI_API_KEY=your-key-here\n"
             "# OPENAI_API_KEY=your-key-here\n"
             "# ANTHROPIC_API_KEY=your-key-here\n"

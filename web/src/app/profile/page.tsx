@@ -27,6 +27,10 @@ const inputClass =
 const FIT_CONTEXT_PLACEHOLDER = `e.g. I'm a senior backend engineer with 8 years of Python experience. Looking for Staff+ roles at Series B–D startups…`;
 
 const API_KEY_LINKS: Record<string, { label: string; url: string }> = {
+  "gemini-2.0-flash": {
+    label: "Get a Gemini key",
+    url: "https://aistudio.google.com/apikey",
+  },
   "gemini-2.5-flash": {
     label: "Get a Gemini key",
     url: "https://aistudio.google.com/apikey",
@@ -57,7 +61,7 @@ export default function ProfilePage() {
   const [fitContext, setFitContext] = useState("");
   const [tracks, setTracks] = useState<TrackForm[]>([]);
   const [filters, setFilters] = useState<FiltersForm>(defaultFilters());
-  const [llmModel, setLlmModel] = useState("gemini-2.5-flash");
+  const [llmModel, setLlmModel] = useState("gemini-2.0-flash");
   const [apiKey, setApiKey] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [substackSid, setSubstackSid] = useState("");
@@ -73,7 +77,7 @@ export default function ProfilePage() {
       setFitContext(p.fit_context);
       setTracks(jsonToTracks(p.tracks));
       setFilters(jsonToFilters(p.filters));
-      setLlmModel(p.llm?.model || "gemini-2.5-flash");
+      setLlmModel(p.llm?.model || "gemini-2.0-flash");
       setHasApiKey(!!p.llm?.has_api_key);
       setSubstackSid(p.substack_sid || "");
     });
@@ -281,8 +285,11 @@ export default function ProfilePage() {
               }}
               className={inputClass}
             >
+              <option value="gemini-2.0-flash">
+                Gemini 2.0 Flash (recommended — fast &amp; cheap)
+              </option>
               <option value="gemini-2.5-flash">
-                Gemini 2.5 Flash (recommended — fast &amp; cheap)
+                Gemini 2.5 Flash (smarter, slower)
               </option>
               <option value="gpt-4o-mini">GPT-4o Mini</option>
               <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku</option>

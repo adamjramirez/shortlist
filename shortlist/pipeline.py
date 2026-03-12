@@ -162,7 +162,7 @@ def run_pipeline(
                   scored=jobs_scored_so_far + done,
                   total=jobs_scored_so_far + total)
 
-        score_results = score_jobs_parallel(score_inputs, config, max_workers=10, on_scored=_on_scored, cancel_event=cancel_event)
+        score_results = score_jobs_parallel(score_inputs, config, max_workers=3, on_scored=_on_scored, cancel_event=cancel_event)
         _check_cancel()
 
         matches = 0
@@ -439,7 +439,7 @@ def run_pipeline(
         _emit(on_progress, f"Tailoring resumes for {len(tailor_inputs)} top matches (parallel, 10 workers)...", phase="tailoring", detail=f"Tailoring {len(tailor_inputs)} resumes…")
         results = tailor_jobs_parallel(
             tailor_inputs, config, project_root, drafts_dir, today,
-            max_workers=10,
+            max_workers=3,
         )
         tailored_count = 0
         for job_id, tailored, output_path in results:

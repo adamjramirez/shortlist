@@ -63,24 +63,36 @@ def create_app() -> FastAPI:
 
     @app.get("/api/debug/llm-test")
     async def llm_test():
-        """Test LLM connectivity from Fly. Remove after debugging."""
-        import asyncio, os, time, httpx
+        """Test LLM via subprocess curl (same as scorer now)."""
+        import asyncio, os, time, json as _json, subprocess, tempfile
+
         key = os.environ.get("GEMINI_API_KEY", "")
         if not key:
             return {"error": "no key"}
 
-        async def _call():
+        def _call():
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
-            payload = {"contents": [{"parts": [{"text": "Say hi"}]}]}
+            payload = {"contents": [{"parts": [{"text": "Say hello"}]}]}
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                _json.dump(payload, f)
+                path = f.name
             start = time.time()
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(url, json=payload)
+            try:
+                r = subprocess.run(
+                    ["curl", "-s", "-X", "POST", url, "-H", "Content-Type: application/json", "-d", f"@{path}", "--max-time", "15"],
+                    capture_output=True, text=True, timeout=20,
+                )
+                os.unlink(path)
                 elapsed = round(time.time() - start, 1)
-                if resp.status_code == 200:
-                    text = resp.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                    return {"ok": True, "text": text, "time": elapsed}
-                return {"ok": False, "status": resp.status_code, "body": resp.text[:200], "time": elapsed}
+                if r.returncode != 0:
+                    return {"ok": False, "error": r.stderr[:200], "time": elapsed}
+                data = _json.loads(r.stdout)
+                text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                return {"ok": True, "text": text, "time": elapsed}
+            except Exception as e:
+                os.unlink(path)
+                return {"ok": False, "error": str(e), "time": round(time.time() - start, 1)}
 
-        return await _call()
+        return await asyncio.to_thread(_call)
 
     return app

@@ -48,13 +48,40 @@ class GeminiProvider:
         self.api_key = api_key
 
     def call(self, prompt: str, model: str) -> str | None:
-        import httpx
+        """Call Gemini via subprocess to avoid thread/async conflicts."""
+        import subprocess, tempfile
         http._wait(_RATE_LIMIT_DOMAINS["gemini"])
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        resp = httpx.post(url, json=payload, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+            },
+        }
+        if "2.5" in model:
+            payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+
+        # Write payload to temp file, use curl
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(payload, f)
+            payload_path = f.name
+
+        try:
+            result = subprocess.run(
+                ["curl", "-s", "-X", "POST", url,
+                 "-H", "Content-Type: application/json",
+                 "-d", f"@{payload_path}",
+                 "--max-time", "60"],
+                capture_output=True, text=True, timeout=65,
+            )
+            if result.returncode != 0:
+                logger.error(f"curl failed: {result.stderr}")
+                return None
+            data = json.loads(result.stdout)
+        finally:
+            import os as _os
+            _os.unlink(payload_path)
+
         candidates = data.get("candidates", [])
         if not candidates:
             return None
