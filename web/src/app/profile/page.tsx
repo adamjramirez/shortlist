@@ -21,6 +21,7 @@ import { track } from "@/lib/analytics";
 import SectionCard from "@/components/SectionCard";
 import TrackEditor from "@/components/TrackEditor";
 import FiltersEditor from "@/components/FiltersEditor";
+import { ProfileSkeleton } from "@/components/Skeleton";
 
 const inputClass =
   "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
@@ -234,7 +235,7 @@ export default function ProfilePage() {
   };
 
   if (!profile) {
-    return <p className="mt-10 text-center text-gray-400">Loading...</p>;
+    return <ProfileSkeleton />;
   }
 
   const keyLink = API_KEY_LINKS[llmModel];

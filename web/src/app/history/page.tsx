@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { runs as runsApi } from "@/lib/api";
 import type { Run } from "@/lib/types";
+import { HistorySkeleton } from "@/components/Skeleton";
 
 function statusBadge(status: string) {
   const colors: Record<string, string> = {
@@ -33,7 +34,7 @@ export default function HistoryPage() {
   }, [user, authLoading]);
 
   if (loading) {
-    return <p className="mt-10 text-center text-gray-400">Loading...</p>;
+    return <HistorySkeleton />;
   }
 
   return (

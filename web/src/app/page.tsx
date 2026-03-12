@@ -10,6 +10,7 @@ import OnboardingChecklist from "@/components/OnboardingChecklist";
 import JobCard from "@/components/JobCard";
 import RunButton from "@/components/RunButton";
 import { SCORE_VISIBLE, SCORE_STRONG } from "@/lib/constants";
+import { DashboardSkeleton } from "@/components/Skeleton";
 
 function Landing() {
   return (
@@ -172,7 +173,7 @@ function Dashboard() {
   }, [loadData]);
 
   if (loading) {
-    return <p className="mt-10 text-center text-gray-400">Loading...</p>;
+    return <DashboardSkeleton />;
   }
 
   const needsOnboarding =
@@ -266,7 +267,7 @@ export default function Home() {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return <p className="mt-10 text-center text-gray-400">Loading...</p>;
+    return <DashboardSkeleton />;
   }
 
   return user ? <Dashboard /> : <Landing />;

@@ -174,7 +174,11 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
       {expanded && (
         <div className="mt-4 border-t border-gray-100 pt-4">
           {loading ? (
-            <p className="text-sm text-gray-400">Loading...</p>
+            <div className="space-y-3">
+              <div className="h-3 w-3/4 rounded bg-gray-200 animate-pulse" />
+              <div className="h-3 w-1/2 rounded bg-gray-200 animate-pulse" />
+              <div className="h-3 w-2/3 rounded bg-gray-200 animate-pulse" />
+            </div>
           ) : detail ? (
             <div className="space-y-3">
               {detail.score_reasoning && (
