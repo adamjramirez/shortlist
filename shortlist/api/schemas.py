@@ -99,6 +99,7 @@ class JobDetail(JobSummary):
     enrichment: dict | None
     interest_note: str | None = None
     career_page_url: str | None = None
+    cover_letter: str | None = None
     notes: str | None
 
 

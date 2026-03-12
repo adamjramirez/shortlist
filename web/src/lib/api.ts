@@ -178,6 +178,12 @@ export const jobs = {
     a.click();
     URL.revokeObjectURL(url);
   },
+
+  generateCoverLetter: (id: number) =>
+    request<{ cover_letter: string; model_used: string }>(
+      `/jobs/${id}/cover-letter`,
+      { method: "POST" },
+    ),
 };
 
 // --- Runs ---

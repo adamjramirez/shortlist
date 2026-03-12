@@ -99,6 +99,7 @@ class Job(Base):
     tailored_resume_key = Column(String)  # S3 key instead of local path
     interest_note = Column(Text)
     career_page_url = Column(String)
+    cover_letter = Column(Text)
     notes = Column(Text)
     first_briefed = Column(DateTime(timezone=True))
     brief_count = Column(Integer, default=0)

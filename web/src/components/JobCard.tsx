@@ -68,6 +68,11 @@ export default function JobCard({ job, onStatusChange }: Props) {
   const [tailoring, setTailoring] = useState(false);
   const [tailorResult, setTailorResult] = useState<{ changes_made: string[] } | null>(null);
   const [tailorError, setTailorError] = useState("");
+  const [generatingLetter, setGeneratingLetter] = useState(false);
+  const [coverLetter, setCoverLetter] = useState<string | null>(null);
+  const [letterModel, setLetterModel] = useState("");
+  const [letterError, setLetterError] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const handleExpand = async () => {
     if (expanded) {
@@ -348,6 +353,77 @@ export default function JobCard({ job, onStatusChange }: Props) {
                     ))}
                   </ul>
                 )}
+              </div>
+
+              {/* Cover letter */}
+              <div className="pt-2 border-t border-gray-100 space-y-2">
+                {!(detail?.cover_letter || coverLetter) && !generatingLetter && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setGeneratingLetter(true);
+                      setLetterError("");
+                      try {
+                        const result = await jobsApi.generateCoverLetter(job.id);
+                        setCoverLetter(result.cover_letter);
+                        setLetterModel(result.model_used);
+                      } catch (err) {
+                        setLetterError(err instanceof Error ? err.message : "Generation failed");
+                      } finally {
+                        setGeneratingLetter(false);
+                      }
+                    }}
+                    className="rounded border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+                  >
+                    ✍️ Generate Cover Letter
+                  </button>
+                )}
+                {generatingLetter && (
+                  <p className="text-sm text-gray-500 animate-pulse">
+                    ✍️ Writing cover letter (~10s)…
+                  </p>
+                )}
+                {letterError && (
+                  <p className="text-sm text-red-600">{letterError}</p>
+                )}
+                {(detail?.cover_letter || coverLetter) && (() => {
+                  const text = coverLetter || detail?.cover_letter || "";
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium uppercase text-gray-400">
+                          Cover Letter
+                        </p>
+                        <div className="flex items-center gap-2">
+                          {letterModel && (
+                            <span className="text-xs text-gray-400">
+                              via {letterModel}
+                            </span>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(text);
+                              setCopied(true);
+                              setTimeout(() => setCopied(false), 2000);
+                            }}
+                            className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-50"
+                          >
+                            {copied ? "✓ Copied!" : "📋 Copy"}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                        {text}
+                      </div>
+                      <p className="text-xs text-gray-400">
+                        💡 Want a different style? Change your model in{" "}
+                        <a href="/profile" className="underline hover:text-gray-600">Profile settings</a>
+                        {" "}— different models have different writing voices.
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ) : null}

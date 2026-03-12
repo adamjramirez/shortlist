@@ -60,6 +60,7 @@ export interface JobDetail extends JobSummary {
   enrichment: Record<string, unknown> | null;
   interest_note: string | null;
   career_page_url: string | null;
+  cover_letter: string | null;
   notes: string | null;
 }
 

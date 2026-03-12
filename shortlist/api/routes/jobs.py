@@ -85,6 +85,7 @@ def _job_to_detail(job: Job) -> JobDetail:
         enrichment=job.enrichment,
         interest_note=job.interest_note,
         career_page_url=job.career_page_url,
+        cover_letter=job.cover_letter,
         notes=job.notes,
     )
 
