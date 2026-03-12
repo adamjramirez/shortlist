@@ -154,7 +154,9 @@ export default function RunButton({ onComplete, onProgress, onActiveChange }: Pr
       setRun(newRun);
       track.runStarted();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start run");
+      const msg = err instanceof Error ? err.message : "Failed to start run";
+      setError(msg);
+      track.runFailed(msg);
     }
   };
 

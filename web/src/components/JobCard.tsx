@@ -311,7 +311,9 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                         analytics.resumeTailored(job.id, job.company);
                         onStatusChange?.(job.id, "");
                       } catch (err) {
-                        setTailorError(err instanceof Error ? err.message : "Tailoring failed");
+                        const msg = err instanceof Error ? err.message : "Tailoring failed";
+                        setTailorError(msg);
+                        analytics.resumeTailorFailed(job.id, job.company, msg);
                       } finally {
                         setTailoring(false);
                       }
@@ -395,7 +397,9 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                             setLetterModel(result.model_used);
                             analytics.coverLetterGenerated(job.id, result.model_used, job.company, !!(detail?.cover_letter || coverLetter));
                           } catch (err) {
-                            setLetterError(err instanceof Error ? err.message : "Generation failed");
+                            const msg = err instanceof Error ? err.message : "Generation failed";
+                            setLetterError(msg);
+                            analytics.coverLetterFailed(job.id, job.company, msg);
                           } finally {
                             setGeneratingLetter(false);
                           }
@@ -412,7 +416,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                         <select
                           value={clModel}
                           onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => { e.stopPropagation(); setClModel(e.target.value); }}
+                          onChange={(e) => { e.stopPropagation(); setClModel(e.target.value); if (e.target.value) analytics.coverLetterModelChanged(e.target.value); }}
                           className="rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600"
                         >
                           <option value="">Default model</option>
@@ -467,6 +471,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                               e.stopPropagation();
                               navigator.clipboard.writeText(text);
                               setCopied(true);
+                              analytics.coverLetterCopied(job.id, job.company);
                               setTimeout(() => setCopied(false), 2000);
                             }}
                             className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-50"

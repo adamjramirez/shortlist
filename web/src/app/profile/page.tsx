@@ -122,6 +122,12 @@ export default function ProfilePage() {
       setApiKey("");
       setExtraKeys({});
       showToast("API key saved ✓");
+      // Track which providers got keys
+      const mainProvider = llmModel.startsWith("gemini") ? "gemini"
+        : llmModel.startsWith("gpt-") || llmModel.startsWith("o1-") ? "openai"
+        : llmModel.startsWith("claude-") ? "anthropic" : "unknown";
+      if (apiKey) track.apiKeySaved(mainProvider);
+      for (const p of Object.keys(nonEmpty)) track.apiKeySaved(p);
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Failed to save key");
     }
@@ -144,7 +150,9 @@ export default function ProfilePage() {
       track.profileAnalyzed(resumeList[0].id);
       setDirty(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : "Analysis failed");
+      const msg = err instanceof ApiError ? err.detail : "Analysis failed";
+      setError(msg);
+      track.profileAnalysisFailed(msg);
     } finally {
       setAnalyzing(false);
     }
@@ -197,7 +205,9 @@ export default function ProfilePage() {
       track.profileSaved();
     } catch (err) {
       setToast("");
-      setError(err instanceof ApiError ? err.detail : "Failed to save");
+      const msg = err instanceof ApiError ? err.detail : "Failed to save";
+      setError(msg);
+      track.profileSaveFailed(msg);
     } finally {
       setSaving(false);
     }
@@ -211,7 +221,9 @@ export default function ProfilePage() {
       setResumes((prev) => [resume, ...prev]);
       track.resumeUploaded(file.name);
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : "Upload failed");
+      const msg = err instanceof ApiError ? err.detail : "Upload failed";
+      setError(msg);
+      track.resumeUploadFailed(file.name, msg);
     }
     e.target.value = "";
   };

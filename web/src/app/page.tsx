@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { track as analytics } from "@/lib/analytics";
 import { profile as profileApi, resumes as resumesApi, jobs as jobsApi } from "@/lib/api";
 import type { Profile, Resume, JobSummary } from "@/lib/types";
 import OnboardingChecklist from "@/components/OnboardingChecklist";
@@ -100,7 +101,7 @@ function Dashboard() {
         <select
           value={minScore ?? ""}
           onChange={(e) =>
-            setMinScore(e.target.value ? Number(e.target.value) : undefined)
+            { const v = e.target.value ? Number(e.target.value) : undefined; setMinScore(v); analytics.filterChanged("min_score", v); }
           }
           className="rounded border border-gray-300 px-3 py-1.5 text-sm"
         >
@@ -110,7 +111,7 @@ function Dashboard() {
         {tracks.length > 1 && (
           <select
             value={track ?? ""}
-            onChange={(e) => setTrack(e.target.value || undefined)}
+            onChange={(e) => { setTrack(e.target.value || undefined); analytics.filterChanged("track", e.target.value || "all"); }}
             className="rounded border border-gray-300 px-3 py-1.5 text-sm"
           >
             <option value="">All roles</option>

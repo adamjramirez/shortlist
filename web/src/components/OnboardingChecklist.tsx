@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import type { Profile, Resume } from "@/lib/types";
+import { track } from "@/lib/analytics";
 
 interface Props {
   profile: Profile;
@@ -43,6 +45,14 @@ export default function OnboardingChecklist({ profile, resumes }: Props) {
 
   const done = checks.filter((c) => c.done).length;
   const allDone = done === checks.length;
+
+  useEffect(() => {
+    // Track which onboarding step the user is currently on
+    const firstIncomplete = checks.find((c) => !c.done);
+    if (firstIncomplete) {
+      track.onboardingStepViewed(firstIncomplete.label);
+    }
+  }, [done]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="mx-auto max-w-lg">
