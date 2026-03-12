@@ -80,15 +80,18 @@ async def _get_best_resume(user: User, matched_track: str | None,
         )
         resume = result.scalar_one_or_none()
         if resume:
+            logger.info(f"Picked resume by track '{matched_track}': {resume.filename} ({resume.id})")
             data = await storage.get(resume.s3_key)
             return data.decode("utf-8"), resume.filename
 
+    # Fallback: most recent resume (use .first() not .one_or_none() in case of multiple)
     result = await session.execute(
         query.order_by(Resume.uploaded_at.desc())
     )
-    resume = result.scalar_one_or_none()
+    resume = result.scalars().first()
     if not resume:
         raise HTTPException(status_code=400, detail="No resumes uploaded. Upload a .tex resume first.")
+    logger.info(f"Picked most recent resume: {resume.filename} ({resume.id}, {len(resume.s3_key)} key)")
     data = await storage.get(resume.s3_key)
     return data.decode("utf-8"), resume.filename
 
