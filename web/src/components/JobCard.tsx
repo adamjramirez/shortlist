@@ -416,11 +416,19 @@ export default function JobCard({ job, onStatusChange }: Props) {
                       <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
                         {text}
                       </div>
-                      <p className="text-xs text-gray-400">
-                        💡 Want a different style? Change your model in{" "}
-                        <a href="/profile" className="underline hover:text-gray-600">Profile settings</a>
-                        {" "}— different models have different writing voices.
-                      </p>
+                      <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 space-y-1">
+                        <p className="font-medium">⚠️ Review before sending</p>
+                        <p>
+                          This is a strong starting point, not a finished letter. AI can get details wrong
+                          or miss nuance. Read it carefully, add your personal touch, and verify any claims
+                          about the company. The best cover letters have a human voice.
+                        </p>
+                        <p className="text-amber-600">
+                          💡 Want a different tone? Change your model in{" "}
+                          <a href="/profile" className="underline hover:text-amber-700">Profile settings</a>
+                          {" "}— different models write differently.
+                        </p>
+                      </div>
                     </div>
                   );
                 })()}
