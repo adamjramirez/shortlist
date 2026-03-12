@@ -15,6 +15,20 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Global status callback — set by pipeline to surface 429s / backoff to UI
+_status_callback = None
+
+
+def set_status_callback(cb):
+    """Set a callback(message: str) for surfacing HTTP status to the UI."""
+    global _status_callback
+    _status_callback = cb
+
+
+def _notify_status(msg: str):
+    if _status_callback:
+        _status_callback(msg)
+
 # Minimum seconds between requests to each domain
 DOMAIN_LIMITS: dict[str, float] = {
     "jobs.ashbyhq.com": 2.0,
@@ -126,11 +140,12 @@ def get(url: str, *, params: dict | None = None, headers: dict | None = None,
 
 
 def _do_get(url: str, domain: str, params, headers, cookies, timeout,
-            follow_redirects, use_proxy) -> httpx.Response:
-    """Internal GET with rate limiting and optional proxy."""
+            follow_redirects, use_proxy, _retries: int = 0) -> httpx.Response:
+    """Internal GET with rate limiting, optional proxy, and 429 retry."""
     _wait(domain)
     merged_headers = {**DEFAULT_HEADERS, **(headers or {})}
 
+    resp = None
     if use_proxy:
         proxy_url = _next_proxy()
         if proxy_url:
@@ -139,16 +154,29 @@ def _do_get(url: str, domain: str, params, headers, cookies, timeout,
                                   follow_redirects=follow_redirects) as client:
                     resp = client.get(url, params=params, headers=merged_headers,
                                       cookies=cookies)
-                    if resp.status_code != 407:  # proxy auth failure
-                        return resp
-                    logger.warning(f"Proxy auth failed for {domain}, falling back to direct")
+                    if resp.status_code == 407:  # proxy auth failure
+                        logger.warning(f"Proxy auth failed for {domain}, falling back to direct")
+                        resp = None
             except (httpx.ProxyError, httpx.ConnectError) as e:
                 logger.warning(f"Proxy error for {domain}: {e}, falling back to direct")
 
-    return httpx.get(
-        url, params=params, headers=merged_headers,
-        cookies=cookies, timeout=timeout, follow_redirects=follow_redirects,
-    )
+    if resp is None:
+        resp = httpx.get(
+            url, params=params, headers=merged_headers,
+            cookies=cookies, timeout=timeout, follow_redirects=follow_redirects,
+        )
+
+    # 429 retry with exponential backoff (max 3 retries)
+    if resp.status_code == 429 and _retries < 3:
+        retry_after = int(resp.headers.get("Retry-After", 0))
+        backoff = max(retry_after, 10 * (2 ** _retries))  # 10s, 20s, 40s
+        logger.warning(f"429 from {domain}, cooling down {backoff}s (retry {_retries + 1}/3)")
+        _notify_status(f"Rate limited by {domain} — cooling down {backoff}s")
+        time.sleep(backoff)
+        return _do_get(url, domain, params, headers, cookies, timeout,
+                       follow_redirects, use_proxy, _retries + 1)
+
+    return resp
 
 
 def post(url: str, *, json: dict | None = None, headers: dict | None = None,

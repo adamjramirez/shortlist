@@ -483,6 +483,13 @@ def run_pipeline_pg(
 
     _ensure_llm(config)
     conn = pgdb.get_pg_connection(db_url)
+    pgdb.ensure_nextplay_cache_table(conn)
+
+    # Surface HTTP 429s / backoff to the UI via on_progress
+    from shortlist import http as _http
+    def _http_status(msg):
+        _emit(on_progress, msg, phase="pipeline", http_status=msg)
+    _http.set_status_callback(_http_status)
 
     def _check_cancel():
         if cancel_event and cancel_event.is_set():
@@ -512,13 +519,15 @@ def run_pipeline_pg(
         conn.commit()
         return len(new_jobs) - rejected, rejected
 
-    def _fetch_descriptions():
+    def _fetch_descriptions(on_fetch_progress=None):
         needs_desc = pgdb.fetch_jobs(
             conn, user_id, "filtered",
             extra_where="AND sources_seen::text LIKE '%%linkedin%%' AND length(description) < 200",
         )
         if not needs_desc:
             return 0
+
+        total = len(needs_desc)
 
         def _fetch_one(row):
             desc = fetch_description_for_url(row["url"])
@@ -535,6 +544,8 @@ def run_pipeline_pg(
                         fetched += 1
                 except Exception as e:
                     logger.warning(f"Failed to fetch description: {e}")
+                if on_fetch_progress:
+                    on_fetch_progress(fetched, total)
         conn.commit()
         return fetched
 
@@ -608,16 +619,39 @@ def run_pipeline_pg(
         return len(score_inputs), matches, visible
 
     # === Collect from all sources in parallel ===
-    collectors = _get_collectors(config=config, db=None)
+    collectors = _get_collectors(config=config, db=None, pg_db_url=db_url)
+    source_timers: dict[str, float] = {}  # name → start time (monotonic)
     source_progress = {name: {"status": "searching"} for name in collectors}
 
+    def _source_start_timer(name):
+        import time as _time
+        source_timers[name] = _time.monotonic()
+
+    def _source_elapsed(name) -> int:
+        import time as _time
+        start = source_timers.get(name)
+        if start is None:
+            return 0
+        return int(_time.monotonic() - start)
+
     def _emit_sources(**extra):
+        # Attach per-source elapsed times
+        for name in source_progress:
+            source_progress[name]["elapsed"] = _source_elapsed(name)
         _emit(on_progress, "", phase="pipeline",
               sources=dict(source_progress), matches=visible_matches, **extra)
+
+    # Wire NextPlay progress to source_progress
+    if "nextplay" in collectors:
+        def _nextplay_progress(msg):
+            source_progress["nextplay"]["substatus"] = msg
+            _emit_sources(detail=msg)
+        collectors["nextplay"].on_progress = _nextplay_progress
 
     results_queue: queue.Queue = queue.Queue()
 
     def _collect_source(name, collector):
+        _source_start_timer(name)
         source_start = datetime.now().isoformat()
         try:
             logger.info(f"Collecting from {name}...")
@@ -655,8 +689,13 @@ def run_pipeline_pg(
         if passed > 0:
             if needs_descriptions:
                 source_progress[name]["status"] = "fetching"
-                _emit_sources(detail=f"Fetching {passed} job descriptions…")
-                _fetch_descriptions()
+                _emit_sources(detail=f"Fetching job descriptions…")
+
+                def _on_fetch(done, total, _name=name):
+                    source_progress[_name]["fetch_progress"] = f"{done}/{total}"
+                    _emit_sources(detail=f"Fetching descriptions ({done}/{total})…")
+
+                _fetch_descriptions(on_fetch_progress=_on_fetch)
 
             source_progress[name]["status"] = "scoring"
             _emit_sources(detail=f"Scoring {name} jobs…")
@@ -703,9 +742,12 @@ def run_pipeline_pg(
         _emit(on_progress, f"Enriching {len(scored_jobs)} companies...",
               phase="enriching", detail=f"Researching {len(scored_jobs)} companies…")
 
-    for row in scored_jobs:
+    for i, row in enumerate(scored_jobs, 1):
         _check_cancel()
         company = row["company"]
+        _emit(on_progress, f"Researching {company}…",
+              phase="enriching",
+              detail=f"Researching {company} ({i}/{len(scored_jobs)})…")
         intel = pgdb.get_cached_enrichment(conn, user_id, company)
         if not intel:
             intel = enrich_company(company, row["description"] or "")
@@ -827,7 +869,8 @@ def _row_to_raw_job(row) -> RawJob:
     )
 
 
-def _get_collectors(config: Config | None = None, db: sqlite3.Connection | None = None) -> dict:
+def _get_collectors(config: Config | None = None, db: sqlite3.Connection | None = None,
+                    pg_db_url: str | None = None) -> dict:
     """Get all enabled collectors."""
     collectors = {
         "hn": HNCollector(),
@@ -841,7 +884,7 @@ def _get_collectors(config: Config | None = None, db: sqlite3.Connection | None 
     else:
         collectors["linkedin"] = LinkedInCollector(time_filter="r604800")
 
-    collectors["nextplay"] = NextPlayCollector(db=db)
+    collectors["nextplay"] = NextPlayCollector(db=db, pg_db_url=pg_db_url)
 
     return collectors
 

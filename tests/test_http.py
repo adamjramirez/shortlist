@@ -1,6 +1,6 @@
 """Tests for the rate-limited HTTP client."""
 import time
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -19,7 +19,7 @@ class TestRateLimiting:
         """First request to a domain should not sleep."""
         with patch("shortlist.http.time.sleep") as mock_sleep:
             with patch("shortlist.http.httpx.get") as mock_get:
-                mock_get.return_value = "resp"
+                mock_get.return_value = MagicMock(status_code=200)
                 http.get("https://example.com/test")
                 mock_sleep.assert_not_called()
 
@@ -27,7 +27,7 @@ class TestRateLimiting:
         """Second request within the limit window should sleep."""
         with patch("shortlist.http.time.sleep") as mock_sleep:
             with patch("shortlist.http.httpx.get") as mock_get:
-                mock_get.return_value = "resp"
+                mock_get.return_value = MagicMock(status_code=200)
                 http.get("https://example.com/a")
                 http.get("https://example.com/b")
                 assert mock_sleep.call_count == 1
@@ -36,7 +36,7 @@ class TestRateLimiting:
         """Requests to different domains don't block each other."""
         with patch("shortlist.http.time.sleep") as mock_sleep:
             with patch("shortlist.http.httpx.get") as mock_get:
-                mock_get.return_value = "resp"
+                mock_get.return_value = MagicMock(status_code=200)
                 http.get("https://a.example.com/test")
                 http.get("https://b.example.com/test")
                 mock_sleep.assert_not_called()
@@ -51,7 +51,7 @@ class TestRateLimiting:
         """POST requests are also rate limited."""
         with patch("shortlist.http.time.sleep") as mock_sleep:
             with patch("shortlist.http.httpx.post") as mock_post:
-                mock_post.return_value = "resp"
+                mock_post.return_value = MagicMock(status_code=200)
                 http.post("https://example.com/a", json={})
                 http.post("https://example.com/b", json={})
                 assert mock_sleep.call_count == 1
@@ -60,7 +60,7 @@ class TestRateLimiting:
         """reset() allows immediate requests again."""
         with patch("shortlist.http.time.sleep") as mock_sleep:
             with patch("shortlist.http.httpx.get") as mock_get:
-                mock_get.return_value = "resp"
+                mock_get.return_value = MagicMock(status_code=200)
                 http.get("https://example.com/a")
                 http.reset()
                 http.get("https://example.com/b")
@@ -69,7 +69,7 @@ class TestRateLimiting:
     def test_default_headers_applied(self):
         """Requests include default User-Agent header."""
         with patch("shortlist.http.httpx.get") as mock_get:
-            mock_get.return_value = "resp"
+            mock_get.return_value = MagicMock(status_code=200)
             http.get("https://example.com/test")
             headers = mock_get.call_args[1]["headers"]
             assert "User-Agent" in headers

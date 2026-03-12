@@ -8,6 +8,7 @@ Two extraction strategies:
 1. Direct: find ATS links and /careers /jobs paths in articles
 2. Probe: for company homepages, try known ATS slug patterns
 """
+import json
 import logging
 import os
 import re
@@ -81,11 +82,14 @@ class NextPlayCollector:
     """Collects jobs by scraping NextPlay Substack for career page links."""
 
     def __init__(self, substack_sid: str | None = None, max_articles: int = 10,
-                 probe_ats: bool = True, db: sqlite3.Connection | None = None):
+                 probe_ats: bool = True, db: sqlite3.Connection | None = None,
+                 on_progress: callable = None, pg_db_url: str | None = None):
         self.substack_sid = substack_sid or os.getenv("SUBSTACK_SID", "")
         self.max_articles = max_articles
         self.probe_ats = probe_ats
         self.db = db
+        self.on_progress = on_progress
+        self.pg_db_url = pg_db_url  # For system-level ATS cache
         self._seen_slugs: set[str] = set()  # "ats:slug" keys
 
     # Re-crawl articles after this many days (catches updates/edits)
@@ -145,6 +149,10 @@ class NextPlayCollector:
 
         all_jobs = []
 
+        def _progress(msg):
+            if self.on_progress:
+                self.on_progress(msg)
+
         # 1. Fetch from known ATS links (structured APIs)
         ats_urls = [u for u in career_urls if _is_ats_url(u)]
         direct_urls = [u for u in career_urls if not _is_ats_url(u)]
@@ -155,7 +163,8 @@ class NextPlayCollector:
                 f"(no ATS parser): {[u.split('//')[1][:30] for u in direct_urls[:5]]}"
             )
 
-        for url in ats_urls:
+        for i, url in enumerate(ats_urls, 1):
+            _progress(f"Fetching career page {i}/{len(ats_urls)}")
             try:
                 jobs = fetch_career_page(url)
                 all_jobs.extend(jobs)
@@ -174,12 +183,14 @@ class NextPlayCollector:
                 logger.info(
                     f"NextPlay: probing {len(direct_domains)} direct career page domains for ATS boards"
                 )
-                probed_direct = self._probe_homepages(list(direct_domains))
+                _progress(f"Probing {len(direct_domains)} career pages…")
+                probed_direct = self._probe_homepages(list(direct_domains), _progress)
                 all_jobs.extend(probed_direct)
 
         # 3. Probe ATS platforms for company homepages
         if self.probe_ats:
-            probed = self._probe_homepages(homepage_domains)
+            _progress(f"Probing {len(homepage_domains)} company sites…")
+            probed = self._probe_homepages(homepage_domains, _progress)
             all_jobs.extend(probed)
 
         # Mark all new articles as crawled
@@ -329,43 +340,106 @@ class NextPlayCollector:
 
         return career_urls, homepage_domains
 
-    def _probe_homepages(self, domains: list[str]) -> list[RawJob]:
+    def _probe_homepages(self, domains: list[str], on_progress=None) -> list[RawJob]:
         """Discover ATS from company homepages and fetch their jobs.
 
-        Instead of blindly probing all 3 ATS APIs per domain, we visit the
-        company's website, find their careers page, and detect which ATS
-        they actually use — then make a single targeted API call.
+        Uses system-level PG cache (24h TTL) so second user skips all probing.
+        Runs up to 6 domains in parallel via ThreadPoolExecutor.
         """
-        all_jobs = []
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
+        all_jobs = []
+        total = len(domains)
+        done_count = 0
+
+        # Filter out already-seen slugs
+        to_probe = []
         for domain in domains:
-            # Skip if we already have jobs from this company
             slugs = _domain_to_slugs(domain)
             if any(f"{ats}:{slug}" in self._seen_slugs
                    for slug in slugs
                    for ats in ("greenhouse", "lever", "ashby")):
                 continue
+            to_probe.append(domain)
 
-            # Visit the website and discover ATS
-            ats, slug = discover_ats_from_domain(domain)
-            if not ats or not slug:
-                logger.debug(f"NextPlay: no ATS found for {domain}")
-                continue
+        if not to_probe:
+            return all_jobs
 
-            key = f"{ats}:{slug}"
-            if key in self._seen_slugs:
-                continue
-            self._seen_slugs.add(key)
+        total = len(to_probe)
 
-            # Fetch jobs from the discovered ATS
-            fetcher = FETCHERS.get(ats)
-            if fetcher:
+        def _probe_one(domain: str) -> tuple[str, list[RawJob]]:
+            """Probe a single domain. Returns (domain, jobs). Thread-safe."""
+            pg = None
+            try:
+                # Each thread gets its own PG connection for cache
+                if self.pg_db_url:
+                    from shortlist import pgdb
+                    pg = pgdb.get_pg_connection(self.pg_db_url)
+
+                    cached = pgdb.get_cached_ats_discovery(pg, domain)
+                    if cached:
+                        ats, slug = cached["ats"], cached["slug"]
+                        if ats and slug and cached["jobs"]:
+                            jobs_data = cached["jobs"] if isinstance(cached["jobs"], list) else json.loads(cached["jobs"])
+                            jobs = [RawJob(**j) for j in jobs_data]
+                            logger.debug(f"NextPlay cache hit: {domain} → {ats}/{slug} ({len(jobs)} jobs)")
+                            return domain, jobs
+                        return domain, []  # Cached as "no ATS"
+
+                # Discover ATS (the slow part — visits website)
+                ats, slug = discover_ats_from_domain(domain)
+
+                if not ats or not slug:
+                    logger.debug(f"NextPlay: no ATS found for {domain}")
+                    if pg:
+                        pgdb.cache_ats_discovery(pg, domain, None, None, [])
+                    return domain, []
+
+                key = f"{ats}:{slug}"
+                if key in self._seen_slugs:
+                    return domain, []
+                self._seen_slugs.add(key)
+
+                # Fetch jobs from discovered ATS
+                fetcher = FETCHERS.get(ats)
+                jobs = []
+                if fetcher:
+                    try:
+                        jobs = fetcher(slug)
+                        if jobs:
+                            logger.info(f"NextPlay discover: {domain} → {ats}/{slug} → {len(jobs)} jobs")
+                    except Exception as e:
+                        logger.warning(f"NextPlay: failed to fetch {ats}/{slug} for {domain}: {e}")
+
+                # Cache result
+                if pg:
+                    jobs_json = [{"title": j.title, "company": j.company, "url": j.url,
+                                  "source": j.source, "location": j.location or "",
+                                  "description": j.description or "",
+                                  "salary": j.salary or "", "posted_at": j.posted_at or ""}
+                                 for j in jobs]
+                    pgdb.cache_ats_discovery(pg, domain, ats, slug, jobs_json)
+
+                return domain, jobs
+            finally:
+                if pg:
+                    try:
+                        pg.close()
+                    except Exception:
+                        pass
+
+        # Run probes in parallel (6 workers — different domains, no rate limit conflicts)
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {executor.submit(_probe_one, d): d for d in to_probe}
+            for future in as_completed(futures):
+                done_count += 1
                 try:
-                    jobs = fetcher(slug)
+                    domain, jobs = future.result()
                     if jobs:
-                        logger.info(f"NextPlay discover: {domain} → {ats}/{slug} → {len(jobs)} jobs")
                         all_jobs.extend(jobs)
                 except Exception as e:
-                    logger.warning(f"NextPlay: failed to fetch {ats}/{slug} for {domain}: {e}")
+                    logger.warning(f"NextPlay probe failed: {e}")
+                if on_progress and done_count % 5 == 0:
+                    on_progress(f"Probing companies ({done_count}/{total})…")
 
         return all_jobs

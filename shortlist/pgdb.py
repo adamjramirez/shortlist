@@ -130,6 +130,48 @@ def update_job(conn, job_id: int, **fields) -> None:
         )
 
 
+# --- NextPlay cache (system-level, not per-user) ---
+
+def ensure_nextplay_cache_table(conn) -> None:
+    """Create the nextplay_cache table if it doesn't exist."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS nextplay_cache (
+                domain TEXT PRIMARY KEY,
+                ats TEXT,
+                slug TEXT,
+                jobs JSONB,
+                cached_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+    conn.commit()
+
+
+def get_cached_ats_discovery(conn, domain: str, max_age_hours: int = 24) -> dict | None:
+    """Get cached ATS discovery result for a domain. Returns None if expired/missing."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ats, slug, jobs FROM nextplay_cache "
+            "WHERE domain = %s AND cached_at > NOW() - INTERVAL '%s hours'",
+            (domain, max_age_hours),
+        )
+        return cur.fetchone()
+
+
+def cache_ats_discovery(conn, domain: str, ats: str | None, slug: str | None, jobs_json: list) -> None:
+    """Cache ATS discovery result for a domain."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO nextplay_cache (domain, ats, slug, jobs, cached_at) "
+            "VALUES (%s, %s, %s, %s, NOW()) "
+            "ON CONFLICT (domain) DO UPDATE SET "
+            "ats = EXCLUDED.ats, slug = EXCLUDED.slug, "
+            "jobs = EXCLUDED.jobs, cached_at = NOW()",
+            (domain, ats, slug, json.dumps(jobs_json)),
+        )
+    conn.commit()
+
+
 def count_jobs(conn, user_id: int, status: str) -> int:
     """Count jobs for a user by status."""
     with conn.cursor() as cur:

@@ -16,6 +16,9 @@ interface SourceState {
   matches?: number;
   scored?: number;
   error?: string;
+  elapsed?: number;
+  substatus?: string;
+  fetch_progress?: string;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -49,14 +52,19 @@ function SourceRow({ name, state }: { name: string; state: SourceState }) {
       color = "text-blue-500 animate-pulse";
   }
 
+  function fmtTime(s: number): string {
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+  }
+
   // Status detail
   let detail = "";
   if (state.status === "searching") {
-    detail = "searching…";
+    detail = state.substatus || "searching…";
   } else if (state.status === "filtering") {
     detail = `${state.collected} found → filtering…`;
   } else if (state.status === "fetching") {
-    detail = `fetching descriptions…`;
+    detail = state.fetch_progress ? `fetching descriptions (${state.fetch_progress})…` : "fetching descriptions…";
   } else if (state.status === "scoring") {
     detail = `scoring ${state.filtered ?? "?"} jobs…`;
   } else if (state.status === "done") {
@@ -69,11 +77,14 @@ function SourceRow({ name, state }: { name: string; state: SourceState }) {
     detail = state.error || "failed";
   }
 
+  const elapsed = state.elapsed && state.elapsed > 0 && state.status !== "waiting" ? fmtTime(state.elapsed) : "";
+
   return (
     <div className="flex items-center gap-2 text-sm">
       <span className={`text-xs font-bold ${color}`}>{icon}</span>
       <span className="font-medium text-gray-700 w-24">{label}</span>
-      <span className="text-gray-500 text-xs">{detail}</span>
+      <span className="text-gray-500 text-xs flex-1">{detail}</span>
+      {elapsed && <span className="text-gray-300 text-xs tabular-nums">{elapsed}</span>}
     </div>
   );
 }
@@ -155,6 +166,7 @@ export default function RunButton({ onComplete, onProgress }: Props) {
     sources?: Record<string, SourceState>;
     matches?: number;
     elapsed_seconds?: number;
+    http_status?: string;
   };
 
   const sources = progress?.sources;
@@ -185,18 +197,15 @@ export default function RunButton({ onComplete, onProgress }: Props) {
               {Object.entries(sources).map(([name, state]) => (
                 <SourceRow key={name} name={name} state={state} />
               ))}
-              {allSourcesDone && !isEnriching && (
+              {allSourcesDone && (
                 <div className="flex items-center gap-2 text-sm mt-1">
-                  <span className="text-xs font-bold text-blue-500 animate-pulse">◌</span>
+                  <span className={`text-xs font-bold ${isEnriching ? "text-blue-500 animate-pulse" : "text-gray-300"}`}>
+                    {isEnriching ? "◌" : "○"}
+                  </span>
                   <span className="font-medium text-gray-700 w-24">Research</span>
-                  <span className="text-gray-500 text-xs">starting…</span>
-                </div>
-              )}
-              {isEnriching && (
-                <div className="flex items-center gap-2 text-sm mt-1">
-                  <span className="text-xs font-bold text-blue-500 animate-pulse">◌</span>
-                  <span className="font-medium text-gray-700 w-24">Research</span>
-                  <span className="text-gray-500 text-xs">{progress?.detail || "researching companies…"}</span>
+                  <span className="text-gray-500 text-xs">
+                    {isEnriching ? (progress?.detail || "researching companies…") : "waiting…"}
+                  </span>
                 </div>
               )}
             </div>
@@ -208,6 +217,13 @@ export default function RunButton({ onComplete, onProgress }: Props) {
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
               </svg>
               <span className="text-sm text-gray-600">Starting up…</span>
+            </div>
+          )}
+
+          {/* Rate limit warning */}
+          {progress?.http_status && (
+            <div className="text-xs text-amber-600 bg-amber-50 rounded px-2 py-1">
+              ⏳ {progress.http_status}
             </div>
           )}
 
