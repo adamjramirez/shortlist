@@ -12,6 +12,15 @@ Session-by-session progress log. Read this first when resuming work.
 - Cron/launchd for overnight runs
 - 4 recovered location-filter jobs need scoring (status: `new`)
 
+**TODO — Tracking & Observability:**
+- Add PostHog event tracking for cover letter generation (model used, job_id, word count, generation time, QA pass time)
+- Add PostHog event tracking for resume tailoring (job_id, generation time, success/fail)
+- Add PostHog event tracking for profile generation (resume_id, generation time)
+- Backend logging: log cover letter prompt inputs (company, title, model) and QA pass corrections at INFO level
+- Log LaTeX extraction quality (word count before/after, company names detected)
+- Dashboard in PostHog: cover letter generation volume, model popularity, failure rate
+- Track which banned phrases the post-processor catches (to improve the prompt over time)
+
 ---
 
 ## 2026-03-10 — Delivery cleanup + public release
