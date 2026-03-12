@@ -9,6 +9,11 @@ interface Props {
   onProgress?: () => void;
 }
 
+interface Step {
+  key: string;
+  label: string;
+}
+
 export default function RunButton({ onComplete, onProgress }: Props) {
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState("");
@@ -17,7 +22,6 @@ export default function RunButton({ onComplete, onProgress }: Props) {
   const isActive = run && (run.status === "pending" || run.status === "running");
 
   useEffect(() => {
-    // Check for existing active run on mount
     runsApi.list().then((runs) => {
       const active = runs.find(
         (r) => r.status === "pending" || r.status === "running",
@@ -37,7 +41,6 @@ export default function RunButton({ onComplete, onProgress }: Props) {
         const updated = await runsApi.get(runId);
         setRun(updated);
 
-        // Refresh job list when new matches arrive
         const matches = (updated.progress as Record<string, number>)?.matches ?? 0;
         if (matches > lastMatches) {
           lastMatches = matches;
@@ -75,7 +78,6 @@ export default function RunButton({ onComplete, onProgress }: Props) {
       setRun(updated);
       if (intervalRef.current) clearInterval(intervalRef.current);
     } catch {
-      // If cancel fails, force-clear locally so user isn't stuck
       setRun(null);
       if (intervalRef.current) clearInterval(intervalRef.current);
     }
@@ -84,51 +86,77 @@ export default function RunButton({ onComplete, onProgress }: Props) {
   const progress = run?.progress as {
     phase?: string;
     detail?: string;
+    step?: string;
+    steps?: Step[];
     scored?: number;
     total?: number;
-    jobs_found?: number;
-    eta_seconds?: number;
+    matches?: number;
     elapsed_seconds?: number;
   };
 
-  const phaseLabels: Record<string, string> = {
-    starting: "Starting up…",
-    collecting: "Searching job boards…",
-    fetching: "Fetching job details…",
-    "saving results": "Saving results…",
-    done: "Complete!",
-  };
+  // Fallback matches STEPS in worker.py — used before first progress update arrives
+  const steps: Step[] = progress?.steps ?? [
+    { key: "search", label: "Searching job boards" },
+    { key: "score", label: "AI scoring" },
+    { key: "research", label: "Company research" },
+    { key: "done", label: "Complete" },
+  ];
 
-  const phaseLabel =
-    progress?.detail ||
-    phaseLabels[progress?.phase || ""] ||
-    progress?.phase ||
-    run?.status ||
-    "";
+  const currentStep = progress?.step || "search";
+  const currentStepIdx = steps.findIndex((s) => s.key === currentStep);
+  const matches = progress?.matches ?? 0;
+  const elapsed = progress?.elapsed_seconds ?? 0;
 
-  function formatEta(seconds: number): string {
-    if (seconds <= 10) return "almost done";
-    if (seconds < 60) return `~${Math.ceil(seconds / 10) * 10}s left`;
-    const mins = Math.ceil(seconds / 60);
-    return `~${mins} min left`;
+  function formatElapsed(seconds: number): string {
+    if (seconds < 60) return `${seconds}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   }
-
-  // Overall progress fraction for the bar
-  const TOTAL_SECONDS = 195; // sum of phase estimates
-  const etaSeconds = progress?.eta_seconds;
-  const elapsedSeconds = progress?.elapsed_seconds ?? 0;
-  const fraction =
-    etaSeconds !== undefined && etaSeconds + elapsedSeconds > 0
-      ? Math.min(0.95, elapsedSeconds / (elapsedSeconds + etaSeconds))
-      : undefined;
 
   return (
     <div>
       {isActive ? (
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
+        <div className="space-y-3">
+          {/* Step indicators */}
+          <div className="flex items-center gap-1">
+            {steps.filter(s => s.key !== "done").map((step, i) => {
+              const isComplete = i < currentStepIdx;
+              const isCurrent = i === currentStepIdx;
+              return (
+                <div key={step.key} className="flex items-center gap-1">
+                  {i > 0 && (
+                    <div className={`h-px w-4 ${isComplete ? "bg-blue-500" : "bg-gray-200"}`} />
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <div
+                      className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                        isComplete
+                          ? "bg-blue-600 text-white"
+                          : isCurrent
+                            ? "border-2 border-blue-600 text-blue-600"
+                            : "border border-gray-300 text-gray-400"
+                      }`}
+                    >
+                      {isComplete ? "✓" : i + 1}
+                    </div>
+                    <span
+                      className={`text-xs ${
+                        isCurrent ? "font-medium text-gray-900" : "text-gray-400"
+                      }`}
+                    >
+                      {step.label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Current activity */}
+          <div className="flex items-center gap-2">
             <svg
-              className="h-4 w-4 shrink-0 animate-spin text-blue-600"
+              className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-600"
               viewBox="0 0 24 24"
               fill="none"
             >
@@ -147,32 +175,21 @@ export default function RunButton({ onComplete, onProgress }: Props) {
               />
             </svg>
             <span className="text-sm text-gray-600">
-              {phaseLabel}
-              {progress?.scored !== undefined &&
-                progress?.total !== undefined &&
-                progress.total > 0 &&
-                ` (${progress.scored}/${progress.total})`}
+              {progress?.detail || steps[currentStepIdx]?.label || "Working…"}
             </span>
           </div>
-          {/* Progress bar */}
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
-            <div
-              className="h-full rounded-full bg-blue-600 transition-all duration-700 ease-out"
-              style={{ width: `${fraction !== undefined ? fraction * 100 : 5}%` }}
-            />
-          </div>
-          {/* ETA + cancel */}
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-400">
-              {etaSeconds !== undefined && etaSeconds > 0
-                ? formatEta(etaSeconds)
-                : elapsedSeconds > 0
-                  ? "finishing up…"
-                  : "estimating time…"}
-            </p>
+
+          {/* Stats + cancel */}
+          <div className="flex items-center justify-between text-xs text-gray-400">
+            <div className="flex gap-3">
+              {matches > 0 && (
+                <span className="font-medium text-blue-600">{matches} matches</span>
+              )}
+              {elapsed > 0 && <span>{formatElapsed(elapsed)}</span>}
+            </div>
             <button
               onClick={handleCancel}
-              className="text-xs text-gray-400 hover:text-red-500"
+              className="text-gray-400 hover:text-red-500"
             >
               Cancel
             </button>
@@ -195,9 +212,7 @@ export default function RunButton({ onComplete, onProgress }: Props) {
         </p>
       )}
       {run?.status === "cancelled" && (
-        <p className="mt-2 text-sm text-gray-500">
-          Run cancelled
-        </p>
+        <p className="mt-2 text-sm text-gray-500">Run cancelled</p>
       )}
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
     </div>

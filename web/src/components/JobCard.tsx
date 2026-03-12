@@ -4,10 +4,12 @@ import { useState } from "react";
 import type { JobSummary, JobDetail } from "@/lib/types";
 import { jobs as jobsApi } from "@/lib/api";
 
+import { SCORE_STRONG, SCORE_VISIBLE } from "@/lib/constants";
+
 function scoreColor(score: number | null): string {
   if (score === null) return "bg-gray-100 text-gray-600";
-  if (score >= 80) return "bg-green-100 text-green-800";
-  if (score >= 60) return "bg-yellow-100 text-yellow-800";
+  if (score >= SCORE_STRONG) return "bg-green-100 text-green-800";
+  if (score >= SCORE_VISIBLE) return "bg-yellow-100 text-yellow-800";
   return "bg-red-100 text-red-800";
 }
 

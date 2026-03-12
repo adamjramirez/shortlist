@@ -12,6 +12,7 @@ from shortlist.api.schemas import (
     JobStatusUpdate,
     JobSummary,
 )
+from shortlist.config import SCORE_VISIBLE
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -81,8 +82,8 @@ async def list_jobs(
 ):
     # Build filters once, apply to both count and data queries
     filters = [Job.user_id == user.id]
-    # Enforce minimum score of 75 — lower scores stored but not exposed
-    effective_min = max(min_score or 75, 75)
+    # Enforce minimum visible score — lower scores stored but not exposed
+    effective_min = max(min_score or SCORE_VISIBLE, SCORE_VISIBLE)
     filters.append(Job.fit_score >= effective_min)
     if track:
         filters.append(Job.matched_track == track)

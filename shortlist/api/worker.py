@@ -72,7 +72,8 @@ async def _copy_rows_to_pg(async_session, user_id: int, rows: list[dict]) -> tup
 
         await session.commit()
 
-    matches = len([r for r in rows if r["fit_score"] and r["fit_score"] >= 60])
+    from shortlist.config import SCORE_VISIBLE
+    matches = len([r for r in rows if r["fit_score"] and r["fit_score"] >= SCORE_VISIBLE])
     return len(rows), matches
 
 
@@ -168,39 +169,31 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
         import time
         run_start_time = time.monotonic()
 
-        PHASE_ORDER = ["collecting", "filtering", "fetching", "scoring", "enriching", "tailoring", "finishing"]
-        PHASE_SECONDS = {
-            "collecting": 30,
-            "filtering": 5,
-            "fetching": 60,
-            "scoring": 60,
-            "enriching": 40,
-            "tailoring": 25,
-            "finishing": 5,
+        # Map pipeline phases to user-visible steps
+        STEPS = [
+            {"key": "search", "label": "Searching job boards"},
+            {"key": "score", "label": "AI scoring"},
+            {"key": "research", "label": "Company research"},
+            {"key": "done", "label": "Complete"},
+        ]
+        PHASE_TO_STEP = {
+            "collecting": "search",
+            "filtering": "search",
+            "fetching": "score",
+            "scoring": "score",
+            "enriching": "research",
+            "tailoring": "research",
+            "finishing": "done",
         }
 
         def on_progress(data: dict):
             phase = data.get("phase", progress.get("phase", "collecting"))
             elapsed = time.monotonic() - run_start_time
-
-            if phase in PHASE_ORDER:
-                idx = PHASE_ORDER.index(phase)
-                remaining_phases = PHASE_ORDER[idx + 1:]
-                remaining = sum(PHASE_SECONDS.get(p, 0) for p in remaining_phases)
-
-                current_est = PHASE_SECONDS.get(phase, 10)
-                scored = data.get("scored")
-                total = data.get("total")
-                if phase == "scoring" and scored is not None and total and total > 0:
-                    remaining += current_est * (1 - scored / total)
-                else:
-                    remaining += current_est * 0.5
-
-                data["eta_seconds"] = max(0, int(remaining))
-            else:
-                data["eta_seconds"] = 0
+            step = PHASE_TO_STEP.get(phase, "search")
 
             data["elapsed_seconds"] = int(elapsed)
+            data["step"] = step
+            data["steps"] = STEPS
             progress.update(data)
 
         # Cancel event — checked by pipeline at phase boundaries

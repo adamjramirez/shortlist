@@ -8,6 +8,7 @@ import type { Profile, Resume, JobSummary } from "@/lib/types";
 import OnboardingChecklist from "@/components/OnboardingChecklist";
 import JobCard from "@/components/JobCard";
 import RunButton from "@/components/RunButton";
+import { SCORE_VISIBLE, SCORE_STRONG } from "@/lib/constants";
 
 function Landing() {
   return (
@@ -42,7 +43,7 @@ function Dashboard() {
   const [jobList, setJobs] = useState<JobSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [minScore, setMinScore] = useState<number | undefined>(75);
+  const [minScore, setMinScore] = useState<number | undefined>(SCORE_VISIBLE);
   const [track, setTrack] = useState<string | undefined>(undefined);
 
   const loadData = useCallback(async () => {
@@ -102,8 +103,8 @@ function Dashboard() {
           }
           className="rounded border border-gray-300 px-3 py-1.5 text-sm"
         >
-          <option value="75">75+ (matches)</option>
-          <option value="85">85+ (strong)</option>
+          <option value={SCORE_VISIBLE}>{SCORE_VISIBLE}+ (matches)</option>
+          <option value={SCORE_STRONG}>{SCORE_STRONG}+ (strong)</option>
         </select>
         {tracks.length > 1 && (
           <select

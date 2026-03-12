@@ -10,7 +10,7 @@ from shortlist.collectors.base import RawJob
 from shortlist.collectors.hn import HNCollector
 from shortlist.collectors.linkedin import LinkedInCollector
 from shortlist.collectors.nextplay import NextPlayCollector
-from shortlist.config import Config
+from shortlist.config import Config, SCORE_SAVED, SCORE_VISIBLE
 from shortlist import llm
 from shortlist.db import init_db, get_db, upsert_job
 from shortlist.processors.filter import apply_hard_filters
@@ -79,7 +79,8 @@ def run_pipeline(
     jobs_filtered = 0
     llm_calls = 0
     total_scored = 0
-    total_matches = 0
+    total_matches = 0       # >= SCORE_SAVED (stored as "scored" in DB)
+    visible_matches = 0     # >= SCORE_VISIBLE (shown to user)
     max_jobs = config.llm.max_jobs_per_run
     jobs_scored_so_far = 0
 
@@ -136,12 +137,12 @@ def run_pipeline(
         return fetched
 
     def _score_filtered():
-        """Score all filtered jobs up to max_jobs limit. Returns (scored, matches)."""
+        """Score all filtered jobs up to max_jobs limit. Returns (scored, matches, visible)."""
         _check_cancel()
         nonlocal llm_calls, jobs_scored_so_far
         remaining = max_jobs - jobs_scored_so_far
         if remaining <= 0:
-            return 0, 0
+            return 0, 0, 0
 
         filtered_jobs = db.execute(
             "SELECT * FROM jobs WHERE status = 'filtered' ORDER BY first_seen DESC LIMIT ?",
@@ -166,12 +167,15 @@ def run_pipeline(
         _check_cancel()
 
         matches = 0
+        visible = 0
         for row_id, score_result in score_results:
             if score_result:
                 llm_calls += 1
-                status = "scored" if score_result.fit_score >= 60 else "low_score"
-                if score_result.fit_score >= 60:
+                status = "scored" if score_result.fit_score >= SCORE_SAVED else "low_score"
+                if score_result.fit_score >= SCORE_SAVED:
                     matches += 1
+                if score_result.fit_score >= SCORE_VISIBLE:
+                    visible += 1
                 # Apply LLM-corrected title/company/location if provided
                 updates = {
                     "status": status,
@@ -199,7 +203,7 @@ def run_pipeline(
         db.commit()
 
         jobs_scored_so_far += len(score_inputs)
-        return len(score_inputs), matches
+        return len(score_inputs), matches, visible
 
     def _notify_jobs_ready():
         """Tell the worker to copy newly scored jobs to PostgreSQL now."""
@@ -243,10 +247,14 @@ def run_pipeline(
         linkedin_thread = threading.Thread(target=_collect_linkedin, daemon=True)
         linkedin_thread.start()
 
-        # Process fast sources immediately (HN, NextPlay)
+        # Process sources (HN first, then NextPlay which can be slow)
         for name, collector in fast_collectors.items():
             _check_cancel()
             logger.info(f"Collecting from {name}...")
+            _emit(on_progress, f"Searching {name}…",
+                  phase="collecting",
+                  detail=f"Searching {name}… ({total_matches} matches so far)" if total_matches else f"Searching {name}…",
+                  matches=total_matches)
             source_start = datetime.now().isoformat()
             try:
                 jobs = collector.fetch_new()
@@ -273,21 +281,22 @@ def run_pipeline(
                   phase="filtering", detail=f"{passed} passed, {rejected} rejected")
 
             if passed > 0:
-                scored, matches = _score_filtered()
+                scored, matches, vis = _score_filtered()
                 total_scored += scored
                 total_matches += matches
+                visible_matches += vis
                 if scored:
-                    _emit(on_progress, f"  → {total_matches} matches so far",
-                          phase="scoring", detail=f"{total_matches} matches so far",
-                          matches=total_matches)
+                    _emit(on_progress, f"  → {visible_matches} matches so far",
+                          phase="scoring", detail=f"{visible_matches} matches so far",
+                          matches=visible_matches)
                 _notify_jobs_ready()
 
         # Wait for LinkedIn background collection to finish
         if linkedin_collector:
             _check_cancel()
             _emit(on_progress, "Waiting for LinkedIn results…",
-                  phase="collecting", detail=f"Waiting for LinkedIn… ({total_matches} matches so far)",
-                  matches=total_matches)
+                  phase="collecting", detail=f"Searching LinkedIn… ({visible_matches} matches so far)",
+                  matches=visible_matches)
             # Poll with timeout so we can check for cancellation
             while not linkedin_done.wait(timeout=2.0):
                 _check_cancel()
@@ -320,18 +329,19 @@ def run_pipeline(
                             _emit(on_progress, f"  → {fetched} descriptions fetched",
                                   phase="fetching", detail=f"{fetched} descriptions fetched")
 
-                        scored, matches = _score_filtered()
+                        scored, matches, vis = _score_filtered()
                         total_scored += scored
                         total_matches += matches
+                        visible_matches += vis
                         if scored:
-                            _emit(on_progress, f"  → {total_matches} matches total",
-                                  phase="scoring", detail=f"{total_matches} matches total",
-                                  matches=total_matches)
+                            _emit(on_progress, f"  → {visible_matches} matches total",
+                                  phase="scoring", detail=f"{visible_matches} matches total",
+                                  matches=visible_matches)
                         _notify_jobs_ready()
 
-        _emit(on_progress, f"Collection done: {jobs_collected} jobs, {total_matches} matches",
-              phase="collecting", detail=f"Found {total_matches} matches from {jobs_collected} jobs",
-              collected=jobs_collected, matches=total_matches)
+        _emit(on_progress, f"Collection done: {jobs_collected} jobs, {visible_matches} matches",
+              phase="collecting", detail=f"Found {visible_matches} matches from {jobs_collected} jobs",
+              collected=jobs_collected, matches=visible_matches)
     else:
         _emit(on_progress, "Skipping collection (--no-collect)",
               phase="collecting", detail="Skipping collection")
@@ -372,7 +382,7 @@ def run_pipeline(
             if rescore:
                 new_score, delta, reason = rescore
                 llm_calls += 1
-                new_status = "scored" if new_score >= 60 else "low_score"
+                new_status = "scored" if new_score >= SCORE_SAVED else "low_score"
                 db.execute(
                     "UPDATE jobs SET fit_score = ?, status = ?, "
                     "score_reasoning = ? WHERE id = ?",

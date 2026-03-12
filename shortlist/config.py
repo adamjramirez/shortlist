@@ -5,6 +5,11 @@ from typing import Any
 
 import yaml
 
+# --- Score thresholds (single source of truth) ---
+SCORE_SAVED = 60        # Minimum to save as "scored" in DB (vs "low_score")
+SCORE_VISIBLE = 75      # Minimum shown to users in the web UI
+SCORE_STRONG = 85       # "Strong match" tier
+
 
 @dataclass
 class Track:
