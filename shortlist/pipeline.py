@@ -549,17 +549,28 @@ def run_pipeline_pg(
         conn.commit()
         return fetched
 
+    num_sources = len(collectors)
+    _sources_scored = 0
+
     def _score_filtered():
-        """Score filtered jobs. Returns (scored, matches, visible)."""
+        """Score filtered jobs. Returns (scored, matches, visible).
+        
+        Reserves budget for remaining sources so no single source hogs all scoring.
+        """
         _check_cancel()
-        nonlocal llm_calls, jobs_scored_so_far
+        nonlocal llm_calls, jobs_scored_so_far, _sources_scored
         remaining = max_jobs - jobs_scored_so_far
         if remaining <= 0:
             return 0, 0, 0
 
+        # Reserve budget for sources that haven't scored yet
+        sources_left = max(num_sources - _sources_scored, 1)
+        per_source_budget = max(remaining // sources_left, 20)
+        _sources_scored += 1
+
         filtered_jobs = pgdb.fetch_jobs(
             conn, user_id, "filtered",
-            order="first_seen DESC", limit=remaining,
+            order="first_seen DESC", limit=per_source_budget,
         )
 
         score_inputs = [(row["id"], _row_to_raw_job(row)) for row in filtered_jobs]

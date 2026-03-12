@@ -109,10 +109,11 @@ def cache_enrichment(conn, user_id: int, company: str, intel) -> None:
 
 
 def fetch_jobs(conn, user_id: int, status: str, extra_where: str = "",
+               extra_params: list | None = None,
                order: str = "first_seen DESC", limit: int | None = None) -> list[dict]:
     """Fetch jobs for a user by status with optional extra conditions."""
     query = f"SELECT * FROM jobs WHERE user_id = %s AND status = %s {extra_where} ORDER BY {order}"
-    params: list = [user_id, status]
+    params: list = [user_id, status] + (extra_params or [])
     if limit is not None:
         query += " LIMIT %s"
         params.append(limit)
