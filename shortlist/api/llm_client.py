@@ -85,22 +85,39 @@ PROVIDERS = {
 }
 
 
+def _fix_json_escapes(s: str) -> str:
+    """Fix invalid backslash escapes that LLMs produce (e.g. \\$ from LaTeX)."""
+    # Replace invalid \X escapes with \\X (valid JSON escape)
+    # Valid JSON escapes: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX
+    return re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', s)
+
+
 def _extract_json(text: str) -> dict:
     """Extract JSON from LLM response, handling markdown code blocks."""
-    # Try direct parse first
     text = text.strip()
+
+    # Find the JSON blob
+    json_str = None
     if text.startswith("{"):
-        return json.loads(text)
-    # Extract from ```json ... ``` blocks
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if match:
-        return json.loads(match.group(1))
-    # Last resort: find first { to last }
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1:
-        return json.loads(text[start : end + 1])
-    raise ValueError("No JSON found in LLM response")
+        json_str = text
+    else:
+        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if match:
+            json_str = match.group(1)
+        else:
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1:
+                json_str = text[start : end + 1]
+
+    if not json_str:
+        raise ValueError("No JSON found in LLM response")
+
+    # Try direct parse, then fix escapes and retry
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        return json.loads(_fix_json_escapes(json_str))
 
 
 async def _call_gemini(api_key: str, model: str, resume_text: str) -> str:
