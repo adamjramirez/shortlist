@@ -99,6 +99,8 @@ def generate_cover_letter(
     """
     # Extract a readable summary from LaTeX (strip commands, keep content)
     resume_summary = _extract_resume_summary(resume_tex)
+    logger.info(f"Cover letter for {company} / {title} | model: {llm._current_model if hasattr(llm, '_current_model') else 'unknown'}")
+    logger.info(f"Resume extraction ({len(resume_tex)} chars → {len(resume_summary)} chars): {resume_summary[:300]}...")
 
     prompt = COVER_LETTER_PROMPT.format(
         fit_context=fit_context or "Engineering leader seeking senior roles.",
@@ -169,7 +171,12 @@ def _qa_pass(draft: str, title: str, company: str, resume_summary: str) -> str:
     try:
         result = llm.call_llm(prompt)
         if result and len(result.strip()) > 50:
-            return result.strip().strip('"').strip()
+            cleaned = result.strip().strip('"').strip()
+            if cleaned != draft:
+                logger.info(f"QA pass made corrections for {company}")
+            else:
+                logger.info(f"QA pass: no corrections needed for {company}")
+            return cleaned
     except Exception as e:
         logger.warning(f"QA pass failed, using original: {e}")
     return draft
@@ -210,8 +217,13 @@ _BANNED_REPLACEMENTS = [
 
 def _clean_banned_phrases(text: str) -> str:
     """Post-process to catch banned phrases the model ignored."""
+    caught = []
     for old, new in _BANNED_REPLACEMENTS:
-        text = text.replace(old, new)
+        if old in text:
+            caught.append(old)
+            text = text.replace(old, new)
+    if caught:
+        logger.info(f"Post-processor caught: {caught}")
     return text
 
 
