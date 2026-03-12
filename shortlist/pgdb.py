@@ -21,15 +21,16 @@ def get_pg_connection(db_url: str):
 
 
 def upsert_job(conn, user_id: int, job) -> None:
-    """Insert a new job or update last_seen + sources (by user_id + description_hash).
+    """Insert a new job or update last_seen + sources.
 
+    Dedup by: (user_id + description_hash) OR (user_id + url).
     On conflict: updates last_seen, appends source to sources_seen.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id, sources_seen FROM jobs "
-            "WHERE user_id = %s AND description_hash = %s",
-            (user_id, job.description_hash),
+            "WHERE user_id = %s AND (description_hash = %s OR url = %s)",
+            (user_id, job.description_hash, job.url),
         )
         existing = cur.fetchone()
 

@@ -621,6 +621,7 @@ def run_pipeline_pg(
     # === Collect from all sources in parallel ===
     collectors = _get_collectors(config=config, db=None, pg_db_url=db_url)
     source_timers: dict[str, float] = {}  # name → start time (monotonic)
+    source_final_elapsed: dict[str, int] = {}  # name → frozen elapsed when done
     source_progress = {name: {"status": "searching"} for name in collectors}
 
     def _source_start_timer(name):
@@ -628,11 +629,16 @@ def run_pipeline_pg(
         source_timers[name] = _time.monotonic()
 
     def _source_elapsed(name) -> int:
+        if name in source_final_elapsed:
+            return source_final_elapsed[name]
         import time as _time
         start = source_timers.get(name)
         if start is None:
             return 0
         return int(_time.monotonic() - start)
+
+    def _source_freeze_timer(name):
+        source_final_elapsed[name] = _source_elapsed(name)
 
     def _emit_sources(**extra):
         # Attach per-source elapsed times
@@ -676,6 +682,7 @@ def run_pipeline_pg(
         pgdb.log_source_run(conn, user_id, name, source_start, "success", len(jobs_list))
 
         if not jobs_list:
+            _source_freeze_timer(name)
             source_progress[name].update({"status": "done", "collected": 0, "matches": 0})
             _emit_sources(detail=f"{name}: no jobs found")
             return
@@ -708,6 +715,7 @@ def run_pipeline_pg(
         else:
             source_progress[name]["matches"] = 0
 
+        _source_freeze_timer(name)
         source_progress[name]["status"] = "done"
         _emit_sources(detail=f"{name} complete — {source_progress[name]['matches']} matches")
 
@@ -723,6 +731,7 @@ def run_pipeline_pg(
         sources_remaining -= 1
 
         if isinstance(result, Exception):
+            _source_freeze_timer(name)
             errors.append(f"{name}: {str(result)}")
             source_progress[name].update({"status": "failed", "error": str(result)[:100]})
             _emit_sources(detail=f"{name} failed")
