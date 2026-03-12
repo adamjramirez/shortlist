@@ -38,7 +38,7 @@ fly deploy --app shortlist-web
 - **PostgreSQL** on Fly.io — `shortlist-db`
 - **Tigris** (S3-compatible) — resume storage
 - **supervisord** — runs FastAPI (:8001) + Next.js (:3000) in one container
-- **PostHog** (EU) — analytics via reverse proxy
+- **PostHog** (EU) — 26 custom events via reverse proxy (`web/src/lib/analytics.ts`)
 
 ### CLI (frozen)
 - **SQLite** — `jobs.db` (gitignored)
@@ -87,6 +87,7 @@ User clicks "Run now"
 | Components | `components/{JobCard,RunButton,OnboardingChecklist,Nav,...}.tsx` |
 | API client | `lib/api.ts` (fetch wrapper with JWT) |
 | Types | `lib/types.ts`, `lib/profile-types.ts`, `lib/constants.ts` |
+| Analytics | `lib/analytics.ts` (26 PostHog events — actions + errors + onboarding) |
 | Auth | `lib/auth-context.tsx`, `lib/use-require-auth.ts` |
 
 ### DB Tables (PostgreSQL)

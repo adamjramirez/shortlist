@@ -6,17 +6,18 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**Web UI close-the-gap features shipped.** All 3 batches deployed + cover letter generator.
+**PostHog event tracking complete.** 26 custom events covering all user actions + errors + onboarding.
 
 **Not yet done:**
 - Cron/launchd for overnight runs
+- Remove debug endpoints (`/api/debug/llm-test`, `/api/debug/pg-sync-test`)
+- PostHog dashboard setup (funnels, error rates, model popularity)
+- Backend PostHog for server-side metrics (banned phrase tracking, pipeline timing)
 
-**TODO — Tracking & Observability:**
-- Add PostHog event tracking for cover letter generation (model used, job_id, word count, generation time, QA pass time)
-- Add PostHog event tracking for resume tailoring (job_id, generation time, success/fail)
-- Add PostHog event tracking for profile generation (resume_id, generation time)
-- Dashboard in PostHog: cover letter generation volume, model popularity, failure rate
-- Track which banned phrases the post-processor catches (to improve the prompt over time)
+**TODO — Remaining:**
+- Landing page rewrite
+- Loading skeletons, mobile responsiveness, nav active state, pagination
+- Banned phrase post-processor tracking (log which phrases get caught → improve prompt over time)
 
 ---
 
@@ -132,3 +133,37 @@ Session-by-session progress log. Read this first when resuming work.
 1. Set up cron/launchd for overnight pipeline runs
 2. Score the 4 recovered location-filter jobs
 3. Consider adding more sources (Indeed, BuiltIn, etc.) if current yield drops
+
+---
+
+## 2026-03-12 — PostHog event tracking + internal docs refresh
+
+**What got done:**
+1. PostHog custom event tracking — 26 events across all user actions
+2. Error tracking for every failure path (8 error events)
+3. Onboarding funnel tracking (step viewed on checklist render)
+4. Filter change tracking (score threshold + track dropdown)
+5. Cover letter behavior (model changed, copied, failed)
+6. API key saved by provider
+7. CLAUDE.md complete rewrite — web-first architecture, all file locations, deploy workflow
+8. INTENT.md updated — cover letter philosophy, removed personal details, web product framing
+
+**Events added (26 total):**
+- Auth: signed_up, logged_in, signup_failed, login_failed
+- Profile: profile_analyzed, profile_analysis_failed, profile_saved, profile_save_failed, resume_uploaded, resume_upload_failed, api_key_saved
+- Runs: run_started, run_completed (matches), run_cancelled, run_failed
+- Jobs: job_expanded (score, company), job_status_changed, filter_changed (filter, value)
+- Cover letters: cover_letter_generated (model, regenerate), cover_letter_failed, cover_letter_copied, cover_letter_model_changed
+- Resumes: resume_tailored, resume_tailor_failed, resume_downloaded
+- Onboarding: onboarding_step_viewed (step label)
+
+**Key decisions:**
+- Import aliased as `analytics` in JobCard and page.tsx to avoid shadowing local `track` variables
+- Onboarding tracking fires on `done` count change, not every render
+- Error events capture the error message string for grouping in PostHog
+
+**What's next:**
+1. Set up PostHog dashboards (activation funnel, error rates, model popularity)
+2. Remove debug endpoints
+3. Landing page rewrite
+4. Mobile responsiveness + loading skeletons
