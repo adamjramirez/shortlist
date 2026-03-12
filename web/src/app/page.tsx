@@ -142,6 +142,8 @@ function Landing() {
   );
 }
 
+const PER_PAGE = 20;
+
 function Dashboard() {
   const [profileData, setProfile] = useState<Profile | null>(null);
   const [resumeList, setResumes] = useState<Resume[]>([]);
@@ -150,6 +152,7 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [minScore, setMinScore] = useState<number | undefined>(SCORE_VISIBLE);
   const [track, setTrack] = useState<string | undefined>(undefined);
+  const [page, setPage] = useState(1);
   const [runActive, setRunActive] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -157,7 +160,7 @@ function Dashboard() {
       const [p, r, j] = await Promise.all([
         profileApi.get(),
         resumesApi.list(),
-        jobsApi.list({ min_score: minScore, track }),
+        jobsApi.list({ min_score: minScore, track, page, per_page: PER_PAGE }),
       ]);
       setProfile(p);
       setResumes(r);
@@ -166,7 +169,7 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [minScore, track]);
+  }, [minScore, track, page]);
 
   useEffect(() => {
     loadData();
@@ -205,7 +208,7 @@ function Dashboard() {
         <select
           value={minScore ?? ""}
           onChange={(e) =>
-            { const v = e.target.value ? Number(e.target.value) : undefined; setMinScore(v); analytics.filterChanged("min_score", v); }
+            { const v = e.target.value ? Number(e.target.value) : undefined; setMinScore(v); setPage(1); analytics.filterChanged("min_score", v); }
           }
           className="rounded border border-gray-300 px-3 py-1.5 text-sm"
         >
@@ -215,7 +218,7 @@ function Dashboard() {
         {tracks.length > 1 && (
           <select
             value={track ?? ""}
-            onChange={(e) => { setTrack(e.target.value || undefined); analytics.filterChanged("track", e.target.value || "all"); }}
+            onChange={(e) => { setTrack(e.target.value || undefined); setPage(1); analytics.filterChanged("track", e.target.value || "all"); }}
             className="rounded border border-gray-300 px-3 py-1.5 text-sm"
           >
             <option value="">All roles</option>
@@ -238,26 +241,58 @@ function Dashboard() {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {jobList.map((job) => (
-            <JobCard
-              key={job.id}
-              job={job}
-              onStatusChange={() => loadData()}
-              availableProviders={(() => {
-                const providers = new Set(profileData?.llm?.providers_with_keys || []);
-                // Main model's provider always has a key if has_api_key is true
-                if (profileData?.llm?.has_api_key) {
-                  const m = profileData.llm.model || "gemini-2.0-flash";
-                  if (m.startsWith("gemini")) providers.add("gemini");
-                  else if (m.startsWith("gpt-") || m.startsWith("o1-")) providers.add("openai");
-                  else if (m.startsWith("claude-")) providers.add("anthropic");
-                }
-                return Array.from(providers);
-              })()}
-            />
-          ))}
-        </div>
+        <>
+          <div className="space-y-3">
+            {jobList.map((job) => (
+              <JobCard
+                key={job.id}
+                job={job}
+                onStatusChange={() => loadData()}
+                availableProviders={(() => {
+                  const providers = new Set(profileData?.llm?.providers_with_keys || []);
+                  if (profileData?.llm?.has_api_key) {
+                    const m = profileData.llm.model || "gemini-2.0-flash";
+                    if (m.startsWith("gemini")) providers.add("gemini");
+                    else if (m.startsWith("gpt-") || m.startsWith("o1-")) providers.add("openai");
+                    else if (m.startsWith("claude-")) providers.add("anthropic");
+                  }
+                  return Array.from(providers);
+                })()}
+              />
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {total > PER_PAGE && (() => {
+            const totalPages = Math.ceil(total / PER_PAGE);
+            return (
+              <div className="mt-6 flex items-center justify-between">
+                <p className="text-sm text-gray-500">
+                  {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, total)} of {total}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { setPage((p) => Math.max(1, p - 1)); window.scrollTo(0, 0); }}
+                    disabled={page <= 1}
+                    className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    ← Prev
+                  </button>
+                  <span className="text-sm text-gray-500">
+                    {page} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => { setPage((p) => Math.min(totalPages, p + 1)); window.scrollTo(0, 0); }}
+                    disabled={page >= totalPages}
+                    className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </>
       )}
     </div>
   );
