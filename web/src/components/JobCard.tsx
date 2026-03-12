@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { JobSummary, JobDetail } from "@/lib/types";
 import { jobs as jobsApi } from "@/lib/api";
+import { track as analytics } from "@/lib/analytics";
 
 import { SCORE_STRONG, SCORE_VISIBLE } from "@/lib/constants";
 
@@ -90,10 +91,12 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
       }
     }
     setExpanded(true);
+    analytics.jobExpanded(job.id, job.fit_score, job.company);
   };
 
   const handleStatus = async (status: string) => {
     await jobsApi.updateStatus(job.id, status);
+    analytics.jobStatusChanged(job.id, status, job.company);
     onStatusChange?.(job.id, status);
   };
 
@@ -305,6 +308,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                       try {
                         const result = await jobsApi.tailor(job.id);
                         setTailorResult(result);
+                        analytics.resumeTailored(job.id, job.company);
                         onStatusChange?.(job.id, "");
                       } catch (err) {
                         setTailorError(err instanceof Error ? err.message : "Tailoring failed");
@@ -332,6 +336,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                         e.stopPropagation();
                         try {
                           await jobsApi.downloadResume(job.id);
+                          analytics.resumeDownloaded(job.id, job.company);
                         } catch {
                           setTailorError("Download failed");
                         }
@@ -388,6 +393,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                             );
                             setCoverLetter(result.cover_letter);
                             setLetterModel(result.model_used);
+                            analytics.coverLetterGenerated(job.id, result.model_used, job.company, !!(detail?.cover_letter || coverLetter));
                           } catch (err) {
                             setLetterError(err instanceof Error ? err.message : "Generation failed");
                           } finally {

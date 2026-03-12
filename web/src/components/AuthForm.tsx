@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
+import { track } from "@/lib/analytics";
 
 interface Props {
   mode: "login" | "signup";
@@ -25,8 +26,10 @@ export default function AuthForm({ mode }: Props) {
     try {
       if (mode === "login") {
         await login(email, password);
+        track.loggedIn();
       } else {
         await signup(email, password);
+        track.signedUp();
       }
       router.push("/");
     } catch (err) {

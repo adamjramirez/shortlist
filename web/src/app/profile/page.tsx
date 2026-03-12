@@ -17,6 +17,7 @@ import {
   filtersToJson,
   defaultFilters,
 } from "@/lib/profile-types";
+import { track } from "@/lib/analytics";
 import SectionCard from "@/components/SectionCard";
 import TrackEditor from "@/components/TrackEditor";
 import FiltersEditor from "@/components/FiltersEditor";
@@ -140,6 +141,7 @@ export default function ProfilePage() {
       setTracks(jsonToTracks(result.tracks));
       setFilters(jsonToFilters(result.filters));
       setGenerated(true);
+      track.profileAnalyzed(resumeList[0].id);
       setDirty(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Analysis failed");
@@ -192,6 +194,7 @@ export default function ProfilePage() {
       setDirty(false);
       setGenerated(false);
       showToast("Profile saved ✓");
+      track.profileSaved();
     } catch (err) {
       setToast("");
       setError(err instanceof ApiError ? err.detail : "Failed to save");
@@ -206,6 +209,7 @@ export default function ProfilePage() {
     try {
       const resume = await resumesApi.upload(file);
       setResumes((prev) => [resume, ...prev]);
+      track.resumeUploaded(file.name);
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Upload failed");
     }
