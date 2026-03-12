@@ -12,123 +12,153 @@ TDD per `~/.pi/agent/skills/build/SKILL.md`. Test first, watch it fail, make it 
 ### Commands
 
 ```bash
-# Run full pipeline (collect → filter → score → enrich → tailor → brief)
-shortlist run
-
-# Skip collection, process existing jobs only
-shortlist run --no-collect
-
-# Individual steps
-shortlist collect          # Collect from all sources
+# CLI (frozen on SQLite — don't maintain alongside web)
+shortlist run              # Full pipeline
 shortlist brief            # Generate today's brief
-shortlist today            # Print today's brief
 
-# Status tracking
-shortlist status <company> <status>         # e.g. shortlist status "Posit" applied
-shortlist status <id> <status>              # by job ID
-shortlist health                             # Source health check
+# Web (primary development path)
+cd web && npm run dev      # Frontend dev server (port 3000)
+uvicorn shortlist.api.app:create_app --factory --port 8001  # Backend
 
 # Tests
-pytest tests/ -q                             # 256 tests, ~0.4s
-pytest tests/test_filter.py -q               # Just filter tests
+pytest tests/ -q           # 412 tests, ~10s
+cd web && npm run build    # Frontend type check + build
+
+# Deploy
+fly deploy --app shortlist-web
 ```
 
 ---
 
 ## Stack
 
-- **Python 3.11+**, venv at `.venv/`
+### Web (primary)
+- **FastAPI** + **SQLAlchemy** async — backend API at `shortlist/api/`
+- **Next.js 14** App Router + Tailwind — frontend at `web/src/`
+- **PostgreSQL** on Fly.io — `shortlist-db`
+- **Tigris** (S3-compatible) — resume storage
+- **supervisord** — runs FastAPI (:8001) + Next.js (:3000) in one container
+- **PostHog** (EU) — analytics via reverse proxy
+
+### CLI (frozen)
 - **SQLite** — `jobs.db` (gitignored)
-- **Gemini 2.5 Flash** — scoring, enrichment, resume tailoring. Key: `GEMINI_API_KEY` in `.env`
-- **Decodo proxy** — `PROXY_URL` in `.env` (currently unused — Google Jobs blocked)
-- **Click** CLI, **httpx** for HTTP, **google-genai** for Gemini
+- **Click** CLI
+
+### Shared
+- **Gemini 2.0 Flash** (default) — scoring, enrichment, interest notes, cover letters
+- **Per-provider API keys** — users can configure Gemini + OpenAI + Anthropic
+- **subprocess+curl** for Gemini LLM calls — httpx/urllib crash in asyncio.to_thread on Fly.io
+- **Decodo proxy** — residential proxy rotation for LinkedIn (6 endpoints)
 
 ---
 
 ## Architecture
 
-### Pipeline Flow
+### Web Pipeline Flow
 
 ```
-Collect (HN, LinkedIn, NextPlay, Career Pages)
-  → Dedup (SHA-256 description hash)
-  → Filter (location, salary, role type)
-  → Score (Gemini, parallel, 10 workers)
-  → Enrich companies (Gemini, cached 30 days)
-  → Discover ATS from enriched companies
-  → Tailor resumes (Gemini, parallel, 10 workers)
-  → Generate brief (markdown)
+User clicks "Run now"
+  → worker.py: asyncio.to_thread(run_pipeline_pg)
+  → Parallel source collection (HN, LinkedIn, NextPlay via queue.Queue)
+  → Per-source: collect → filter → score → enrich → interest notes → save to PG
+  → Results appear incrementally in UI
 ```
 
-### Key Files
+### Backend Structure
 
 | Area | Files |
 |------|-------|
-| Core | `shortlist/{cli,pipeline,db,config,brief,http}.py` |
-| Collectors | `collectors/{base,hn,linkedin,nextplay,career_page}.py` |
-| Processors | `processors/{filter,scorer,resume,enricher}.py` |
-| Config | `config/profile.yaml`, `.env` |
-| Resumes | `resumes/{ai,em,vp_enterprise,vp_growth}.tex` |
-| Drafts | `resumes/drafts/` (tailored `.tex` + `.note.md` files) |
-| Briefs | `briefs/YYYY-MM-DD.md` |
+| API core | `api/{app,auth,schemas,models,db,deps,crypto}.py` |
+| Routes | `api/routes/{auth,profile,resumes,runs,jobs,tailor}.py` |
+| Worker | `api/worker.py` (in-process, max_jobs_per_run=150) |
+| Storage | `api/storage.py` (Tigris prod, InMemory test) |
+| LLM client | `api/llm_client.py` (profile generation — 7 models registered) |
+| Pipeline | `pipeline.py` (`run_pipeline_pg()` — PG-native) |
+| PG layer | `pgdb.py` (sync psycopg2, nextplay_cache CRUD) |
+| LLM | `llm.py` (subprocess+curl for Gemini, `json_schema` optional param) |
+| Collectors | `collectors/{hn,linkedin,nextplay,career_page}.py` |
+| Processors | `processors/{filter,scorer,enricher,resume,cover_letter}.py` |
 
-### DB Tables
+### Frontend Structure
+
+| Area | Files |
+|------|-------|
+| Pages | `app/{page,login,signup,profile,history}/page.tsx` |
+| Components | `components/{JobCard,RunButton,OnboardingChecklist,Nav,...}.tsx` |
+| API client | `lib/api.ts` (fetch wrapper with JWT) |
+| Types | `lib/types.ts`, `lib/profile-types.ts`, `lib/constants.ts` |
+| Auth | `lib/auth-context.tsx`, `lib/use-require-auth.ts` |
+
+### DB Tables (PostgreSQL)
 
 | Table | Purpose |
 |-------|---------|
-| `jobs` | All collected jobs. Status: new→filtered→scored/low_score/rejected. Has fit_score, enrichment, tailored_resume_path. |
-| `companies` | Enrichment cache. Domain, stage, headcount, ATS platform, Glassdoor. 30-day TTL. |
-| `sources` | Collector registry (hn, linkedin, nextplay). |
-| `source_runs` | Per-source run logs. |
-| `crawled_articles` | NextPlay article URL cache. 7-day TTL. |
-| `probe_cache` | Negative ATS lookup cache. |
-| `run_logs` | Pipeline execution logs. |
+| `users` | Auth (email, bcrypt password hash) |
+| `profiles` | JSON config (fit_context, tracks, filters, llm keys) |
+| `resumes` | Metadata + S3 key to Tigris |
+| `runs` | Pipeline runs (status, progress JSON, timestamps) |
+| `jobs` | Scored jobs (fit_score, enrichment, interest_note, cover_letter, career_page_url, tailored_resume_key) |
+| `companies` | Enrichment cache (30-day TTL) |
+| `nextplay_cache` | System-level ATS discovery cache (24h TTL, shared across users) |
 
-### HTTP & Rate Limiting
+### Key Patterns
 
-**All external requests go through `shortlist/http.py`.** No direct httpx/requests calls anywhere else.
+- **Protocol + fake for all deps** — Storage, ProfileGenerator, DB session
+- **Profile merge semantics** — PUT /profile merges, doesn't replace
+- **`flag_modified()` on JSON columns** — SQLAlchemy won't detect dict mutation
+- **subprocess+curl for Gemini** — httpx sync crashes in asyncio.to_thread on Fly.io
+- **Cancel via threading.Event + DB polling** — flush loop checks DB every 2s
+- **Rate limiter slot reservation** — lock held microseconds, not during sleep
+- **Per-source scoring budget** — `remaining // sources_left`, minimum 20 per source
+- **Score threshold 75 for visibility** — SCORE_SAVED=60 (DB), SCORE_VISIBLE=75 (API), SCORE_STRONG=85
 
-Domain limits in `DOMAIN_LIMITS`:
-- Gemini: 0.5s
-- Greenhouse/Lever/Ashby/LinkedIn/Substack: 2s
-- HN Algolia: 1s
-- Default: 2s
+### Cover Letter Pipeline (3 layers)
 
-### ATS API Patterns
+```
+1. Generate (LLM call with structured prompt)
+   - 4-paragraph format, 250-350 words
+   - Uses extracted resume, company intel, interest note, score reasoning
+   
+2. QA Pass (2nd LLM call)
+   - Catches placeholder names, invented numbers, repeated sentences, grammar
+   
+3. Post-processor (deterministic)
+   - Banned phrase replacement (excited→drawn, spearheaded→led, etc.)
+   - Logs which phrases were caught
+```
 
-| ATS | Endpoint | Notes |
-|-----|----------|-------|
-| Greenhouse | `GET boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true` | Board name via `/v1/boards/{slug}` |
-| Lever | `GET api.lever.co/v0/postings/{slug}` | Returns array. HTML responses = invalid slug. |
-| Ashby | `POST jobs.ashbyhq.com/api/non-user-graphql` | GraphQL. 406 = org doesn't exist (handled silently). |
+### Per-Provider API Keys
 
-### ATS Discovery
-
-`career_page.py` has two strategies:
-1. Visit company website → follow /careers → detect ATS from HTML/redirects/JSON-LD
-2. Try domain slug directly on Greenhouse/Lever (`_probe_greenhouse`, `_probe_lever`)
-
-### Parallel Processing
-
-- `score_jobs_parallel()` — ThreadPoolExecutor(10), DB writes on main thread after
-- `tailor_jobs_parallel()` — Same pattern. 2 LLM calls per job (select + tailor).
-- Tests mock these at the pipeline level, not individual functions.
-
-### Recruiter Detection
-
-`enricher.py` has `JOB_BOARD_COMPANIES` set + `is_job_board()` with prefix matching. Used for:
-- Skipping enrichment (don't enrich Jobgether, they're not the real employer)
-- Brief 🔍 marker
-- Brief dedup (recruiter listings matching direct listings by >50% description overlap get merged)
+Profile config stores:
+- `llm.model` — default model for scoring/pipeline
+- `llm.encrypted_api_key` — legacy single key (backward compat)
+- `llm.api_keys.{gemini,openai,anthropic}` — per-provider encrypted keys
+- Cover letter endpoint accepts `model` override, picks matching provider key
 
 ---
 
 ## Testing
 
-- **256 tests**, ~0.4s, all unit tests
+- **412 tests**, ~10s, all unit tests
 - All tests mock `shortlist.http._wait` to disable rate limiting
-- Pipeline tests mock `score_jobs_parallel` and `tailor_jobs_parallel` (not individual functions)
-- Pipeline tests mock `enrich_company` to skip LLM calls
+- Pipeline tests mock scoring/enrichment (not individual functions)
+- API tests use async SQLAlchemy with in-memory SQLite
+- Fake implementations: `FakeStorage`, `FakeProfileGenerator`
+
+---
+
+## Deploy
+
+```bash
+fly deploy --app shortlist-web    # Builds Docker, runs Alembic, starts supervisord
+fly logs --app shortlist-web --no-tail  # Check logs
+fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB access
+```
+
+**Fly secrets:** DATABASE_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL_S3, AWS_REGION, BUCKET_NAME, TIGRIS_BUCKET, ENCRYPTION_KEY, JWT_SECRET, FLY_WORKER_TOKEN, PROXY_URL, PROXY_URLS, GEMINI_API_KEY
+
+**VM:** shared-cpu-2x / 1024MB  
+**Domain:** shortlist.addslift.com (CNAME → fly.dev)
 
 ---
 
@@ -136,31 +166,12 @@ Domain limits in `DOMAIN_LIMITS`:
 
 - ❌ Making HTTP calls without going through `shortlist.http` — breaks rate limiting
 - ❌ Using `source` column (doesn't exist) — it's `sources_seen` (JSON array)
-- ❌ Assuming career page company names are proper-cased — Greenhouse API returns proper name, Lever/Ashby use slug. Pass `company_name` param.
-- ❌ JSON-parsing Gemini responses with raw LaTeX — backslashes break `json.loads()`. Use `_parse_json()` which has escape-fixing fallbacks.
-- ❌ Filtering too aggressively — permissive filters, let the scorer handle nuance
+- ❌ Calling httpx/urllib sync from threads inside asyncio.to_thread on Fly.io — use subprocess+curl
+- ❌ Using gemini-2.5-flash for scoring — extended thinking makes it hang 60s+. Use 2.0-flash.
+- ❌ Hardcoding JSON schemas in LLM providers — `json_schema` is optional param on `call_llm()`
 - ❌ Enriching recruiter companies — waste of an LLM call, they're not the real employer
-
----
-
-## Environment
-
-```bash
-# .env (gitignored)
-GEMINI_API_KEY=...
-PROXY_URL=http://...@gate.decodo.com:10001    # Currently unused
-SUBSTACK_SID=...                                # Optional, unlocks NextPlay paid articles
-
-# Config
-config/profile.yaml   # max_jobs_per_run: 500, top_n: 30, track definitions
-```
-
----
-
-## Known Limitations
-
-- **Google Jobs:** Proxy can't HTTPS tunnel. No workaround found.
-- **JS-rendered career pages:** Atlassian, Shopify, GitLab, Zillow, Docusign use custom platforms. Would need Playwright.
-- **LinkedIn guest API:** Unauthenticated, fragile, may break anytime. Returns max ~25 results per search.
-- **NextPlay source_run logging:** `_log_source_run` not firing (shows "last run: never").
-- **Recruiter dedup:** Only catches >50% description overlap. Most recruiter listings are too anonymized to match reliably.
+- ❌ Showing jobs with score < 75 to users — enforce SCORE_VISIBLE at API level
+- ❌ Forgetting `flag_modified()` on JSON column mutations in SQLAlchemy
+- ❌ Adding new models without updating BOTH `_CALLERS` and `PROVIDERS` in `llm_client.py`
+- ❌ Assuming LaTeX resumes parse cleanly — backslashes break JSON, fontspec/tabular break extraction
+- ❌ Using `scalar_one_or_none()` when multiple rows possible — use `.scalars().first()`
