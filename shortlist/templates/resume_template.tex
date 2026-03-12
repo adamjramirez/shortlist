@@ -1,0 +1,64 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[top=0.6in,bottom=0.6in,left=0.7in,right=0.7in]{geometry}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+
+% Section formatting
+\titleformat{\section}{\large\bfseries\scshape}{}{0em}{}[\titlerule]
+\titlespacing*{\section}{0pt}{10pt}{6pt}
+
+% Remove page numbers
+\pagestyle{empty}
+
+% Tighter lists
+\setlist[itemize]{nosep, left=0pt..1.5em, label=\textbullet}
+
+\begin{document}
+
+%% --- HEADER ---
+\begin{center}
+  {\LARGE\bfseries FULL NAME} \\[4pt]
+  Location \quad $\mid$ \quad
+  \href{mailto:email@example.com}{email@example.com} \quad $\mid$ \quad
+  Phone \quad $\mid$ \quad
+  \href{https://linkedin.com/in/profile}{LinkedIn}
+\end{center}
+
+%% --- SUMMARY ---
+\section{Summary}
+A brief 2--3 sentence professional summary highlighting key strengths relevant to the target role.
+
+%% --- EXPERIENCE ---
+\section{Experience}
+
+\textbf{Job Title} \hfill \textbf{Start -- End} \\
+\textit{Company Name} \hfill \textit{Location}
+\begin{itemize}
+  \item Accomplishment with measurable impact
+  \item Another accomplishment demonstrating relevant skills
+  \item Third bullet point with concrete results
+\end{itemize}
+
+\vspace{4pt}
+
+\textbf{Job Title} \hfill \textbf{Start -- End} \\
+\textit{Company Name} \hfill \textit{Location}
+\begin{itemize}
+  \item Accomplishment with measurable impact
+  \item Another accomplishment
+\end{itemize}
+
+%% --- EDUCATION ---
+\section{Education}
+
+\textbf{Degree} \hfill \textbf{Year} \\
+\textit{University Name} \hfill \textit{Location}
+
+%% --- SKILLS ---
+\section{Skills}
+\textbf{Technical:} Skill 1, Skill 2, Skill 3 \\
+\textbf{Other:} Skill 4, Skill 5
+
+\end{document}

@@ -83,6 +83,86 @@ Return a JSON object:
 ```"""
 
 
+GENERATE_RESUME_PROMPT = """You are generating a tailored LaTeX resume from extracted text.
+
+## Original Resume Text
+{resume_text}
+
+## Job Description
+**Title:** {title}
+**Company:** {company}
+**Description:**
+{description}
+
+## LaTeX Template
+{template}
+
+## Instructions
+Generate a COMPLETE LaTeX document using the template above, populated with facts from the original resume.
+
+You MUST:
+1. Use ONLY facts from the original resume — no invented experience, skills, or metrics
+2. Reorder and emphasize content that's most relevant to this specific job
+3. Write a 2-3 sentence summary tailored to this role
+4. Keep all job titles, companies, dates, and education exactly as stated
+5. Output a complete, compilable LaTeX document
+
+You MUST NOT:
+- Invent experience, projects, or metrics not in the original
+- Add skills the candidate doesn't have
+- Change job titles, dates, or company names
+- Use packages beyond: article, geometry, enumitem, hyperref, titlesec
+
+Return a JSON object:
+```json
+{{
+    "tailored_tex": "<the full LaTeX document>",
+    "changes_made": ["<list of what was emphasized/reordered>"],
+    "interest_note": "<3 sentences: why the candidate is genuinely interested in this role, based on their real background>"
+}}
+```"""
+
+
+def _load_resume_template() -> str:
+    """Load the built-in resume template."""
+    template_path = Path(__file__).parent.parent / "templates" / "resume_template.tex"
+    return template_path.read_text()
+
+
+def generate_resume_from_text(resume_text: str, job_title: str, job_company: str,
+                               job_description: str) -> TailoredResume | None:
+    """Generate a complete LaTeX resume from extracted text (for PDF users).
+
+    Uses the built-in template + LLM to create a compilable LaTeX document
+    tailored to the target job.
+    """
+    template = _load_resume_template()
+
+    prompt = GENERATE_RESUME_PROMPT.format(
+        resume_text=resume_text,
+        title=job_title,
+        company=job_company,
+        description=job_description[:3000],
+        template=template,
+    )
+
+    result = llm.call_llm(prompt)
+    if not result:
+        return None
+
+    try:
+        data = _parse_tailor_json(result)
+        return TailoredResume(
+            base_resume_path="(generated from text)",
+            tailored_tex=data.get("tailored_tex", ""),
+            changes_made=data.get("changes_made", []),
+            interest_note=data.get("interest_note", ""),
+        )
+    except Exception as e:
+        logger.error(f"Failed to parse generate response: {e}")
+        return None
+
+
 def select_resume(track_key: str, config: Config, job_title: str,
                   job_company: str, job_description: str,
                   project_root: Path) -> Path:

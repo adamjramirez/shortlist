@@ -8,6 +8,7 @@ import pytest
 from shortlist.processors.resume import (
     select_resume, tailor_resume, save_tailored_resume,
     TailoredResume, _extract_summary, _parse_tailor_json,
+    generate_resume_from_text,
 )
 from shortlist.llm import parse_json
 from shortlist.config import Config, Track
@@ -168,6 +169,62 @@ class TestTailorResume:
 
     def test_returns_none_for_missing_file(self, tmp_path):
         result = tailor_resume(tmp_path / "nonexistent.tex", "VP", "X", "Y")
+        assert result is None
+
+
+class TestGenerateResumeFromText:
+    """Tests for PDF user resume generation (text → LaTeX)."""
+
+    SAMPLE_TEXT = (
+        "Jane Smith\n"
+        "Senior Software Engineer\n"
+        "jane@example.com | 555-1234\n\n"
+        "Experience:\n"
+        "Staff Engineer at TechCorp (2020-2024)\n"
+        "- Built distributed systems serving 10M users\n"
+        "- Led migration from monolith to microservices\n\n"
+        "Education:\n"
+        "BS Computer Science, MIT, 2016\n\n"
+        "Skills: Python, Go, Kubernetes, PostgreSQL"
+    )
+
+    @patch("shortlist.llm.call_llm")
+    def test_returns_tailored_resume_with_latex(self, mock_llm):
+        """Given resume text + job, returns TailoredResume with complete LaTeX."""
+        mock_llm.return_value = json.dumps({
+            "tailored_tex": "\\documentclass[11pt]{article}\n\\begin{document}\nJane Smith - tailored\n\\end{document}",
+            "changes_made": ["Emphasized distributed systems experience"],
+            "interest_note": "Jane's background in distributed systems aligns well.",
+        })
+
+        result = generate_resume_from_text(
+            self.SAMPLE_TEXT, "Backend Lead", "ScaleCo", "Build distributed systems"
+        )
+        assert result is not None
+        assert "\\documentclass" in result.tailored_tex
+        assert "Jane Smith" in result.tailored_tex
+        assert len(result.changes_made) > 0
+        assert result.interest_note
+
+    @patch("shortlist.llm.call_llm")
+    def test_prompt_includes_template(self, mock_llm):
+        """The LLM prompt should include the template structure."""
+        mock_llm.return_value = json.dumps({
+            "tailored_tex": "\\documentclass{article}\\begin{document}x\\end{document}",
+            "changes_made": [],
+            "interest_note": "note",
+        })
+
+        generate_resume_from_text(self.SAMPLE_TEXT, "SWE", "Co", "desc")
+        prompt = mock_llm.call_args[0][0]
+        # Template markers should be in the prompt
+        assert "FULL NAME" in prompt
+        assert "\\section{Experience}" in prompt
+
+    @patch("shortlist.llm.call_llm")
+    def test_returns_none_on_llm_failure(self, mock_llm):
+        mock_llm.return_value = None
+        result = generate_resume_from_text(self.SAMPLE_TEXT, "SWE", "Co", "desc")
         assert result is None
 
 
