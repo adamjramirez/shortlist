@@ -100,7 +100,10 @@ def generate_cover_letter(
     # Extract a readable summary from LaTeX (strip commands, keep content)
     resume_summary = _extract_resume_summary(resume_tex)
     logger.info(f"Cover letter for {company} / {title} | model: {llm._current_model if hasattr(llm, '_current_model') else 'unknown'}")
-    logger.info(f"Resume extraction ({len(resume_tex)} chars → {len(resume_summary)} chars): {resume_summary[:300]}...")
+    logger.info(f"Resume extraction ({len(resume_tex)} chars → {len(resume_summary)} chars)")
+    # Log full extraction in chunks so we can debug placeholder issues
+    for i in range(0, min(len(resume_summary), 2000), 500):
+        logger.info(f"Resume [{i}:{i+500}]: {resume_summary[i:i+500]}")
 
     prompt = COVER_LETTER_PROMPT.format(
         fit_context=fit_context or "Engineering leader seeking senior roles.",
