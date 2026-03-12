@@ -5,40 +5,65 @@ from shortlist import llm
 
 logger = logging.getLogger("shortlist.cover_letter")
 
-COVER_LETTER_PROMPT = """Write a compelling, professional cover letter for this specific role. The letter should feel personal and genuine — not templated. Draw on the candidate's actual experience and connect it to what this company specifically needs.
+COVER_LETTER_PROMPT = """Write a cover letter for a {title} role at {company}. It should read like a thoughtful note from a real person — not a template, not a second resume.
 
-## Rules
-- 3-4 paragraphs, ~300 words
-- Opening: Hook that shows you understand the company's mission/challenge — NOT "I am writing to apply for..."
-- Middle: 2-3 specific achievements from the resume that map directly to this role's requirements. Use numbers and outcomes.
-- Closing: Why THIS company at THIS moment in their journey. What you'd do in the first 90 days.
-- Tone: Confident but not arrogant. Specific, not generic. Executive-level if senior role.
-- Do NOT use filler phrases like "I believe I would be a great fit" or "I am excited about the opportunity"
-- Do NOT repeat the job posting back to them
-- Output ONLY the cover letter text (no subject line, no "Dear Hiring Manager" unless it fits naturally, no "[Your Name]" placeholder)
+## What makes a great cover letter
+
+A cover letter answers one question the resume can't: "Why you, why here, why now?"
+
+It's NOT a list of achievements (they already have the resume). It's the *context* around those achievements — the judgment calls, the motivation, the thread connecting your past to their future.
+
+## Structure (4 paragraphs, 250-350 words total)
+
+**Paragraph 1 — The connection (2-3 sentences):**
+Open with something specific about the company that connects to your own experience or values. Show you understand a challenge they face or a direction they're heading. Then bridge: "That's exactly the kind of problem I've been solving."
+
+**Paragraph 2 — Your strongest story (4-5 sentences):**
+Pick ONE achievement from the resume that's most relevant to this role. Don't summarize it — tell the story. What was the situation? What was hard about it? What did you do that someone else wouldn't have? What was the outcome? This paragraph should make them think "I want to hear more about that."
+
+**Paragraph 3 — The pattern (3-4 sentences):**
+Zoom out. Connect 2-3 other experiences briefly (one sentence each) to show this wasn't a one-off — it's a pattern. You consistently do X that they need. Use specific numbers but don't just list them. Weave them into a narrative: "That same approach at [Company] led to..."
+
+**Paragraph 4 — Why now (2-3 sentences):**
+Why this company at this point in their journey, and what specifically you'd want to dig into in the first 90 days. Name a real challenge or opportunity, not a generic "contribute to growth." End with a concrete conversation starter: "I'd love to discuss how..." about a specific topic.
+
+## Tone rules
+- Write like you'd talk to a peer over coffee, then tighten it up one notch.
+- Confidence comes from specifics, not adjectives. "I led" beats "I am a proven leader."
+- Match the seniority — VP roles get strategic voice, IC roles get craft voice.
+- Vary sentence length. Short sentences punch. Longer ones build context.
+
+## Hard rules
+- Do NOT use: "excited about the opportunity," "passionate about," "I believe I would be a great fit," "leverage my experience"
+- Do NOT repeat the job posting requirements back to them
+- Do NOT include [Your Name], placeholders, or "Dear Hiring Manager"
+- Do NOT write bullet points — this is a letter, not a list
+- Do NOT exceed 350 words
+
+---
 
 ## Candidate Background
 {fit_context}
 
-## Resume Summary
+## Resume (key details to draw from)
 {resume_summary}
 
-## Job Details
+## Role
 **Title:** {title}
 **Company:** {company}
 **Description:**
 {description}
 
-## Company Intelligence
+## What we know about {company}
 {company_intel}
 
-## What Makes This a Match
+## Why this is a match
 {match_reasoning}
 
-## Why the Candidate Would Be Interested
+## What would genuinely interest this candidate
 {interest_note}
 
-Write the cover letter now."""
+Write the cover letter. Output ONLY the letter text, nothing else."""
 
 
 def generate_cover_letter(
