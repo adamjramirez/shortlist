@@ -60,7 +60,7 @@ def _job_to_summary(job: Job) -> JobSummary:
         sources_seen=job.sources_seen or [],
         first_seen=job.first_seen.isoformat() if job.first_seen else None,
         has_tailored_resume=bool(job.tailored_resume_key),
-        company_intel=("⚠️ Recruiter/aggregator — actual company unknown"
+        company_intel=(f"⚠️ Posted by {job.company} (recruiter/job board). The actual hiring company isn't listed — no company intel available."
                        if _is_job_board(job.company)
                        else _enrichment_summary(job.enrichment)),
     )
