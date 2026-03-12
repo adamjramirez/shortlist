@@ -45,6 +45,7 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [minScore, setMinScore] = useState<number | undefined>(SCORE_VISIBLE);
   const [track, setTrack] = useState<string | undefined>(undefined);
+  const [runActive, setRunActive] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -91,7 +92,7 @@ function Dashboard() {
           <h1 className="text-2xl font-bold text-gray-900">Your matches</h1>
           <p className="text-sm text-gray-500">{total} jobs scored</p>
         </div>
-        <RunButton onComplete={loadData} onProgress={loadData} />
+        <RunButton onComplete={loadData} onProgress={loadData} onActiveChange={setRunActive} />
       </div>
 
       {/* Filters */}
@@ -126,7 +127,9 @@ function Dashboard() {
       {jobList.length === 0 ? (
         <div className="rounded-lg border border-gray-200 bg-white p-8 text-center">
           <p className="text-gray-500">
-            No jobs yet. Click &quot;Run now&quot; to start your first search.
+            {runActive
+              ? "Searching — matches will appear here as they're found…"
+              : "No jobs yet. Click \"Run now\" to start your first search."}
           </p>
         </div>
       ) : (

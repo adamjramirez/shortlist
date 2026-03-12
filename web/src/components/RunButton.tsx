@@ -7,6 +7,7 @@ import type { Run } from "@/lib/types";
 interface Props {
   onComplete?: () => void;
   onProgress?: () => void;
+  onActiveChange?: (active: boolean) => void;
 }
 
 interface SourceState {
@@ -89,12 +90,16 @@ function SourceRow({ name, state }: { name: string; state: SourceState }) {
   );
 }
 
-export default function RunButton({ onComplete, onProgress }: Props) {
+export default function RunButton({ onComplete, onProgress, onActiveChange }: Props) {
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState("");
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const isActive = run && (run.status === "pending" || run.status === "running");
+
+  useEffect(() => {
+    onActiveChange?.(!!isActive);
+  }, [isActive, onActiveChange]);
 
   useEffect(() => {
     runsApi.list().then((runs) => {
