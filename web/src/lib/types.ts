@@ -34,6 +34,7 @@ export interface Resume {
   id: number;
   filename: string;
   track: string | null;
+  resume_type: string;
   uploaded_at: string;
 }
 
@@ -51,6 +52,7 @@ export interface JobSummary {
   sources_seen: string[];
   first_seen: string | null;
   has_tailored_resume: boolean;
+  has_tailored_pdf: boolean;
   is_new: boolean;
   company_intel: string | null;
 }

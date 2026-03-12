@@ -2,6 +2,18 @@
 import pytest
 
 
+def _make_test_pdf(text: str) -> bytes:
+    """Create a minimal valid PDF with extractable text."""
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+    for line in text.split("\n"):
+        pdf.cell(0, 10, line, new_x="LMARGIN", new_y="NEXT")
+    return pdf.output()
+
+
 @pytest.mark.asyncio
 async def test_upload_resume(client, auth_headers, monkeypatch):
     monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
@@ -62,10 +74,56 @@ async def test_delete_resume(client, auth_headers, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_upload_non_tex_rejected(client, auth_headers):
+async def test_upload_tex_returns_resume_type(client, auth_headers, monkeypatch):
+    monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
+    content = b"\\documentclass{article}\n\\begin{document}\nHello\n\\end{document}"
     resp = await client.post(
         "/api/resumes",
-        files={"file": ("resume.pdf", b"fake pdf", "application/pdf")},
+        files={"file": ("resume.tex", content, "application/x-tex")},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["resume_type"] == "tex"
+
+
+@pytest.mark.asyncio
+async def test_upload_pdf_resume(client, auth_headers, monkeypatch):
+    monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
+
+    pdf_bytes = bytes(_make_test_pdf("Adam Ramirez\nSenior Engineering Manager\n8 years Python"))
+
+    resp = await client.post(
+        "/api/resumes",
+        files={"file": ("resume.pdf", pdf_bytes, "application/pdf")},
+        data={"track": "em"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["filename"] == "resume.pdf"
+    assert data["resume_type"] == "pdf"
+
+
+@pytest.mark.asyncio
+async def test_upload_empty_pdf_rejected(client, auth_headers, monkeypatch):
+    monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
+
+    # A PDF with no extractable text (just header bytes)
+    resp = await client.post(
+        "/api/resumes",
+        files={"file": ("empty.pdf", b"%PDF-1.4 empty", "application/pdf")},
+        data={"track": "em"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_upload_non_tex_or_pdf_rejected(client, auth_headers):
+    resp = await client.post(
+        "/api/resumes",
+        files={"file": ("resume.doc", b"fake doc", "application/msword")},
         data={"track": "em"},
         headers=auth_headers,
     )

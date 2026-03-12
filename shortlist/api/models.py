@@ -66,6 +66,8 @@ class Resume(Base):
     filename = Column(String, nullable=False)
     track = Column(String)
     s3_key = Column(String, nullable=False)
+    resume_type = Column(String, default="tex")  # "tex" or "pdf"
+    extracted_text_key = Column(String)  # S3 key for extracted text (PDF only)
     uploaded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="resumes")
@@ -97,6 +99,7 @@ class Job(Base):
     enrichment = Column(JSON)
     enriched_at = Column(DateTime(timezone=True))
     tailored_resume_key = Column(String)  # S3 key instead of local path
+    tailored_resume_pdf_key = Column(String)  # S3 key for compiled PDF
     interest_note = Column(Text)
     career_page_url = Column(String)
     cover_letter = Column(Text)

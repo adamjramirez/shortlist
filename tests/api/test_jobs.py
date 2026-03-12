@@ -151,6 +151,28 @@ async def test_list_jobs_by_user_status(client, auth_headers, user_with_jobs):
 
 
 @pytest.mark.asyncio
+async def test_job_has_tailored_pdf_field(client, auth_headers, user_with_jobs, session_factory):
+    """Jobs response includes has_tailored_pdf, reflecting tailored_resume_pdf_key."""
+    listing = await client.get("/api/jobs", headers=auth_headers)
+    job = listing.json()["jobs"][0]
+    assert job["has_tailored_pdf"] is False
+
+    # Set a PDF key directly in DB
+    async with session_factory() as s:
+        async with s.begin():
+            from sqlalchemy import update
+            await s.execute(
+                update(Job).where(Job.id == job["id"]).values(
+                    tailored_resume_pdf_key="1/tailored/1.pdf"
+                )
+            )
+
+    listing2 = await client.get("/api/jobs", headers=auth_headers)
+    updated = [j for j in listing2.json()["jobs"] if j["id"] == job["id"]][0]
+    assert updated["has_tailored_pdf"] is True
+
+
+@pytest.mark.asyncio
 async def test_jobs_require_auth(client):
     assert (await client.get("/api/jobs")).status_code == 401
     assert (await client.get("/api/jobs/1")).status_code == 401

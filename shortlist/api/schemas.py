@@ -69,6 +69,7 @@ class ResumeResponse(BaseModel):
     id: int
     filename: str
     track: str | None
+    resume_type: str = "tex"
     uploaded_at: str
 
 
@@ -88,6 +89,7 @@ class JobSummary(BaseModel):
     sources_seen: list[str]
     first_seen: str | None
     has_tailored_resume: bool
+    has_tailored_pdf: bool = False
     is_new: bool = False
     company_intel: str | None  # One-line summary from enrichment
 

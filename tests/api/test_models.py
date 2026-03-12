@@ -105,6 +105,60 @@ async def test_create_resume(session):
 
 
 @pytest.mark.asyncio
+async def test_resume_type_defaults_to_tex(session):
+    user = User(email="rtype@example.com", password_hash="hash")
+    session.add(user)
+    await session.flush()
+
+    resume = Resume(
+        user_id=user.id, filename="cv.tex",
+        s3_key=f"{user.id}/resumes/cv.tex",
+    )
+    session.add(resume)
+    await session.flush()
+
+    assert resume.resume_type == "tex"
+    assert resume.extracted_text_key is None
+
+
+@pytest.mark.asyncio
+async def test_resume_pdf_type_with_extracted_text(session):
+    user = User(email="rpdf@example.com", password_hash="hash")
+    session.add(user)
+    await session.flush()
+
+    resume = Resume(
+        user_id=user.id, filename="cv.pdf",
+        s3_key=f"{user.id}/resumes/cv.pdf",
+        resume_type="pdf",
+        extracted_text_key=f"{user.id}/resumes/cv.pdf.txt",
+    )
+    session.add(resume)
+    await session.flush()
+
+    assert resume.resume_type == "pdf"
+    assert resume.extracted_text_key == f"{user.id}/resumes/cv.pdf.txt"
+
+
+@pytest.mark.asyncio
+async def test_job_tailored_resume_pdf_key(session):
+    user = User(email="jpdf@example.com", password_hash="hash")
+    session.add(user)
+    await session.flush()
+
+    job = Job(
+        user_id=user.id, title="SRE", company="Co",
+        description_hash="hash1",
+        tailored_resume_key=f"{user.id}/tailored/1.tex",
+        tailored_resume_pdf_key=f"{user.id}/tailored/1.pdf",
+    )
+    session.add(job)
+    await session.flush()
+
+    assert job.tailored_resume_pdf_key == f"{user.id}/tailored/1.pdf"
+
+
+@pytest.mark.asyncio
 async def test_create_job(session):
     user = User(email="job@example.com", password_hash="hash")
     session.add(user)

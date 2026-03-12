@@ -1,4 +1,7 @@
-"""Resume routes — upload, list, delete LaTeX resumes."""
+"""Resume routes — upload, list, delete resumes (.tex or .pdf)."""
+import io
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,14 +12,31 @@ from shortlist.api.models import Resume, User
 from shortlist.api.schemas import ResumeResponse
 from shortlist.api.storage import Storage, get_storage
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/resumes", tags=["resumes"])
 
 MAX_FILE_SIZE = 1024 * 1024  # 1MB
+ALLOWED_EXTENSIONS = (".tex", ".pdf")
+
+
+def _extract_pdf_text(data: bytes) -> str:
+    """Extract text from PDF bytes. Lazy-imports pdfplumber."""
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(data)) as pdf:
+        pages = []
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                pages.append(text)
+        return "\n\n".join(pages)
 
 
 def _resume_to_response(r: Resume) -> ResumeResponse:
     return ResumeResponse(
         id=r.id, filename=r.filename, track=r.track,
+        resume_type=r.resume_type or "tex",
         uploaded_at=r.uploaded_at.isoformat(),
     )
 
@@ -29,21 +49,44 @@ async def upload_resume(
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
 ):
-    if not file.filename or not file.filename.endswith(".tex"):
-        raise HTTPException(status_code=400, detail="Only .tex files accepted")
+    if not file.filename or not file.filename.endswith(ALLOWED_EXTENSIONS):
+        raise HTTPException(status_code=400, detail="Only .tex and .pdf files accepted")
 
     data = await file.read()
     if len(data) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File exceeds 1MB limit")
 
+    is_pdf = file.filename.endswith(".pdf")
     s3_key = f"{user.id}/resumes/{file.filename}"
-    await storage.put(s3_key, data)
+    extracted_text_key = None
+    resume_type = "tex"
+
+    if is_pdf:
+        resume_type = "pdf"
+        try:
+            extracted = _extract_pdf_text(data)
+        except Exception as e:
+            logger.warning(f"PDF text extraction failed for {file.filename}: {e}")
+            raise HTTPException(status_code=400, detail="Could not read this PDF. Try a different file.")
+
+        if not extracted or not extracted.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from this PDF. It may be image-based or empty.")
+
+        # Store both the PDF and extracted text
+        await storage.put(s3_key, data)
+        extracted_text_key = f"{user.id}/resumes/{file.filename}.txt"
+        await storage.put(extracted_text_key, extracted.encode("utf-8"))
+        logger.info(f"PDF uploaded: {file.filename} → {len(extracted)} chars extracted")
+    else:
+        await storage.put(s3_key, data)
 
     resume = Resume(
         user_id=user.id,
         filename=file.filename,
         track=track,
         s3_key=s3_key,
+        resume_type=resume_type,
+        extracted_text_key=extracted_text_key,
     )
     session.add(resume)
     await session.flush()
