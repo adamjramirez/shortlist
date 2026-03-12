@@ -36,30 +36,30 @@ FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "cv-pdfs"
 # ---------------------------------------------------------------------------
 
 PDF_EXPECTATIONS = {
-    # Real XeLaTeX CVs — have spacing issues but key info survives
+    # Real XeLaTeX CVs — PyMuPDF handles custom fonts (EB Garamond, Lato) cleanly
     "adam_ramirez_cv_ai_builder.pdf": {
         "min_chars": 1500,
-        "must_contain": ["Adam", "Ramirez", "Universal"],
-        "should_contain": ["Dallas", "YOLOv8", "AI"],  # may be glued: "YOLOv8computervision"
-        "known_issues": ["spaces missing in kerned text"],
+        "must_contain": ["Adam Joseph Ramirez", "Universal Music Group", "Engineering leader"],
+        "should_contain": ["Dallas", "YOLOv8", "AI", "FAISS", "FishML"],
+        "known_issues": [],
     },
     "adam_ramirez_cv_enterprise.pdf": {
         "min_chars": 1500,
-        "must_contain": ["Adam", "Ramirez", "Universal"],
-        "should_contain": ["Dallas", "AWS", "migration"],
-        "known_issues": ["spaces missing in kerned text"],
+        "must_contain": ["Adam Joseph Ramirez", "Universal Music Group", "Engineering leader"],
+        "should_contain": ["Dallas", "AWS migration", "budget"],
+        "known_issues": [],
     },
     "adam_ramirez_cv_growth.pdf": {
         "min_chars": 1500,
-        "must_contain": ["Adam", "Ramirez"],
-        "should_contain": ["AppStore", "Universal"],  # glued text
-        "known_issues": ["spaces missing in kerned text"],
+        "must_contain": ["Adam Joseph Ramirez", "Universal Music Group"],
+        "should_contain": ["App Store", "FishML", "Dallas"],
+        "known_issues": [],
     },
     "adam_ramirez_cv_technical.pdf": {
         "min_chars": 1500,
-        "must_contain": ["Adam", "Ramirez"],
-        "should_contain": ["YOLOv8", "Universal", "FAISS"],
-        "known_issues": ["spaces missing in kerned text"],
+        "must_contain": ["Adam Joseph Ramirez", "Universal Music Group"],
+        "should_contain": ["YOLOv8", "FAISS", "RAG"],
+        "known_issues": [],
     },
     # Synthetic PDFs — clean extraction expected
     "simple_single_column.pdf": {

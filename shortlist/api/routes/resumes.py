@@ -1,5 +1,4 @@
 """Resume routes — upload, list, delete resumes (.tex or .pdf)."""
-import io
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
@@ -21,16 +20,21 @@ ALLOWED_EXTENSIONS = (".tex", ".pdf")
 
 
 def _extract_pdf_text(data: bytes) -> str:
-    """Extract text from PDF bytes. Lazy-imports pdfplumber."""
-    import pdfplumber
+    """Extract text from PDF bytes using PyMuPDF.
 
-    with pdfplumber.open(io.BytesIO(data)) as pdf:
-        pages = []
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text:
-                pages.append(text)
-        return "\n\n".join(pages)
+    PyMuPDF handles custom fonts (fontspec/XeLaTeX) much better than
+    pdfplumber — preserves word boundaries regardless of font or kerning.
+    """
+    import pymupdf
+
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    pages = []
+    for page in doc:
+        text = page.get_text()
+        if text and text.strip():
+            pages.append(text.strip())
+    doc.close()
+    return "\n\n".join(pages)
 
 
 def _resume_to_response(r: Resume) -> ResumeResponse:
