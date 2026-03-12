@@ -22,12 +22,8 @@ from shortlist.api.models import Run, Job, Company
 logger = logging.getLogger(__name__)
 
 
-async def _copy_jobs_to_pg(async_session, user_id: int, sqlite_db: sqlite3.Connection) -> tuple[int, int]:
-    """Copy jobs from SQLite to PostgreSQL. Returns (total_copied, matches)."""
-    rows = sqlite_db.execute(
-        "SELECT * FROM jobs WHERE status IN ('scored', 'low_score', 'filtered', 'rejected')"
-    ).fetchall()
-
+async def _copy_rows_to_pg(async_session, user_id: int, rows: list[dict]) -> tuple[int, int]:
+    """Copy job rows (plain dicts) to PostgreSQL. Returns (total_copied, matches)."""
     async with async_session() as session:
         for row in rows:
             existing = await session.execute(
@@ -213,16 +209,28 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
 
         # Incremental save: called from sync thread after each source is scored
         loop = asyncio.get_event_loop()
-        sqlite_db_ref = [None]  # mutable ref so sync callback can access it
 
         def on_jobs_ready(sqlite_db):
-            """Copy newly scored jobs to PostgreSQL immediately."""
-            sqlite_db_ref[0] = sqlite_db
+            """Copy newly scored jobs to PostgreSQL immediately.
+            
+            Reads SQLite in the current (pipeline) thread, then sends
+            plain dicts to the async loop for PG insertion.
+            """
+            try:
+                rows = sqlite_db.execute(
+                    "SELECT * FROM jobs WHERE status IN ('scored', 'low_score', 'filtered', 'rejected')"
+                ).fetchall()
+                # Convert sqlite3.Row to plain dicts in this thread
+                row_dicts = [dict(r) for r in rows]
+            except Exception as e:
+                logger.warning(f"Incremental job copy - SQLite read failed: {e}")
+                return
+
             future = asyncio.run_coroutine_threadsafe(
-                _copy_jobs_to_pg(async_session, user_id, sqlite_db), loop
+                _copy_rows_to_pg(async_session, user_id, row_dicts), loop
             )
             try:
-                future.result(timeout=30)  # block sync thread until copy done
+                future.result(timeout=30)
             except Exception as e:
                 logger.warning(f"Incremental job copy failed: {e}")
 
@@ -272,10 +280,13 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
                 # Final copy — catches enrichment, tailoring, and any stragglers
                 final_sqlite = sqlite3.connect(str(project_root / "jobs.db"))
                 final_sqlite.row_factory = sqlite3.Row
-                total_jobs, scored_count = await _copy_jobs_to_pg(
-                    async_session, user_id, final_sqlite
-                )
+                final_rows = [dict(r) for r in final_sqlite.execute(
+                    "SELECT * FROM jobs WHERE status IN ('scored', 'low_score', 'filtered', 'rejected')"
+                ).fetchall()]
                 final_sqlite.close()
+                total_jobs, scored_count = await _copy_rows_to_pg(
+                    async_session, user_id, final_rows
+                )
 
         except Exception:
             flush_task.cancel()
