@@ -6,18 +6,14 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**PostHog event tracking complete.** 26 custom events covering all user actions + errors + onboarding.
+**PDF resume support complete.** Full pipeline: upload PDF → extract text → generate tailored LaTeX → compile to PDF → download.
 
 **Not yet done:**
+- Deploy PDF resume support (all 6 checkpoints committed, awaiting green light)
 - Cron/launchd for overnight runs
-- Remove debug endpoints (`/api/debug/llm-test`, `/api/debug/pg-sync-test`)
 - PostHog dashboard setup (funnels, error rates, model popularity)
 - Backend PostHog for server-side metrics (banned phrase tracking, pipeline timing)
-
-**TODO — Remaining:**
-- Landing page rewrite
-- Loading skeletons, mobile responsiveness, nav active state, pagination
-- Banned phrase post-processor tracking (log which phrases get caught → improve prompt over time)
+- Banned phrase post-processor tracking
 
 ---
 
@@ -133,6 +129,40 @@ Session-by-session progress log. Read this first when resuming work.
 1. Set up cron/launchd for overnight pipeline runs
 2. Score the 4 recovered location-filter jobs
 3. Consider adding more sources (Indeed, BuiltIn, etc.) if current yield drops
+
+---
+
+## 2026-03-10 — PDF resume support
+
+**What got done:**
+1. Landing page redesign, mobile responsiveness, debug endpoint removal, loading skeletons, pagination (deployed)
+2. PDF resume upload — pdfplumber text extraction, stored alongside original PDF
+3. Migration 005: `resume_type`, `extracted_text_key`, `tailored_resume_pdf_key` columns
+4. Split `_get_best_resume()` → `_pick_best_resume()` + `_fetch_resume_text()` — track match > recency, PDF uses extracted text
+5. Profile generation + cover letters updated to use extracted text for PDF resumes
+6. `_extract_resume_summary()` early-returns for plain text input
+7. Built-in ATS-friendly LaTeX template (pdflatex-compatible, no fontspec)
+8. `generate_resume_from_text()` — LLM generates complete LaTeX from extracted text + template
+9. `compile_latex()` — tectonic in Docker with pre-cached packages
+10. Tailor endpoint branching: PDF users → generate + compile, LaTeX users → surgical edit (unchanged)
+11. Download endpoint: `?format=pdf` (default) or `?format=tex`, graceful degradation
+12. Frontend: PDF download button, .tex source link, caution labels, LaTeX preference tooltip
+13. Landing page updated: "Your resume — LaTeX preferred, PDF also works"
+
+**Key decisions:**
+- PDF users get a generated resume from standard template (can't preserve original formatting)
+- LaTeX users keep current surgical-edit flow unchanged (no compilation)
+- Compilation is on-demand only (user clicks tailor button)
+- Graceful degradation: compile failure → .tex still available, no 500
+- tectonic pre-cached in Docker (~100MB package cache) to avoid runtime cold start
+
+**Test count:** 435 passed, 2 skipped (tectonic integration) — was 412 before PDF work
+
+**What's next:**
+1. Deploy to Fly.io (awaiting green light)
+2. Manual test: upload PDF → generate profile → run → tailor → download PDF
+3. Follow-up: PDF compilation for LaTeX users (fontspec/XeLaTeX handling)
+4. Follow-up: show extracted text for user review
 
 ---
 
