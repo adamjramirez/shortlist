@@ -364,8 +364,9 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                           try {
                             await jobsApi.downloadResume(job.id, "pdf");
                             analytics.resumeDownloaded(job.id, job.company);
-                          } catch {
-                            setTailorError("PDF compilation failed — download the .tex instead");
+                          } catch (err) {
+                            const msg = err instanceof Error ? err.message : "PDF compilation failed";
+                            setTailorError(msg);
                           } finally {
                             setCompilingPdf(false);
                           }

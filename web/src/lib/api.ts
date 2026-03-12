@@ -166,7 +166,10 @@ export const jobs = {
     const res = await fetch(`${API_BASE}/jobs/${id}/resume?format=${format}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
-    if (!res.ok) throw new ApiError(res.status, "Download failed");
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: "Download failed" }));
+      throw new ApiError(res.status, body.detail || "Download failed");
+    }
     const blob = await res.blob();
     const disposition = res.headers.get("Content-Disposition") || "";
     const match = disposition.match(/filename="?([^"]+)"?/);

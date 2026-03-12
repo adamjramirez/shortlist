@@ -382,8 +382,8 @@ class TestLaTeXUserJourney:
         # compile_latex was NOT called
         mock_compile.assert_not_called()
 
-        # Download serves .tex
-        resp = await c.get(f"/api/jobs/{job_id}/resume", headers=h)
+        # Download .tex works
+        resp = await c.get(f"/api/jobs/{job_id}/resume?format=tex", headers=h)
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "application/x-tex"
 
@@ -479,10 +479,9 @@ class TestPDFEdgeCases:
         assert resp.status_code == 200
         assert b"\\documentclass" in resp.content
 
-        # PDF download falls back to .tex
+        # PDF download returns 422 when compilation fails
         resp = await client.get(f"/api/jobs/{job_id}/resume?format=pdf", headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "application/x-tex"
+        assert resp.status_code == 422
 
     @pytest.mark.asyncio
     async def test_track_match_prefers_tex_over_pdf(self, client, auth_headers,

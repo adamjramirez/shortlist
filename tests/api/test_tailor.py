@@ -273,8 +273,11 @@ async def test_pdf_tailor_graceful_compile_failure(
         data = resp.json()
         assert data["filename"].endswith(".tex")  # Falls back to .tex
 
-    # PDF not available, serves .tex
+    # PDF not available — format=pdf returns 422, format=tex still works
     resp = await client.get(f"/api/jobs/{job_id}/resume?format=pdf", headers=auth_headers)
+    assert resp.status_code == 422
+
+    resp = await client.get(f"/api/jobs/{job_id}/resume?format=tex", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/x-tex"
 
@@ -366,10 +369,10 @@ async def test_download_pdf_compiles_on_demand(
 
 
 @pytest.mark.asyncio
-async def test_download_pdf_compile_failure_falls_back_to_tex(
+async def test_download_pdf_compile_failure_returns_error(
     client, auth_headers, user_with_tex_resume, test_storage
 ):
-    """If on-demand compilation fails, fall back to .tex download."""
+    """If on-demand compilation fails, return 422 with helpful message."""
     fixture = user_with_tex_resume
     job_id = fixture["job_id"]
 
@@ -387,8 +390,34 @@ async def test_download_pdf_compile_failure_falls_back_to_tex(
         resp = await client.get(
             f"/api/jobs/{job_id}/resume?format=pdf", headers=auth_headers
         )
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "application/x-tex"
+        assert resp.status_code == 422
+        assert "compile" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_download_pdf_compile_failure_fontspec_hint(
+    client, auth_headers, user_with_tex_resume, test_storage
+):
+    """If compilation fails and .tex uses fontspec, hint about custom fonts."""
+    fixture = user_with_tex_resume
+    job_id = fixture["job_id"]
+
+    with patch("shortlist.api.routes.tailor._configure_llm", return_value="gemini-2.0-flash"), \
+         patch("shortlist.processors.resume.tailor_resume_from_text") as mock_tailor:
+        mock_tailor.return_value = MagicMock(
+            tailored_tex="\\usepackage{fontspec}\\setmainfont{EB Garamond}\\begin{document}Hello\\end{document}",
+            changes_made=[],
+            interest_note="",
+        )
+        await client.post(f"/api/jobs/{job_id}/tailor", headers=auth_headers)
+
+    with patch("shortlist.processors.latex_compiler.compile_latex") as mock_compile:
+        mock_compile.return_value = None
+        resp = await client.get(
+            f"/api/jobs/{job_id}/resume?format=pdf", headers=auth_headers
+        )
+        assert resp.status_code == 422
+        assert "custom fonts" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio
