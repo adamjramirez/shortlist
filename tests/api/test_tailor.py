@@ -176,10 +176,11 @@ async def test_pdf_resume_text_fetched_from_extracted_key(
     fixture = user_with_pdf_resume
     job_id = fixture["job_id"]
 
-    # Mock the LLM + crypto so tailor doesn't actually call Gemini
+    # PDF resumes now route through generate_resume_from_text, not tailor_resume_from_text
     with patch("shortlist.api.routes.tailor._configure_llm", return_value="gemini-2.0-flash"), \
-         patch("shortlist.processors.resume.tailor_resume_from_text") as mock_tailor:
-        mock_tailor.return_value = MagicMock(
+         patch("shortlist.processors.resume.generate_resume_from_text") as mock_gen, \
+         patch("shortlist.processors.latex_compiler.compile_latex", return_value=None):
+        mock_gen.return_value = MagicMock(
             tailored_tex="\\documentclass{article}\\begin{document}Tailored\\end{document}",
             changes_made=["reordered bullets"],
             interest_note="Great fit",
@@ -191,11 +192,11 @@ async def test_pdf_resume_text_fetched_from_extracted_key(
     # Should succeed
     assert resp.status_code == 200, resp.json()
 
-    # The resume text passed to tailor should be extracted text, not PDF bytes
-    if mock_tailor.called:
-        resume_text_arg = mock_tailor.call_args[0][0]
-        assert "Jane Smith" in resume_text_arg
-        assert "%PDF" not in resume_text_arg
+    # The resume text passed to generate should be extracted text, not PDF bytes
+    assert mock_gen.called
+    resume_text_arg = mock_gen.call_args[0][0]
+    assert "Jane Smith" in resume_text_arg
+    assert "%PDF" not in resume_text_arg
 
 
 @pytest.mark.asyncio
@@ -222,6 +223,96 @@ async def test_tex_resume_uses_raw_content(
     if mock_tailor.called:
         resume_text_arg = mock_tailor.call_args[0][0]
         assert "\\documentclass" in resume_text_arg
+
+
+@pytest.mark.asyncio
+async def test_pdf_tailor_stores_tex_and_pdf(
+    client, auth_headers, user_with_pdf_resume, test_storage
+):
+    """PDF user: tailor stores both .tex and compiled .pdf, download serves PDF."""
+    fixture = user_with_pdf_resume
+    job_id = fixture["job_id"]
+
+    with patch("shortlist.api.routes.tailor._configure_llm", return_value="gemini-2.0-flash"), \
+         patch("shortlist.processors.resume.generate_resume_from_text") as mock_gen, \
+         patch("shortlist.processors.latex_compiler.compile_latex") as mock_compile:
+        mock_gen.return_value = MagicMock(
+            tailored_tex="\\documentclass{article}\\begin{document}Tailored PDF\\end{document}",
+            changes_made=["emphasized distributed systems"],
+            interest_note="Great fit",
+        )
+        mock_compile.return_value = b"%PDF-1.5 fake compiled pdf"
+
+        resp = await client.post(f"/api/jobs/{job_id}/tailor", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["filename"].endswith(".pdf")
+
+    # Download as PDF
+    resp = await client.get(f"/api/jobs/{job_id}/resume?format=pdf", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content == b"%PDF-1.5 fake compiled pdf"
+
+    # Download as .tex fallback
+    resp = await client.get(f"/api/jobs/{job_id}/resume?format=tex", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/x-tex"
+
+
+@pytest.mark.asyncio
+async def test_pdf_tailor_graceful_compile_failure(
+    client, auth_headers, user_with_pdf_resume, test_storage
+):
+    """PDF compilation fails → still stores .tex, download serves .tex."""
+    fixture = user_with_pdf_resume
+    job_id = fixture["job_id"]
+
+    with patch("shortlist.api.routes.tailor._configure_llm", return_value="gemini-2.0-flash"), \
+         patch("shortlist.processors.resume.generate_resume_from_text") as mock_gen, \
+         patch("shortlist.processors.latex_compiler.compile_latex") as mock_compile:
+        mock_gen.return_value = MagicMock(
+            tailored_tex="\\documentclass{article}\\begin{document}Tailored\\end{document}",
+            changes_made=["changes"],
+            interest_note="note",
+        )
+        mock_compile.return_value = None  # Compilation failed
+
+        resp = await client.post(f"/api/jobs/{job_id}/tailor", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["filename"].endswith(".tex")  # Falls back to .tex
+
+    # PDF not available, serves .tex
+    resp = await client.get(f"/api/jobs/{job_id}/resume?format=pdf", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/x-tex"
+
+
+@pytest.mark.asyncio
+async def test_tex_tailor_skips_compilation(
+    client, auth_headers, user_with_tex_resume, test_storage
+):
+    """LaTeX users: no PDF compilation attempted."""
+    fixture = user_with_tex_resume
+    job_id = fixture["job_id"]
+
+    with patch("shortlist.api.routes.tailor._configure_llm", return_value="gemini-2.0-flash"), \
+         patch("shortlist.processors.resume.tailor_resume_from_text") as mock_tailor, \
+         patch("shortlist.processors.latex_compiler.compile_latex") as mock_compile:
+        mock_tailor.return_value = MagicMock(
+            tailored_tex="\\documentclass{article}\\begin{document}Tailored TeX\\end{document}",
+            changes_made=["adjusted summary"],
+            interest_note="Nice",
+        )
+
+        resp = await client.post(f"/api/jobs/{job_id}/tailor", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["filename"].endswith(".tex")
+
+    # compile_latex should NOT have been called
+    mock_compile.assert_not_called()
 
 
 @pytest.mark.asyncio

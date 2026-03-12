@@ -161,9 +161,9 @@ export const jobs = {
       { method: "POST" },
     ),
 
-  downloadResume: async (id: number) => {
+  downloadResume: async (id: number, format: "pdf" | "tex" = "pdf") => {
     const token = getToken();
-    const res = await fetch(`${API_BASE}/jobs/${id}/resume`, {
+    const res = await fetch(`${API_BASE}/jobs/${id}/resume?format=${format}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) throw new ApiError(res.status, "Download failed");

@@ -343,7 +343,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                       onClick={async (e) => {
                         e.stopPropagation();
                         try {
-                          await jobsApi.downloadResume(job.id);
+                          await jobsApi.downloadResume(job.id, job.has_tailored_pdf ? "pdf" : "tex");
                           analytics.resumeDownloaded(job.id, job.company);
                         } catch {
                           setTailorError("Download failed");
@@ -351,14 +351,31 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                       }}
                       className="inline-flex items-center rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100"
                     >
-                      📄 Download Tailored Resume (.tex)
+                      📄 Download Tailored Resume {job.has_tailored_pdf ? "(.pdf)" : "(.tex)"}
                     </button>
-                    <p className="text-xs text-gray-400">
-                      This downloads a LaTeX (.tex) file. To convert to PDF, paste it into{" "}
-                      <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer"
-                         className="underline hover:text-gray-600">Overleaf</a>
-                      {" "}or ask ChatGPT / Claude to compile it for you.
-                    </p>
+                    {job.has_tailored_pdf && (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            await jobsApi.downloadResume(job.id, "tex");
+                          } catch {
+                            setTailorError("Download failed");
+                          }
+                        }}
+                        className="text-xs text-gray-400 underline hover:text-gray-600"
+                      >
+                        Download .tex source
+                      </button>
+                    )}
+                    {!job.has_tailored_pdf && (
+                      <p className="text-xs text-gray-400">
+                        This downloads a LaTeX (.tex) file. To convert to PDF, paste it into{" "}
+                        <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer"
+                           className="underline hover:text-gray-600">Overleaf</a>
+                        {" "}or ask ChatGPT / Claude to compile it for you.
+                      </p>
+                    )}
                   </div>
                 )}
                 {tailorResult?.changes_made && tailorResult.changes_made.length > 0 && (

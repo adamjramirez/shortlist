@@ -128,8 +128,10 @@ async def tailor_job(
     job = await _get_user_job(job_id, user, session)
 
     if job.tailored_resume_key:
+        safe_company = job.company.lower().replace(' ', '-')
+        ext = "pdf" if job.tailored_resume_pdf_key else "tex"
         return TailorResponse(
-            filename=f"tailored-{job.company.lower().replace(' ', '-')}.tex",
+            filename=f"tailored-{safe_company}.{ext}",
             changes_made=[],
             interest_note="",
         )
@@ -138,23 +140,45 @@ async def tailor_job(
     resume_text, _, resume_type = await _fetch_resume_text(resume, storage)
     await _configure_llm(user, session)
 
-    from shortlist.processors.resume import tailor_resume_from_text
+    if resume_type == "pdf":
+        from shortlist.processors.resume import generate_resume_from_text
+        tailored = await asyncio.to_thread(
+            generate_resume_from_text,
+            resume_text, job.title, job.company, job.description or "",
+        )
+    else:
+        from shortlist.processors.resume import tailor_resume_from_text
+        tailored = await asyncio.to_thread(
+            tailor_resume_from_text,
+            resume_text, job.title, job.company, job.description or "",
+        )
 
-    tailored = await asyncio.to_thread(
-        tailor_resume_from_text,
-        resume_text, job.title, job.company, job.description or "",
-    )
     if not tailored:
         raise HTTPException(status_code=500, detail="Resume tailoring failed. Try again.")
 
+    # Store .tex
     s3_key = f"{user.id}/tailored/{job_id}.tex"
     await storage.put(s3_key, tailored.tailored_tex.encode("utf-8"))
-
     job.tailored_resume_key = s3_key
+
+    # For PDF users, attempt LaTeX → PDF compilation
+    if resume_type == "pdf":
+        from shortlist.processors.latex_compiler import compile_latex
+        pdf_bytes = await asyncio.to_thread(compile_latex, tailored.tailored_tex)
+        if pdf_bytes:
+            pdf_key = f"{user.id}/tailored/{job_id}.pdf"
+            await storage.put(pdf_key, pdf_bytes)
+            job.tailored_resume_pdf_key = pdf_key
+            logger.info(f"PDF compiled for job {job_id}: {len(pdf_bytes)} bytes")
+        else:
+            logger.warning(f"PDF compilation failed for job {job_id}, .tex still available")
+
     await session.commit()
 
+    safe_company = job.company.lower().replace(' ', '-')
+    ext = "pdf" if job.tailored_resume_pdf_key else "tex"
     return TailorResponse(
-        filename=f"tailored-{job.company.lower().replace(' ', '-')}.tex",
+        filename=f"tailored-{safe_company}.{ext}",
         changes_made=tailored.changes_made,
         interest_note=tailored.interest_note,
     )
@@ -163,24 +187,34 @@ async def tailor_job(
 @router.get("/{job_id}/resume")
 async def download_resume(
     job_id: int,
+    format: str = "pdf",
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
 ):
-    """Download a tailored resume .tex file."""
+    """Download a tailored resume. Serves PDF when available (default), or .tex source."""
     job = await _get_user_job(job_id, user, session)
 
     if not job.tailored_resume_key:
         raise HTTPException(status_code=404, detail="No tailored resume. Generate one first.")
 
-    data = await storage.get(job.tailored_resume_key)
     safe_company = job.company.lower().replace(" ", "-")
-    filename = f"tailored-{safe_company}.tex"
 
+    # Serve PDF if requested and available
+    if format == "pdf" and job.tailored_resume_pdf_key:
+        data = await storage.get(job.tailored_resume_pdf_key)
+        return Response(
+            content=data,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="tailored-{safe_company}.pdf"'},
+        )
+
+    # Serve .tex (default for LaTeX users, fallback for PDF users)
+    data = await storage.get(job.tailored_resume_key)
     return Response(
         content=data,
         media_type="application/x-tex",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="tailored-{safe_company}.tex"'},
     )
 
 

@@ -21,6 +21,15 @@ RUN apt-get update && \
 COPY requirements.txt /tmp/
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
+# Tectonic (LaTeX compiler for PDF resume generation)
+RUN curl -fsSL https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz \
+    | tar xz -C /usr/local/bin/ && \
+    chmod +x /usr/local/bin/tectonic
+
+# Pre-cache tectonic TeX packages (avoids ~100MB download on first use)
+RUN echo '\documentclass{article}\begin{document}hello\end{document}' > /tmp/test.tex && \
+    tectonic /tmp/test.tex && rm /tmp/test.tex /tmp/test.pdf
+
 # Backend
 COPY shortlist/ /app/shortlist/
 COPY alembic/ /app/alembic/
