@@ -1,4 +1,5 @@
 """Shared fixtures for API tests."""
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -69,3 +70,17 @@ async def auth_headers(client):
         "password": "pass123",
     })
     return {"Authorization": f"Bearer {resp.json()['token']}"}
+
+
+@pytest.fixture
+def make_test_pdf():
+    """Create a valid PDF with extractable text. Returns a factory function."""
+    def _make(text: str) -> bytes:
+        from fpdf import FPDF
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Helvetica", size=12)
+        for line in text.split("\n"):
+            pdf.cell(0, 10, line, new_x="LMARGIN", new_y="NEXT")
+        return bytes(pdf.output())
+    return _make

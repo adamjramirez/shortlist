@@ -2,18 +2,6 @@
 import pytest
 
 
-def _make_test_pdf(text: str) -> bytes:
-    """Create a minimal valid PDF with extractable text."""
-    from fpdf import FPDF
-
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Helvetica", size=12)
-    for line in text.split("\n"):
-        pdf.cell(0, 10, line, new_x="LMARGIN", new_y="NEXT")
-    return pdf.output()
-
-
 @pytest.mark.asyncio
 async def test_upload_resume(client, auth_headers, monkeypatch):
     monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
@@ -74,6 +62,39 @@ async def test_delete_resume(client, auth_headers, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_delete_pdf_resume_cleans_up_extracted_text(client, auth_headers, monkeypatch, test_storage, make_test_pdf):
+    """Deleting a PDF resume also removes the extracted text file from storage."""
+    monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
+
+    pdf_bytes = make_test_pdf("Jane Smith\nSenior Engineer")
+    resp = await client.post(
+        "/api/resumes",
+        files={"file": ("resume.pdf", pdf_bytes, "application/pdf")},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+    resume_id = resp.json()["id"]
+
+    # Verify both files exist in storage
+    user_resp = await client.get("/api/auth/me", headers=auth_headers)
+    user_id = user_resp.json()["id"]
+    pdf_key = f"{user_id}/resumes/resume.pdf"
+    txt_key = f"{user_id}/resumes/resume.pdf.txt"
+    assert await test_storage.get(pdf_key) is not None
+    assert await test_storage.get(txt_key) is not None
+
+    # Delete resume
+    resp = await client.delete(f"/api/resumes/{resume_id}", headers=auth_headers)
+    assert resp.status_code == 204
+
+    # Both files should be gone
+    with pytest.raises(Exception):
+        await test_storage.get(pdf_key)
+    with pytest.raises(Exception):
+        await test_storage.get(txt_key)
+
+
+@pytest.mark.asyncio
 async def test_upload_tex_returns_resume_type(client, auth_headers, monkeypatch):
     monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
     content = b"\\documentclass{article}\n\\begin{document}\nHello\n\\end{document}"
@@ -88,10 +109,10 @@ async def test_upload_tex_returns_resume_type(client, auth_headers, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_upload_pdf_resume(client, auth_headers, monkeypatch):
+async def test_upload_pdf_resume(client, auth_headers, monkeypatch, make_test_pdf):
     monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
 
-    pdf_bytes = bytes(_make_test_pdf("Adam Ramirez\nSenior Engineering Manager\n8 years Python"))
+    pdf_bytes = make_test_pdf("Adam Ramirez\nSenior Engineering Manager\n8 years Python")
 
     resp = await client.post(
         "/api/resumes",

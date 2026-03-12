@@ -7,23 +7,13 @@ from unittest.mock import patch, MagicMock
 from shortlist.api.models import Job, Profile, Resume, User
 
 
-def _make_test_pdf(text: str) -> bytes:
-    from fpdf import FPDF
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Helvetica", size=12)
-    for line in text.split("\n"):
-        pdf.cell(0, 10, line, new_x="LMARGIN", new_y="NEXT")
-    return bytes(pdf.output())
-
-
 @pytest_asyncio.fixture
-async def user_with_pdf_resume(client, auth_headers, test_storage, session_factory, monkeypatch):
+async def user_with_pdf_resume(client, auth_headers, test_storage, session_factory, monkeypatch, make_test_pdf):
     """Create a user with a PDF resume and a scored job."""
     monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
 
     # Upload PDF resume
-    pdf_bytes = _make_test_pdf(
+    pdf_bytes = make_test_pdf(
         "Jane Smith\nSenior Engineer\n10 years Python\nBuilt data pipelines at scale"
     )
     resp = await client.post(
@@ -113,7 +103,7 @@ async def user_with_tex_resume(client, auth_headers, test_storage, session_facto
 
 
 @pytest_asyncio.fixture
-async def user_with_both_resumes(client, auth_headers, test_storage, session_factory, monkeypatch):
+async def user_with_both_resumes(client, auth_headers, test_storage, session_factory, monkeypatch, make_test_pdf):
     """User with both a track-matched .tex and an unmatched .pdf resume."""
     monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
 
@@ -128,7 +118,7 @@ async def user_with_both_resumes(client, auth_headers, test_storage, session_fac
     assert resp.status_code == 201
 
     # Upload .pdf with no track
-    pdf_bytes = _make_test_pdf("Jane PDF Resume\nSenior Engineer")
+    pdf_bytes = make_test_pdf("Jane PDF Resume\nSenior Engineer")
     resp = await client.post(
         "/api/resumes",
         files={"file": ("generic.pdf", pdf_bytes, "application/pdf")},

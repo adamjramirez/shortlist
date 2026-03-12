@@ -31,17 +31,6 @@ from shortlist.api.routes.profile import get_profile_generator
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_pdf(text: str) -> bytes:
-    """Create a real PDF with extractable text."""
-    from fpdf import FPDF
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Helvetica", size=11)
-    for line in text.split("\n"):
-        pdf.cell(0, 8, line, new_x="LMARGIN", new_y="NEXT")
-    return bytes(pdf.output())
-
-
 RESUME_TEXT = """Jane Smith
 Senior Software Engineer
 jane@example.com | 555-0123 | San Francisco, CA
@@ -154,7 +143,7 @@ class TestPDFUserJourney:
     """Full journey: signup → upload PDF → generate profile → tailor → download."""
 
     @pytest_asyncio.fixture
-    async def setup(self, client, auth_headers, session_factory, monkeypatch, test_storage):
+    async def setup(self, client, auth_headers, session_factory, monkeypatch, test_storage, make_test_pdf):
         monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
 
         # Get user ID
@@ -167,6 +156,7 @@ class TestPDFUserJourney:
             "user_id": user_id,
             "session_factory": session_factory,
             "storage": test_storage,
+            "make_pdf": make_test_pdf,
         }
 
     @pytest.mark.asyncio
@@ -174,7 +164,7 @@ class TestPDFUserJourney:
         """Upload PDF resume → 201, resume_type=pdf, text extracted."""
         c, h = setup["client"], setup["headers"]
 
-        pdf_bytes = _make_pdf(RESUME_TEXT)
+        pdf_bytes = setup["make_pdf"](RESUME_TEXT)
         resp = await c.post(
             "/api/resumes",
             files={"file": ("jane-smith-resume.pdf", pdf_bytes, "application/pdf")},
@@ -193,7 +183,7 @@ class TestPDFUserJourney:
         c, h = setup["client"], setup["headers"]
 
         # Upload
-        pdf_bytes = _make_pdf(RESUME_TEXT)
+        pdf_bytes = setup["make_pdf"](RESUME_TEXT)
         resp = await c.post(
             "/api/resumes",
             files={"file": ("resume.pdf", pdf_bytes, "application/pdf")},
@@ -224,7 +214,7 @@ class TestPDFUserJourney:
         c, h = setup["client"], setup["headers"]
 
         # Upload PDF
-        pdf_bytes = _make_pdf(RESUME_TEXT)
+        pdf_bytes = setup["make_pdf"](RESUME_TEXT)
         resp = await c.post(
             "/api/resumes",
             files={"file": ("resume.pdf", pdf_bytes, "application/pdf")},
@@ -269,7 +259,7 @@ class TestPDFUserJourney:
         c, h = setup["client"], setup["headers"]
 
         # Upload + create job + profile
-        pdf_bytes = _make_pdf(RESUME_TEXT)
+        pdf_bytes = setup["make_pdf"](RESUME_TEXT)
         await c.post(
             "/api/resumes",
             files={"file": ("resume.pdf", pdf_bytes, "application/pdf")},
@@ -309,7 +299,7 @@ class TestPDFUserJourney:
         c, h = setup["client"], setup["headers"]
 
         # Upload PDF
-        pdf_bytes = _make_pdf(RESUME_TEXT)
+        pdf_bytes = setup["make_pdf"](RESUME_TEXT)
         await c.post(
             "/api/resumes",
             files={"file": ("resume.pdf", pdf_bytes, "application/pdf")},
@@ -447,12 +437,12 @@ class TestPDFEdgeCases:
 
     @pytest.mark.asyncio
     async def test_compilation_failure_graceful(self, client, auth_headers, session_factory,
-                                                 monkeypatch, test_storage):
+                                                 monkeypatch, test_storage, make_test_pdf):
         """PDF compile fails → .tex still available, no 500."""
         monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
 
         # Upload PDF
-        pdf_bytes = _make_pdf("Jane Smith\nEngineer")
+        pdf_bytes = make_test_pdf("Jane Smith\nEngineer")
         resp = await client.post(
             "/api/resumes",
             files={"file": ("resume.pdf", pdf_bytes, "application/pdf")},
@@ -496,7 +486,8 @@ class TestPDFEdgeCases:
 
     @pytest.mark.asyncio
     async def test_track_match_prefers_tex_over_pdf(self, client, auth_headers,
-                                                      session_factory, monkeypatch, test_storage):
+                                                      session_factory, monkeypatch, test_storage,
+                                                      make_test_pdf):
         """With track-matched .tex and unmatched .pdf, .tex wins."""
         monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
 
@@ -509,7 +500,7 @@ class TestPDFEdgeCases:
         )
 
         # Upload .pdf without track
-        pdf_bytes = _make_pdf("Jane Smith\nGeneric Resume")
+        pdf_bytes = make_test_pdf("Jane Smith\nGeneric Resume")
         await client.post(
             "/api/resumes",
             files={"file": ("generic.pdf", pdf_bytes, "application/pdf")},
@@ -540,11 +531,11 @@ class TestPDFEdgeCases:
 
     @pytest.mark.asyncio
     async def test_retailor_returns_cached(self, client, auth_headers, session_factory,
-                                            monkeypatch, test_storage):
+                                            monkeypatch, test_storage, make_test_pdf):
         """Calling tailor twice returns cached result, doesn't re-generate."""
         monkeypatch.setenv("TIGRIS_BUCKET", "test-bucket")
 
-        pdf_bytes = _make_pdf(RESUME_TEXT)
+        pdf_bytes = make_test_pdf(RESUME_TEXT)
         await client.post(
             "/api/resumes",
             files={"file": ("resume.pdf", pdf_bytes, "application/pdf")},

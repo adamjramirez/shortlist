@@ -125,4 +125,9 @@ async def delete_resume(
         raise HTTPException(status_code=404, detail="Resume not found")
 
     await storage.delete(resume.s3_key)
+    if resume.extracted_text_key:
+        try:
+            await storage.delete(resume.extracted_text_key)
+        except Exception:
+            logger.warning(f"Failed to delete extracted text: {resume.extracted_text_key}")
     await session.delete(resume)
