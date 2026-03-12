@@ -179,10 +179,16 @@ export const jobs = {
     URL.revokeObjectURL(url);
   },
 
-  generateCoverLetter: (id: number) =>
+  generateCoverLetter: (id: number, model?: string, regenerate?: boolean) =>
     request<{ cover_letter: string; model_used: string }>(
       `/jobs/${id}/cover-letter`,
-      { method: "POST" },
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...(model ? { model } : {}),
+          ...(regenerate ? { regenerate: true } : {}),
+        }),
+      },
     ),
 };
 

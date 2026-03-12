@@ -43,6 +43,12 @@ def _redact_config(config: dict) -> dict:
     llm = dict(out.get("llm", {}))
     if llm.pop("encrypted_api_key", None):
         llm["has_api_key"] = True
+    # Redact per-provider keys — just expose which providers have keys
+    api_keys = llm.pop("api_keys", {})
+    if api_keys:
+        llm["providers_with_keys"] = sorted(
+            k for k, v in api_keys.items() if v
+        )
     out["llm"] = llm
     return out
 
@@ -73,16 +79,30 @@ async def update_profile(
     existing = user.profile.config if user.profile else dict(EMPTY_CONFIG)
     updates = req.model_dump(exclude_none=True)
 
-    # Handle API key: encrypt if provided, preserve existing if not
+    # Handle API keys: encrypt if provided, preserve existing if not
     llm_updates = updates.pop("llm", None)
     if llm_updates is not None:
         existing_llm = dict(existing.get("llm", {}))
+        existing_api_keys = dict(existing_llm.get("api_keys", {}))
+
+        # Legacy single key (backward compat)
         api_key = llm_updates.pop("api_key", None)
         if api_key:
+            from shortlist.llm import detect_provider
+            provider = detect_provider(llm_updates.get("model", existing_llm.get("model", "gemini-2.0-flash")))
+            existing_api_keys[provider] = encrypt(api_key)
             llm_updates["encrypted_api_key"] = encrypt(api_key)
         elif "encrypted_api_key" in existing_llm:
-            # Preserve existing encrypted key if no new one provided
             llm_updates["encrypted_api_key"] = existing_llm["encrypted_api_key"]
+
+        # Per-provider keys: { "gemini": "sk-...", "anthropic": "sk-..." }
+        provider_keys = llm_updates.pop("provider_keys", None)
+        if provider_keys:
+            for provider, key in provider_keys.items():
+                if provider in ("gemini", "openai", "anthropic") and key:
+                    existing_api_keys[provider] = encrypt(key)
+
+        llm_updates["api_keys"] = existing_api_keys
         existing["llm"] = llm_updates
     
     # Merge remaining top-level fields

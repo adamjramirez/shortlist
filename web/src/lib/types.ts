@@ -25,6 +25,8 @@ export interface LlmConfig {
   model?: string;
   api_key?: string; // only on write
   has_api_key?: boolean; // only on read
+  providers_with_keys?: string[]; // which providers have stored keys
+  provider_keys?: Record<string, string>; // only on write
   [key: string]: unknown;
 }
 

@@ -65,6 +65,9 @@ export default function ProfilePage() {
   const [apiKey, setApiKey] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [substackSid, setSubstackSid] = useState("");
+  // Per-provider extra keys (for cover letters with different models)
+  const [extraKeys, setExtraKeys] = useState<Record<string, string>>({});
+  const [providersWithKeys, setProvidersWithKeys] = useState<string[]>([]);
 
   const hasProfile =
     !!fitContext || tracks.length > 0 || Object.keys(profile?.tracks || {}).length > 0;
@@ -79,6 +82,7 @@ export default function ProfilePage() {
       setFilters(jsonToFilters(p.filters));
       setLlmModel(p.llm?.model || "gemini-2.0-flash");
       setHasApiKey(!!p.llm?.has_api_key);
+      setProvidersWithKeys(p.llm?.providers_with_keys || []);
       setSubstackSid(p.substack_sid || "");
     });
   }, [user, authLoading]);
@@ -101,14 +105,21 @@ export default function ProfilePage() {
 
   // Save API key immediately so it's available for generation
   const saveApiKey = async () => {
-    if (!apiKey && !llmModel) return;
+    if (!apiKey && !llmModel && Object.keys(extraKeys).length === 0) return;
     const llm: Record<string, unknown> = { model: llmModel };
     if (apiKey) llm.api_key = apiKey;
+    // Include any extra provider keys
+    const nonEmpty = Object.fromEntries(
+      Object.entries(extraKeys).filter(([, v]) => v.trim())
+    );
+    if (Object.keys(nonEmpty).length > 0) llm.provider_keys = nonEmpty;
     try {
       const updated = await profileApi.update({ llm });
       setProfile(updated);
       setHasApiKey(!!updated.llm?.has_api_key);
+      setProvidersWithKeys(updated.llm?.providers_with_keys || []);
       setApiKey("");
+      setExtraKeys({});
       showToast("API key saved ✓");
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Failed to save key");
@@ -157,6 +168,10 @@ export default function ProfilePage() {
 
       const llm: Record<string, unknown> = { model: llmModel };
       if (apiKey) llm.api_key = apiKey;
+      const nonEmpty = Object.fromEntries(
+        Object.entries(extraKeys).filter(([, v]) => v.trim())
+      );
+      if (Object.keys(nonEmpty).length > 0) llm.provider_keys = nonEmpty;
 
       const payload: Record<string, unknown> = {
         fit_context: fitContext,
@@ -171,7 +186,9 @@ export default function ProfilePage() {
       setTracks(jsonToTracks(updated.tracks));
       setFilters(jsonToFilters(updated.filters));
       setHasApiKey(!!updated.llm?.has_api_key);
+      setProvidersWithKeys(updated.llm?.providers_with_keys || []);
       setApiKey("");
+      setExtraKeys({});
       setDirty(false);
       setGenerated(false);
       showToast("Profile saved ✓");
@@ -327,6 +344,66 @@ export default function ProfilePage() {
               </p>
             )}
           </div>
+
+          {/* Extra provider keys for cover letters */}
+          <details className="group">
+            <summary className="cursor-pointer text-sm text-gray-500 hover:text-gray-700">
+              Add keys for other providers (for cover letters)
+              {providersWithKeys.length > 1 && (
+                <span className="ml-2 text-xs text-green-600">
+                  {providersWithKeys.length} providers configured
+                </span>
+              )}
+            </summary>
+            <div className="mt-3 space-y-3 pl-1">
+              <p className="text-xs text-gray-400">
+                Different AI models write differently. Add keys for other
+                providers to choose which model generates your cover letters.
+              </p>
+              {[
+                { provider: "gemini", label: "Gemini", url: "https://aistudio.google.com/apikey" },
+                { provider: "openai", label: "OpenAI", url: "https://platform.openai.com/api-keys" },
+                { provider: "anthropic", label: "Anthropic (Claude)", url: "https://console.anthropic.com/settings/keys" },
+              ]
+                .filter(({ provider }) => {
+                  // Don't show the field for the provider that matches the main model
+                  const mainProvider = llmModel.startsWith("gemini") ? "gemini"
+                    : llmModel.startsWith("gpt-") || llmModel.startsWith("o1-") ? "openai"
+                    : llmModel.startsWith("claude-") ? "anthropic" : "";
+                  return provider !== mainProvider;
+                })
+                .map(({ provider, label, url }) => (
+                  <div key={provider}>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      {label} API key{" "}
+                      {providersWithKeys.includes(provider) && (
+                        <span className="font-normal text-green-600">✓ saved</span>
+                      )}
+                    </label>
+                    <input
+                      type="password"
+                      value={extraKeys[provider] || ""}
+                      onChange={(e) => {
+                        setExtraKeys((prev) => ({ ...prev, [provider]: e.target.value }));
+                        setDirty(true);
+                      }}
+                      placeholder={
+                        providersWithKeys.includes(provider)
+                          ? "••••••• (leave blank to keep current)"
+                          : `Paste ${label} key`
+                      }
+                      className={inputClass + " text-xs"}
+                    />
+                    <p className="mt-0.5 text-xs text-gray-400">
+                      <a href={url} target="_blank" rel="noopener noreferrer"
+                         className="text-blue-500 hover:text-blue-600">
+                        Get a {label} key →
+                      </a>
+                    </p>
+                  </div>
+                ))}
+            </div>
+          </details>
         </div>
       </SectionCard>
 

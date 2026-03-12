@@ -73,6 +73,7 @@ export default function JobCard({ job, onStatusChange }: Props) {
   const [letterModel, setLetterModel] = useState("");
   const [letterError, setLetterError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [clModel, setClModel] = useState("");
 
   const handleExpand = async () => {
     if (expanded) {
@@ -357,26 +358,53 @@ export default function JobCard({ job, onStatusChange }: Props) {
 
               {/* Cover letter */}
               <div className="pt-2 border-t border-gray-100 space-y-2">
-                {!(detail?.cover_letter || coverLetter) && !generatingLetter && (
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      setGeneratingLetter(true);
-                      setLetterError("");
-                      try {
-                        const result = await jobsApi.generateCoverLetter(job.id);
-                        setCoverLetter(result.cover_letter);
-                        setLetterModel(result.model_used);
-                      } catch (err) {
-                        setLetterError(err instanceof Error ? err.message : "Generation failed");
-                      } finally {
-                        setGeneratingLetter(false);
-                      }
-                    }}
-                    className="rounded border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
-                  >
-                    ✍️ Generate Cover Letter
-                  </button>
+                {!generatingLetter && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setGeneratingLetter(true);
+                        setLetterError("");
+                        try {
+                          const result = await jobsApi.generateCoverLetter(
+                            job.id,
+                            clModel || undefined,
+                            !!(detail?.cover_letter || coverLetter),
+                          );
+                          setCoverLetter(result.cover_letter);
+                          setLetterModel(result.model_used);
+                        } catch (err) {
+                          setLetterError(err instanceof Error ? err.message : "Generation failed");
+                        } finally {
+                          setGeneratingLetter(false);
+                        }
+                      }}
+                      className="rounded border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+                    >
+                      {(detail?.cover_letter || coverLetter) ? "🔄 Regenerate" : "✍️ Generate"} Cover Letter
+                    </button>
+                    <select
+                      value={clModel}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => { e.stopPropagation(); setClModel(e.target.value); }}
+                      className="rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600"
+                    >
+                      <option value="">Default model</option>
+                      <optgroup label="Gemini">
+                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                      </optgroup>
+                      <optgroup label="OpenAI">
+                        <option value="gpt-4o">GPT-4o</option>
+                        <option value="gpt-4o-mini">GPT-4o Mini</option>
+                      </optgroup>
+                      <optgroup label="Anthropic">
+                        <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+                        <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku</option>
+                      </optgroup>
+                    </select>
+                  </div>
                 )}
                 {generatingLetter && (
                   <p className="text-sm text-gray-500 animate-pulse">

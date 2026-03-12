@@ -33,8 +33,13 @@ async def _get_user_job(job_id: int, user: User, session: AsyncSession) -> Job:
     return job
 
 
-async def _configure_llm(user: User, session: AsyncSession) -> str:
-    """Configure LLM from user's profile. Returns model name."""
+async def _configure_llm(user: User, session: AsyncSession,
+                         model_override: str | None = None) -> str:
+    """Configure LLM from user's profile. Returns model name.
+
+    If model_override is given, uses that model and looks up the
+    matching provider key from api_keys.
+    """
     result = await session.execute(
         select(Profile).where(Profile.user_id == user.id)
     )
@@ -42,16 +47,23 @@ async def _configure_llm(user: User, session: AsyncSession) -> str:
     if not profile or not profile.config:
         raise HTTPException(status_code=400, detail="Profile not configured")
 
-    config = profile.config
-    encrypted_key = config.get("llm", {}).get("encrypted_api_key", "")
-    if not encrypted_key:
-        raise HTTPException(status_code=400, detail="No API key configured. Set one in your profile.")
-
     from shortlist import llm as llm_module
 
-    api_key = decrypt(encrypted_key)
-    model = config.get("llm", {}).get("model", "gemini-2.0-flash")
+    llm_config = profile.config.get("llm", {})
+    model = model_override or llm_config.get("model", "gemini-2.0-flash")
     provider = llm_module.detect_provider(model)
+
+    # Try per-provider key first, fall back to legacy single key
+    api_keys = llm_config.get("api_keys", {})
+    encrypted_key = api_keys.get(provider) or llm_config.get("encrypted_api_key", "")
+
+    if not encrypted_key:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No API key for {provider}. Add one in your Profile settings.",
+        )
+
+    api_key = decrypt(encrypted_key)
     env_key = llm_module._ENV_KEYS[provider]
     os.environ[env_key] = api_key
     llm_module.configure(model)
@@ -162,19 +174,26 @@ class CoverLetterResponse(BaseModel):
     model_used: str
 
 
+class CoverLetterRequest(BaseModel):
+    model: str | None = None  # Override model (must have key for that provider)
+    regenerate: bool = False  # Force regeneration even if cached
+
+
 @router.post("/{job_id}/cover-letter", response_model=CoverLetterResponse)
 async def generate_cover_letter_endpoint(
     job_id: int,
+    body: CoverLetterRequest | None = None,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
     storage: Storage = Depends(get_storage),
 ):
     """Generate a tailored cover letter for a specific job."""
     job = await _get_user_job(job_id, user, session)
+    model_choice = body.model if body else None
+    regenerate = body.regenerate if body else False
 
-    # Return cached if exists
-    if job.cover_letter:
-        # Read model from profile for display
+    # Return cached if exists and not regenerating
+    if job.cover_letter and not regenerate:
         result = await session.execute(
             select(Profile).where(Profile.user_id == user.id)
         )
@@ -182,7 +201,7 @@ async def generate_cover_letter_endpoint(
         model = (profile.config or {}).get("llm", {}).get("model", "gemini-2.0-flash") if profile else "unknown"
         return CoverLetterResponse(cover_letter=job.cover_letter, model_used=model)
 
-    model = await _configure_llm(user, session)
+    model = await _configure_llm(user, session, model_override=model_choice)
 
     # Gather all context
     resume_tex = ""
