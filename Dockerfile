@@ -31,7 +31,7 @@ RUN apt-get update && \
     chmod +x /usr/local/bin/tectonic
 
 # Pre-cache tectonic TeX packages (avoids ~100MB download on first use)
-RUN echo '\documentclass{article}\begin{document}hello\end{document}' > /tmp/test.tex && \
+RUN printf '%s\n' '\documentclass{article}' '\begin{document}' 'hello' '\end{document}' > /tmp/test.tex && \
     tectonic /tmp/test.tex && rm /tmp/test.tex /tmp/test.pdf
 
 # Backend
