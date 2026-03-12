@@ -41,7 +41,8 @@ Confidence comes from specifics, not from adjectives. "We cut deploy time from 2
 1. NEVER use these words or phrases (no exceptions, no variations):
    excited, passionate, spearheaded, championed, forward-thinking, leverage,
    "caught my attention", "great fit", "business outcomes", "key initiatives",
-   "shaped my understanding", "at my previous company", "at another company"
+   "shaped my understanding", "at my previous company", "at another company",
+   "resonates deeply", "resonates strongly", "operational excellence"
 
 2. NEVER invent company names. The resume below contains real company names.
    Use ONLY those names. If only one company is listed, only reference one.
@@ -117,7 +118,61 @@ def generate_cover_letter(
     text = result.strip().strip('"').strip()
     if len(text) < 50:
         return None
+
+    # QA pass — second LLM call to catch issues the prompt couldn't prevent
+    text = _qa_pass(text, title, company, resume_summary[:2000])
     return _clean_banned_phrases(text)
+
+
+QA_PROMPT = """You are a strict editor reviewing a cover letter. Fix ALL of the following issues and return the corrected letter. If nothing needs fixing, return the letter unchanged.
+
+## Check each of these (fix every one you find):
+
+1. **Banned phrases** — replace if present:
+   excited, passionate, spearheaded, championed, forward-thinking, leverage,
+   "resonates deeply", "resonates strongly", "operational excellence",
+   "caught my attention", "great fit", "business outcomes", "key initiatives",
+   "shaped my understanding", eager, "at my previous company", "at another company"
+
+2. **Placeholder company names** — the letter must use REAL company names from the resume below.
+   If you see generic names like "Company Name", "Previous Company", "DataCo", "TechCorp",
+   "InnovateTech", or similar, replace them with the actual company name from the resume.
+   If the letter says "at my previous company" or avoids naming a company, insert the real name.
+
+3. **Invented numbers** — every number/metric must appear in the resume below.
+   If you see a percentage or metric NOT in the resume, remove that claim or replace it
+   with one that IS in the resume.
+
+4. **Repeated sentences or ideas** — if the same point is made twice, cut the duplicate.
+
+5. **Grammar and typos** — fix any errors ("interested in discuss" → "interested in discussing").
+
+6. **Vague paragraphs** — if paragraph 3 (the pattern paragraph) only references one company
+   or has no specific numbers, add a reference to another company from the resume with a
+   real metric.
+
+## Resume (source of truth for names and numbers):
+{resume_summary}
+
+## Cover letter to review:
+{draft}
+
+Return ONLY the corrected cover letter text. No commentary, no explanation."""
+
+
+def _qa_pass(draft: str, title: str, company: str, resume_summary: str) -> str:
+    """Second LLM pass to catch quality issues in the generated letter."""
+    prompt = QA_PROMPT.format(
+        resume_summary=resume_summary,
+        draft=draft,
+    )
+    try:
+        result = llm.call_llm(prompt)
+        if result and len(result.strip()) > 50:
+            return result.strip().strip('"').strip()
+    except Exception as e:
+        logger.warning(f"QA pass failed, using original: {e}")
+    return draft
 
 
 # Phrases to strip or replace in post-processing if the model ignores instructions
@@ -133,15 +188,23 @@ _BANNED_REPLACEMENTS = [
     ("I am excited", "I'm drawn"),
     # Corporate filler
     ("caught my attention", "stood out to me"),
+    ("resonates deeply", "connects with my experience"),
+    ("resonates strongly", "connects with my experience"),
     ("leverage my", "apply my"),
     ("leverage our", "use our"),
     ("leverage the", "use the"),
     ("leverage ", "use "),
+    ("championed a", "drove a"),
+    ("championed the", "drove the"),
+    ("I championed", "I drove"),
+    ("championed", "drove"),
+    ("Championed", "Drove"),
     ("spearheaded", "led"),
     ("Spearheaded", "Led"),
     ("forward-thinking", "thoughtful"),
     ("passionate about", "drawn to"),
     ("Passionate about", "Drawn to"),
+    ("operational excellence", "strong operations"),
 ]
 
 
@@ -153,15 +216,28 @@ def _clean_banned_phrases(text: str) -> str:
 
 
 def _extract_resume_summary(tex: str) -> str:
-    """Pull readable content from LaTeX, stripping commands."""
+    """Pull readable content from LaTeX, keeping all text inside braces."""
     import re
-    # Remove common LaTeX commands but keep their content
-    text = re.sub(r'\\(?:textbf|textit|emph|underline)\{([^}]*)\}', r'\1', tex)
+    # Remove comments
+    text = re.sub(r'%.*$', '', tex, flags=re.MULTILINE)
+    # Keep content of formatting commands: \textbf{X} → X
+    text = re.sub(r'\\(?:textbf|textit|emph|underline|textsc|large|Large|huge|Huge)\{([^}]*)\}', r'\1', text)
+    # Section headings: \section{X} → X on its own line
     text = re.sub(r'\\(?:section|subsection|subsubsection)\*?\{([^}]*)\}', r'\n\1\n', text)
+    # Multi-arg commands (resumeSubheading, etc.): keep ALL brace contents separated by " | "
+    def _expand_multi_arg(m):
+        cmd = m.group(0)
+        args = re.findall(r'\{([^}]*)\}', cmd)
+        return ' | '.join(a for a in args if a.strip())
+    text = re.sub(r'\\[a-zA-Z]+(?:\{[^}]*\}){2,}', _expand_multi_arg, text)
+    # Single-arg unknown commands: \foo{X} → X (keep the content)
+    text = re.sub(r'\\[a-zA-Z]+\{([^}]*)\}', r'\1', text)
+    # Remove environments
     text = re.sub(r'\\(?:begin|end)\{[^}]*\}', '', text)
-    text = re.sub(r'\\[a-zA-Z]+(?:\[[^\]]*\])?\{[^}]*\}', '', text)
-    text = re.sub(r'\\[a-zA-Z]+', '', text)
+    # Remove remaining bare commands (\hfill, \vspace, etc.)
+    text = re.sub(r'\\[a-zA-Z]+(?:\[[^\]]*\])?', '', text)
+    # Clean up braces and whitespace
     text = re.sub(r'[{}]', '', text)
-    text = re.sub(r'%.*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
