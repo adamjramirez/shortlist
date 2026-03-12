@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { runs as runsApi } from "@/lib/api";
+import { track } from "@/lib/analytics";
 import type { Run } from "@/lib/types";
 
 interface Props {
@@ -131,7 +132,10 @@ export default function RunButton({ onComplete, onProgress, onActiveChange }: Pr
 
         if (updated.status !== "pending" && updated.status !== "running") {
           if (intervalRef.current) clearInterval(intervalRef.current);
-          if (updated.status === "completed") onComplete?.();
+          if (updated.status === "completed") {
+            track.runCompleted((updated.progress?.matches as number) ?? 0);
+            onComplete?.();
+          }
         }
       } catch {
         if (intervalRef.current) clearInterval(intervalRef.current);
@@ -148,6 +152,7 @@ export default function RunButton({ onComplete, onProgress, onActiveChange }: Pr
     try {
       const newRun = await runsApi.create();
       setRun(newRun);
+      track.runStarted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start run");
     }
@@ -158,6 +163,7 @@ export default function RunButton({ onComplete, onProgress, onActiveChange }: Pr
     try {
       const updated = await runsApi.cancel(run.id);
       setRun(updated);
+      track.runCancelled();
       if (intervalRef.current) clearInterval(intervalRef.current);
     } catch {
       setRun(null);
