@@ -151,10 +151,29 @@ def parse_score_response(response_text: str) -> ScoreResult | None:
     )
 
 
+SCORE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "fit_score": {"type": "INTEGER"},
+        "matched_track": {"type": "STRING"},
+        "reasoning": {"type": "STRING"},
+        "yellow_flags": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "salary_estimate": {"type": "STRING"},
+        "salary_confidence": {"type": "STRING", "enum": ["low", "medium", "high"]},
+        "corrected_title": {"type": "STRING"},
+        "corrected_company": {"type": "STRING"},
+        "corrected_location": {"type": "STRING"},
+    },
+    "required": ["fit_score", "matched_track", "reasoning", "yellow_flags",
+                  "salary_estimate", "salary_confidence", "corrected_title",
+                  "corrected_company", "corrected_location"],
+}
+
+
 def score_job(job: RawJob, config: Config) -> ScoreResult | None:
     """Score a single job. Returns None on API failure."""
     prompt = build_scoring_prompt(job, config)
-    result = llm.call_llm(prompt)
+    result = llm.call_llm(prompt, json_schema=SCORE_SCHEMA)
     if not result:
         return None
     return parse_score_response(result)

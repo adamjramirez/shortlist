@@ -185,32 +185,42 @@ export default function JobCard({ job, onStatusChange }: Props) {
 
               {detail.enrichment && (() => {
                 const e = detail.enrichment as Record<string, string | number | string[] | null>;
+                // Check if there's anything meaningful to show
+                const hasStage = e.stage && e.stage !== "unknown";
+                const hasHeadcount = !!e.headcount_estimate;
+                const hasGlassdoor = !!e.glassdoor_rating;
+                const hasGrowth = e.growth_signal && e.growth_signal !== "unknown";
+                const hasOss = e.oss_presence && !["unknown", "weak"].includes(String(e.oss_presence));
+                const hasTech = Array.isArray(e.tech_stack) && e.tech_stack.length > 0;
+                const hasDescription = !!e.domain_description;
+                const hasAnything = hasStage || hasHeadcount || hasGlassdoor || hasGrowth || hasOss || hasTech || hasDescription;
+                if (!hasAnything) return null;
                 return (
                 <div>
                   <p className="text-xs font-medium uppercase text-gray-400 mb-1">
                     Company Intel
                   </p>
                   <div className="text-sm text-gray-600 space-y-1">
-                    {e.domain_description && (
+                    {hasDescription && (
                       <p className="italic">{String(e.domain_description)}</p>
                     )}
                     <div className="flex flex-wrap gap-2 text-xs">
-                      {e.stage && e.stage !== "unknown" && (
+                      {hasStage && (
                         <span className="rounded bg-gray-100 px-2 py-0.5">{String(e.stage)}</span>
                       )}
-                      {e.headcount_estimate && (
+                      {hasHeadcount && (
                         <span className="rounded bg-gray-100 px-2 py-0.5">~{String(e.headcount_estimate)} people</span>
                       )}
-                      {e.glassdoor_rating && (
+                      {hasGlassdoor && (
                         <span className="rounded bg-gray-100 px-2 py-0.5">⭐ {String(e.glassdoor_rating)}</span>
                       )}
-                      {e.growth_signal && e.growth_signal !== "unknown" && (
+                      {hasGrowth && (
                         <span className="rounded bg-gray-100 px-2 py-0.5">{String(e.growth_signal)}</span>
                       )}
-                      {e.oss_presence && !["unknown", "weak"].includes(String(e.oss_presence)) && (
+                      {hasOss && (
                         <span className="rounded bg-gray-100 px-2 py-0.5">OSS: {String(e.oss_presence)}</span>
                       )}
-                      {Array.isArray(e.tech_stack) && e.tech_stack.length > 0 && (
+                      {hasTech && (
                         <span className="rounded bg-gray-100 px-2 py-0.5">{(e.tech_stack as string[]).join(", ")}</span>
                       )}
                     </div>

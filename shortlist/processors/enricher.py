@@ -111,7 +111,7 @@ class CompanyIntel:
         return " | ".join(parts) if parts else "No enrichment data"
 
 
-ENRICH_PROMPT = """Return a JSON object with what you know about this company. Be factual — say "unknown" if unsure. Do not guess or hallucinate.
+ENRICH_PROMPT = """Return a JSON object with what you know about this company. Use your training data. For well-known companies, you should know most of these fields. Only say "unknown" if you truly have no information — not just because you're uncertain about exact numbers. Approximate values are fine (e.g. headcount can be a rough estimate, Glassdoor rating can be approximate).
 
 Company: {company}
 Context from job listing: {context}

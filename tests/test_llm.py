@@ -98,7 +98,7 @@ class TestConfigureAndCall:
         result = call_llm("hello")
 
         assert result == "response text"
-        mock_provider.call.assert_called_once_with("hello", "gemini-2.5-flash")
+        mock_provider.call.assert_called_once_with("hello", "gemini-2.5-flash", json_schema=None)
 
     @patch("shortlist.llm._make_provider")
     def test_call_returns_none_on_error(self, mock_make):

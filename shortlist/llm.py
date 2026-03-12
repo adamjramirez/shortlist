@@ -36,7 +36,7 @@ _model: str = ""
 
 
 class LLMProvider(Protocol):
-    def call(self, prompt: str, model: str) -> str | None: ...
+    def call(self, prompt: str, model: str, json_schema: dict | None = None) -> str | None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -47,31 +47,18 @@ class GeminiProvider:
     def __init__(self, api_key: str):
         self.api_key = api_key
 
-    def call(self, prompt: str, model: str) -> str | None:
+    def call(self, prompt: str, model: str, json_schema: dict | None = None) -> str | None:
         """Call Gemini via subprocess to avoid thread/async conflicts."""
         import subprocess, tempfile
         http._wait(_RATE_LIMIT_DOMAINS["gemini"])
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+        gen_config = {}
+        if json_schema:
+            gen_config["responseMimeType"] = "application/json"
+            gen_config["responseSchema"] = json_schema
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "responseSchema": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "fit_score": {"type": "INTEGER"},
-                        "matched_track": {"type": "STRING"},
-                        "reasoning": {"type": "STRING"},
-                        "yellow_flags": {"type": "ARRAY", "items": {"type": "STRING"}},
-                        "salary_estimate": {"type": "STRING"},
-                        "salary_confidence": {"type": "STRING", "enum": ["low", "medium", "high"]},
-                        "corrected_title": {"type": "STRING"},
-                        "corrected_company": {"type": "STRING"},
-                        "corrected_location": {"type": "STRING"},
-                    },
-                    "required": ["fit_score", "matched_track", "reasoning", "yellow_flags", "salary_estimate", "salary_confidence", "corrected_title", "corrected_company", "corrected_location"],
-                },
-            },
+            "generationConfig": gen_config,
         }
         if "2.5" in model:
             payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
@@ -109,7 +96,7 @@ class OpenAIProvider:
         from openai import OpenAI
         self.client = OpenAI(api_key=api_key, timeout=60.0)
 
-    def call(self, prompt: str, model: str) -> str | None:
+    def call(self, prompt: str, model: str, json_schema: dict | None = None) -> str | None:
         http._wait(_RATE_LIMIT_DOMAINS["openai"])
         response = self.client.chat.completions.create(
             model=model,
@@ -123,7 +110,7 @@ class AnthropicProvider:
         from anthropic import Anthropic
         self.client = Anthropic(api_key=api_key, timeout=60.0)
 
-    def call(self, prompt: str, model: str) -> str | None:
+    def call(self, prompt: str, model: str, json_schema: dict | None = None) -> str | None:
         http._wait(_RATE_LIMIT_DOMAINS["anthropic"])
         response = self.client.messages.create(
             model=model,
@@ -191,9 +178,10 @@ def configure(model: str) -> None:
     logger.info(f"LLM configured: provider={provider_name}, model={model}")
 
 
-def call_llm(prompt: str) -> str | None:
+def call_llm(prompt: str, json_schema: dict | None = None) -> str | None:
     """Call the configured LLM. Returns response text or None on failure.
 
+    If json_schema is provided (Gemini only), forces structured JSON output.
     Raises RuntimeError if configure() hasn't been called.
     """
     if _provider is None or not _model:
@@ -204,7 +192,7 @@ def call_llm(prompt: str) -> str | None:
         import time
         start = time.monotonic()
         logger.info(f"LLM call starting ({_model})…")
-        result = _provider.call(prompt, _model)
+        result = _provider.call(prompt, _model, json_schema=json_schema)
         elapsed = time.monotonic() - start
         logger.info(f"LLM call completed in {elapsed:.1f}s")
         if elapsed > 30:
