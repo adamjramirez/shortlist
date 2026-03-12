@@ -78,6 +78,7 @@ class JobSummary(BaseModel):
     id: int
     title: str
     company: str
+    location: str | None
     fit_score: int | None
     matched_track: str | None
     salary_estimate: str | None
@@ -87,11 +88,11 @@ class JobSummary(BaseModel):
     sources_seen: list[str]
     first_seen: str | None
     has_tailored_resume: bool
+    company_intel: str | None  # One-line summary from enrichment
 
 
 class JobDetail(JobSummary):
     description: str | None
-    location: str | None
     score_reasoning: str | None
     yellow_flags: str | None
     enrichment: dict | None

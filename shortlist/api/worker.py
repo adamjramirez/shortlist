@@ -250,6 +250,7 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
                         if status == "cancelled":
                             logger.info(f"Run {run_id} cancelled by user, setting cancel event")
                             cancel_event.set()
+                            return  # Stop flush loop — pipeline will handle cleanup
             except asyncio.CancelledError:
                 pass
 

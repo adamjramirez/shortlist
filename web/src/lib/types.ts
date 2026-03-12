@@ -39,6 +39,7 @@ export interface JobSummary {
   id: number;
   title: string;
   company: string;
+  location: string | null;
   fit_score: number | null;
   matched_track: string | null;
   salary_estimate: string | null;
@@ -48,11 +49,11 @@ export interface JobSummary {
   sources_seen: string[];
   first_seen: string | null;
   has_tailored_resume: boolean;
+  company_intel: string | null;
 }
 
 export interface JobDetail extends JobSummary {
   description: string | null;
-  location: string | null;
   score_reasoning: string | null;
   yellow_flags: string | null;
   enrichment: Record<string, unknown> | null;

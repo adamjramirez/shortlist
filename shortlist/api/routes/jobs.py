@@ -16,11 +16,34 @@ from shortlist.api.schemas import (
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
+def _enrichment_summary(enrichment: dict | None) -> str | None:
+    """One-line company intel from enrichment dict."""
+    if not enrichment:
+        return None
+    parts = []
+    if enrichment.get("stage") and enrichment["stage"] != "unknown":
+        parts.append(enrichment["stage"])
+    hc = enrichment.get("headcount_estimate")
+    if hc:
+        parts.append(f"~{hc} people")
+    gr = enrichment.get("glassdoor_rating")
+    if gr:
+        parts.append(f"Glassdoor {gr}")
+    gs = enrichment.get("growth_signal")
+    if gs and gs != "unknown":
+        parts.append(gs)
+    oss = enrichment.get("oss_presence")
+    if oss and oss not in ("unknown", "weak"):
+        parts.append(f"OSS: {oss}")
+    return " · ".join(parts) if parts else None
+
+
 def _job_to_summary(job: Job) -> JobSummary:
     return JobSummary(
         id=job.id,
         title=job.title,
         company=job.company,
+        location=job.location,
         fit_score=job.fit_score,
         matched_track=job.matched_track,
         salary_estimate=job.salary_estimate,
@@ -30,14 +53,15 @@ def _job_to_summary(job: Job) -> JobSummary:
         sources_seen=job.sources_seen or [],
         first_seen=job.first_seen.isoformat() if job.first_seen else None,
         has_tailored_resume=bool(job.tailored_resume_key),
+        company_intel=_enrichment_summary(job.enrichment),
     )
 
 
 def _job_to_detail(job: Job) -> JobDetail:
+    summary = _job_to_summary(job).model_dump()
     return JobDetail(
-        **_job_to_summary(job).model_dump(),
+        **summary,
         description=job.description,
-        location=job.location,
         score_reasoning=job.score_reasoning,
         yellow_flags=job.yellow_flags,
         enrichment=job.enrichment,
