@@ -402,7 +402,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                       >
                         {(detail?.cover_letter || coverLetter) ? "🔄 Regenerate" : "✍️ Generate"} Cover Letter
                       </button>
-                      {hasKey && usable.length > 1 && (
+                      {hasKey && (
                         <select
                           value={clModel}
                           onClick={(e) => e.stopPropagation()}
@@ -424,6 +424,11 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                       {!hasKey && (
                         <a href="/profile" className="text-xs text-blue-500 hover:text-blue-600">
                           Add an API key to enable →
+                        </a>
+                      )}
+                      {hasKey && availableProviders.length < 3 && (
+                        <a href="/profile" className="text-xs text-gray-400 hover:text-gray-600">
+                          Add more providers in Profile →
                         </a>
                       )}
                     </div>
