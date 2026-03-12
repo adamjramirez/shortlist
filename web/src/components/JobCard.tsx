@@ -319,19 +319,27 @@ export default function JobCard({ job, onStatusChange }: Props) {
                   <p className="text-sm text-red-600">{tailorError}</p>
                 )}
                 {(job.has_tailored_resume || tailorResult) && (
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      try {
-                        await jobsApi.downloadResume(job.id);
-                      } catch {
-                        setTailorError("Download failed");
-                      }
-                    }}
-                    className="inline-flex items-center rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100"
-                  >
-                    📄 Download Tailored Resume (.tex)
-                  </button>
+                  <div className="space-y-2">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await jobsApi.downloadResume(job.id);
+                        } catch {
+                          setTailorError("Download failed");
+                        }
+                      }}
+                      className="inline-flex items-center rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100"
+                    >
+                      📄 Download Tailored Resume (.tex)
+                    </button>
+                    <p className="text-xs text-gray-400">
+                      This downloads a LaTeX (.tex) file. To convert to PDF, paste it into{" "}
+                      <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer"
+                         className="underline hover:text-gray-600">Overleaf</a>
+                      {" "}or ask ChatGPT / Claude to compile it for you.
+                    </p>
+                  </div>
                 )}
                 {tailorResult?.changes_made && tailorResult.changes_made.length > 0 && (
                   <ul className="mt-1 text-xs text-gray-500 space-y-0.5">
