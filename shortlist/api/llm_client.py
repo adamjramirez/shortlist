@@ -162,8 +162,12 @@ async def _call_anthropic(api_key: str, model: str, resume_text: str) -> str:
 
 
 _CALLERS = {
+    "gemini-2.0-flash": _call_gemini,
     "gemini-2.5-flash": _call_gemini,
+    "gemini-2.5-pro": _call_gemini,
+    "gpt-4o": _call_openai,
     "gpt-4o-mini": _call_openai,
+    "claude-sonnet-4-20250514": _call_anthropic,
     "claude-3-5-haiku-latest": _call_anthropic,
 }
 
