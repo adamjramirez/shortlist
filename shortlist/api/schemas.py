@@ -88,6 +88,7 @@ class JobSummary(BaseModel):
     sources_seen: list[str]
     first_seen: str | None
     has_tailored_resume: bool
+    is_new: bool = False
     company_intel: str | None  # One-line summary from enrichment
 
 
@@ -96,6 +97,8 @@ class JobDetail(JobSummary):
     score_reasoning: str | None
     yellow_flags: str | None
     enrichment: dict | None
+    interest_note: str | None = None
+    career_page_url: str | None = None
     notes: str | None
 
 

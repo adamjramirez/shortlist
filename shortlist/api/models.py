@@ -97,6 +97,8 @@ class Job(Base):
     enrichment = Column(JSON)
     enriched_at = Column(DateTime(timezone=True))
     tailored_resume_key = Column(String)  # S3 key instead of local path
+    interest_note = Column(Text)
+    career_page_url = Column(String)
     notes = Column(Text)
     first_briefed = Column(DateTime(timezone=True))
     brief_count = Column(Integer, default=0)

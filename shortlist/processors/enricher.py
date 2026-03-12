@@ -300,3 +300,48 @@ def rescore_with_enrichment(
     except Exception as e:
         logger.error(f"Failed to parse rescore response: {e}")
         return None
+
+
+INTEREST_PROMPT = """Write exactly 3 sentences about why a candidate with the background described below would be genuinely interested in this specific role. Be specific to the company and role — no generic statements like "this is a great opportunity." Reference the candidate's actual experience and what the company does.
+
+## Candidate Background
+{fit_context}
+
+## Company Intel
+{company_intel}
+
+## Job
+**Title:** {title}
+**Company:** {company}
+**Description excerpt:** {description}
+
+Return ONLY the 3 sentences, no preamble."""
+
+
+def generate_interest_note(company: str, job_title: str, job_description: str,
+                           fit_context: str, intel: CompanyIntel | None = None) -> str | None:
+    """Generate a 3-sentence 'why you might be interested' pitch.
+
+    Works with or without company intel — job-board companies still get
+    a pitch based on the role description alone.
+    """
+    company_intel = intel.summary() if intel else "No company intel available (recruiter posting)."
+    context = job_description[:500] if job_description else ""
+
+    prompt = INTEREST_PROMPT.format(
+        fit_context=fit_context or "Engineering leader seeking VP/Director roles.",
+        company_intel=company_intel,
+        title=job_title,
+        company=company,
+        description=context,
+    )
+
+    result = llm.call_llm(prompt)
+    if not result:
+        return None
+
+    # Clean up — strip any markdown formatting the LLM might add
+    text = result.strip().strip('"').strip()
+    if len(text) < 20:
+        return None
+    return text

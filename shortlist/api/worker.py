@@ -192,6 +192,18 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
             },
         )
 
+        # Mark displayed jobs as "briefed" so next run shows them as seen
+        from shortlist.api.models import Job
+        async with async_session() as session:
+            await session.execute(
+                update(Job).where(
+                    Job.user_id == user_id,
+                    Job.status == "scored",
+                    Job.fit_score >= SCORE_VISIBLE,
+                ).values(brief_count=Job.brief_count + 1)
+            )
+            await session.commit()
+
     except Exception as e:
         from shortlist.pipeline import CancelledError
         if isinstance(e, CancelledError):

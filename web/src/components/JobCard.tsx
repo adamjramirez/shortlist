@@ -105,6 +105,11 @@ export default function JobCard({ job, onStatusChange }: Props) {
             >
               {job.fit_score ?? "—"}
             </span>
+            {job.is_new && (
+              <span className="rounded bg-green-100 px-1.5 py-0.5 text-green-700 text-xs font-medium">
+                New
+              </span>
+            )}
             <h3 className="font-semibold text-gray-900 truncate">{job.title}</h3>
           </div>
 
@@ -180,6 +185,17 @@ export default function JobCard({ job, onStatusChange }: Props) {
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {detail.interest_note && (
+                <div>
+                  <p className="text-xs font-medium uppercase text-gray-400 mb-1">
+                    Why you might be interested
+                  </p>
+                  <p className="text-sm text-gray-600 italic leading-relaxed">
+                    {detail.interest_note}
+                  </p>
                 </div>
               )}
 

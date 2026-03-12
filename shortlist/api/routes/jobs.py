@@ -60,6 +60,7 @@ def _job_to_summary(job: Job) -> JobSummary:
         sources_seen=job.sources_seen or [],
         first_seen=job.first_seen.isoformat() if job.first_seen else None,
         has_tailored_resume=bool(job.tailored_resume_key),
+        is_new=(job.brief_count or 0) == 0,
         company_intel=(f"⚠️ Posted by {job.company} (recruiter/job board). The actual hiring company isn't listed — no company intel available."
                        if _is_job_board(job.company)
                        else _enrichment_summary(job.enrichment)),
@@ -82,6 +83,8 @@ def _job_to_detail(job: Job) -> JobDetail:
         score_reasoning=_clean_reasoning(job.score_reasoning),
         yellow_flags=job.yellow_flags,
         enrichment=job.enrichment,
+        interest_note=job.interest_note,
+        career_page_url=job.career_page_url,
         notes=job.notes,
     )
 

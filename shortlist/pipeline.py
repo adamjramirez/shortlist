@@ -17,7 +17,7 @@ from shortlist.processors.filter import apply_hard_filters
 from shortlist.processors.scorer import score_job, score_jobs_parallel, ScoreResult
 from shortlist.processors.enricher import (
     get_cached_enrichment, enrich_company, cache_enrichment,
-    rescore_with_enrichment, CompanyIntel,
+    rescore_with_enrichment, CompanyIntel, generate_interest_note,
 )
 from shortlist.collectors.career_page import discover_ats_from_domain, FETCHERS
 from shortlist.processors.resume import tailor_jobs_parallel
@@ -666,6 +666,29 @@ def run_pipeline_pg(
                                     fit_score=new_score, status=new_status,
                                     score_reasoning=f"{row['score_reasoning']} [Re-scored: {reason}]")
                     logger.info(f"Re-scored {company}/{row['title']}: {row['fit_score']} → {new_score} ({delta:+d})")
+        conn.commit()
+
+        # Generate interest notes for scored jobs that don't have one yet
+        needs_notes = pgdb.fetch_jobs(
+            conn, user_id, "scored",
+            extra_where="AND interest_note IS NULL AND fit_score >= %s",
+            extra_params=[SCORE_VISIBLE],
+            order="fit_score DESC", limit=config.brief.top_n,
+        )
+        for i, row in enumerate(needs_notes, 1):
+            _check_cancel()
+            _emit(on_progress, f"Writing pitch for {row['company']}…",
+                  phase="enriching",
+                  detail=f"Writing pitch ({i}/{len(needs_notes)})…")
+            intel_json = row.get("enrichment")
+            intel = CompanyIntel.from_json(row["company"], intel_json) if intel_json else None
+            note = generate_interest_note(
+                row["company"], row["title"], row["description"] or "",
+                config.fit_context, intel,
+            )
+            if note:
+                pgdb.update_job(conn, row["id"], interest_note=note)
+                llm_calls += 1
         conn.commit()
 
     # === Collect from all sources in parallel ===

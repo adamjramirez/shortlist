@@ -49,6 +49,7 @@ export interface JobSummary {
   sources_seen: string[];
   first_seen: string | null;
   has_tailored_resume: boolean;
+  is_new: boolean;
   company_intel: string | null;
 }
 
@@ -57,6 +58,8 @@ export interface JobDetail extends JobSummary {
   score_reasoning: string | null;
   yellow_flags: string | null;
   enrichment: Record<string, unknown> | null;
+  interest_note: string | null;
+  career_page_url: string | null;
   notes: string | null;
 }
 
