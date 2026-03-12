@@ -22,7 +22,11 @@ COPY requirements.txt /tmp/
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Tectonic (LaTeX compiler for PDF resume generation)
-RUN curl -fsSL https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz \
+# Needs libgraphite2 + libicu for font shaping; libssl for HTTPS package downloads
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libgraphite2-3 libicu72 libssl3 && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz \
     | tar xz -C /usr/local/bin/ && \
     chmod +x /usr/local/bin/tectonic
 
