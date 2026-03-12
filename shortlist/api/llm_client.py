@@ -63,19 +63,18 @@ USER_PROMPT_TEMPLATE = """Here is the resume:
 
 
 # Provider API configs
+_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+_OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+
 PROVIDERS = {
-    "gemini-2.5-flash": {
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-        "auth": "query",  # ?key=
-    },
-    "gpt-4o-mini": {
-        "url": "https://api.openai.com/v1/chat/completions",
-        "auth": "bearer",
-    },
-    "claude-3-5-haiku-latest": {
-        "url": "https://api.anthropic.com/v1/messages",
-        "auth": "x-api-key",
-    },
+    "gemini-2.0-flash": {"url": _GEMINI_URL.format(model="gemini-2.0-flash"), "auth": "query"},
+    "gemini-2.5-flash": {"url": _GEMINI_URL.format(model="gemini-2.5-flash"), "auth": "query"},
+    "gemini-2.5-pro": {"url": _GEMINI_URL.format(model="gemini-2.5-pro"), "auth": "query"},
+    "gpt-4o": {"url": _OPENAI_URL, "auth": "bearer"},
+    "gpt-4o-mini": {"url": _OPENAI_URL, "auth": "bearer"},
+    "claude-sonnet-4-20250514": {"url": _ANTHROPIC_URL, "auth": "x-api-key"},
+    "claude-3-5-haiku-latest": {"url": _ANTHROPIC_URL, "auth": "x-api-key"},
 }
 
 
