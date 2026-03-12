@@ -157,8 +157,11 @@ async def generate_profile(
         api_key = decrypt(encrypted_key)
         generator = LLMProfileGenerator(model=model, api_key=api_key)
 
-    # Fetch resume content
-    resume_bytes = await storage.get(resume.s3_key)
+    # Fetch resume content — use extracted text for PDFs
+    if resume.resume_type == "pdf" and resume.extracted_text_key:
+        resume_bytes = await storage.get(resume.extracted_text_key)
+    else:
+        resume_bytes = await storage.get(resume.s3_key)
     resume_text = resume_bytes.decode("utf-8", errors="replace")
 
     try:

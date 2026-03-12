@@ -70,47 +70,43 @@ async def _configure_llm(user: User, session: AsyncSession,
     return model
 
 
-async def _get_best_resume(user: User, matched_track: str | None,
-                           session: AsyncSession, storage: Storage) -> tuple[str, str]:
-    """Pick best resume by track, download tex content. Returns (tex, filename)."""
+async def _pick_best_resume(user: User, matched_track: str | None,
+                            session: AsyncSession) -> Resume:
+    """Select the best resume by track match, then recency. Returns Resume model."""
     query = select(Resume).where(Resume.user_id == user.id)
+
+    # Try track match first
     if matched_track:
         result = await session.execute(
             query.where(Resume.track == matched_track).order_by(Resume.uploaded_at.desc())
         )
-        resume = result.scalar_one_or_none()
+        resume = result.scalars().first()
         if resume:
             logger.info(f"Picked resume by track '{matched_track}': {resume.filename} ({resume.id})")
-            data = await storage.get(resume.s3_key)
-            return data.decode("utf-8"), resume.filename
+            return resume
 
-    # Fallback: most recent resume, preferring larger files (real resumes > templates)
+    # Fallback: most recent resume
     result = await session.execute(
         query.order_by(Resume.uploaded_at.desc())
     )
-    resumes = list(result.scalars().all())
-    # If multiple, pick the largest (templates are tiny, real resumes are 2KB+)
-    if len(resumes) > 1:
-        # Check sizes from storage
-        sizes = []
-        for r in resumes:
-            try:
-                data = await storage.get(r.s3_key)
-                sizes.append((len(data), r))
-            except Exception:
-                sizes.append((0, r))
-        sizes.sort(key=lambda x: x[0], reverse=True)
-        resume = sizes[0][1] if sizes else None
-        if resume:
-            logger.info(f"Picked largest resume from {len(resumes)} candidates: {resume.filename} ({sizes[0][0]} bytes)")
-            data = await storage.get(resume.s3_key)
-            return data.decode("utf-8"), resume.filename
-    resume = resumes[0] if resumes else None
+    resume = result.scalars().first()
     if not resume:
-        raise HTTPException(status_code=400, detail="No resumes uploaded. Upload a .tex resume first.")
-    logger.info(f"Picked most recent resume: {resume.filename} ({resume.id}, {len(resume.s3_key)} key)")
-    data = await storage.get(resume.s3_key)
-    return data.decode("utf-8"), resume.filename
+        raise HTTPException(status_code=400, detail="No resumes uploaded. Upload a resume first.")
+    logger.info(f"Picked most recent resume: {resume.filename} ({resume.id})")
+    return resume
+
+
+async def _fetch_resume_text(resume: Resume, storage: Storage) -> tuple[str, str, str]:
+    """Fetch resume text content from storage. Returns (text, filename, resume_type).
+
+    For PDF resumes, fetches extracted text. For .tex, fetches raw content.
+    """
+    if resume.resume_type == "pdf" and resume.extracted_text_key:
+        data = await storage.get(resume.extracted_text_key)
+        return data.decode("utf-8"), resume.filename, "pdf"
+    else:
+        data = await storage.get(resume.s3_key)
+        return data.decode("utf-8"), resume.filename, resume.resume_type or "tex"
 
 
 # --- Resume tailoring ---
@@ -138,14 +134,15 @@ async def tailor_job(
             interest_note="",
         )
 
-    resume_tex, _ = await _get_best_resume(user, job.matched_track, session, storage)
+    resume = await _pick_best_resume(user, job.matched_track, session)
+    resume_text, _, resume_type = await _fetch_resume_text(resume, storage)
     await _configure_llm(user, session)
 
     from shortlist.processors.resume import tailor_resume_from_text
 
     tailored = await asyncio.to_thread(
         tailor_resume_from_text,
-        resume_tex, job.title, job.company, job.description or "",
+        resume_text, job.title, job.company, job.description or "",
     )
     if not tailored:
         raise HTTPException(status_code=500, detail="Resume tailoring failed. Try again.")
@@ -224,9 +221,10 @@ async def generate_cover_letter_endpoint(
     model = await _configure_llm(user, session, model_override=model_choice)
 
     # Gather all context
-    resume_tex = ""
+    resume_text = ""
     try:
-        resume_tex, _ = await _get_best_resume(user, job.matched_track, session, storage)
+        resume = await _pick_best_resume(user, job.matched_track, session)
+        resume_text, _, _ = await _fetch_resume_text(resume, storage)
     except HTTPException:
         pass  # No resume is OK for cover letters — we still have fit_context
 
@@ -265,7 +263,7 @@ async def generate_cover_letter_endpoint(
         company=job.company,
         description=job.description or "",
         fit_context=fit_context,
-        resume_tex=resume_tex,
+        resume_tex=resume_text,
         company_intel=company_intel,
         match_reasoning=job.score_reasoning or "",
         interest_note=job.interest_note or "",

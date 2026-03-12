@@ -112,3 +112,39 @@ async def test_generate_unauthenticated(client):
         json={"resume_id": 1},
     )
     assert resp.status_code == 401
+
+
+@pytest_asyncio.fixture
+async def pdf_resume_id(client, auth_headers):
+    """Upload a PDF resume and return its ID."""
+    from fpdf import FPDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+    pdf.cell(0, 10, "Senior engineer with 8 years Python", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, "Built data pipelines at scale", new_x="LMARGIN", new_y="NEXT")
+    pdf_bytes = bytes(pdf.output())
+
+    files = {"file": ("resume.pdf", BytesIO(pdf_bytes), "application/pdf")}
+    resp = await client.post("/api/resumes", files=files, headers=auth_headers)
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_generate_profile_from_pdf(client, auth_headers, pdf_resume_id, profile_with_key, fake_generator):
+    """Profile generation works with PDF resume — uses extracted text, not raw bytes."""
+    resp = await client.post(
+        "/api/profile/generate",
+        json={"resume_id": pdf_resume_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fit_context"] == "Generated fit context from resume."
+
+    # FakeProfileGenerator captures the resume text it received
+    assert fake_generator.last_resume_text is not None
+    assert "Senior engineer" in fake_generator.last_resume_text
+    # Should NOT contain raw PDF bytes
+    assert "%PDF" not in fake_generator.last_resume_text

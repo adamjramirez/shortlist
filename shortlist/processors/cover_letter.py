@@ -233,10 +233,17 @@ def _clean_banned_phrases(text: str) -> str:
 def _extract_resume_summary(tex: str) -> str:
     """Extract readable text from LaTeX resume, handling real-world templates.
 
-    Strategy: strip LaTeX commands progressively, keeping text content.
+    For plain text (e.g. extracted from PDF), returns as-is with whitespace cleanup.
+    For LaTeX, strips commands progressively, keeping text content.
     Handles fontspec, tabular*, custom commands, etc.
     """
     import re
+
+    # Plain text shortcut: if no LaTeX document markers, just clean whitespace
+    if r"\documentclass" not in tex and r"\begin{document}" not in tex:
+        text = re.sub(r'[ \t]+', ' ', tex)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
 
     text = tex
 
