@@ -33,7 +33,10 @@ export default function AuthForm({ mode }: Props) {
       }
       router.push("/");
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : "Something went wrong");
+      const msg = err instanceof ApiError ? err.detail : "Something went wrong";
+      setError(msg);
+      if (mode === "login") track.loginFailed(msg);
+      else track.signupFailed(msg);
     } finally {
       setLoading(false);
     }
