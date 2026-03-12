@@ -9,9 +9,73 @@ interface Props {
   onProgress?: () => void;
 }
 
-interface Step {
-  key: string;
-  label: string;
+interface SourceState {
+  status: string;
+  collected?: number;
+  filtered?: number;
+  matches?: number;
+  scored?: number;
+  error?: string;
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  hn: "Hacker News",
+  linkedin: "LinkedIn",
+  nextplay: "NextPlay",
+};
+
+function SourceRow({ name, state }: { name: string; state: SourceState }) {
+  const label = SOURCE_LABELS[name] || name;
+
+  // Status icon
+  let icon: string;
+  let color: string;
+  switch (state.status) {
+    case "done":
+      icon = "✓";
+      color = "text-green-600";
+      break;
+    case "failed":
+      icon = "✗";
+      color = "text-red-500";
+      break;
+    case "waiting":
+    case "skipped":
+      icon = "○";
+      color = "text-gray-300";
+      break;
+    default: // searching, filtering, scoring, fetching
+      icon = "◌";
+      color = "text-blue-500 animate-pulse";
+  }
+
+  // Status detail
+  let detail = "";
+  if (state.status === "searching") {
+    detail = "searching…";
+  } else if (state.status === "filtering") {
+    detail = `${state.collected} found → filtering…`;
+  } else if (state.status === "fetching") {
+    detail = `fetching descriptions…`;
+  } else if (state.status === "scoring") {
+    detail = `scoring ${state.filtered ?? "?"} jobs…`;
+  } else if (state.status === "done") {
+    const parts: string[] = [];
+    if (state.collected !== undefined) parts.push(`${state.collected} found`);
+    if (state.filtered !== undefined) parts.push(`${state.filtered} passed`);
+    if (state.matches !== undefined) parts.push(`${state.matches} matches`);
+    detail = parts.join(" → ");
+  } else if (state.status === "failed") {
+    detail = state.error || "failed";
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span className={`text-xs font-bold ${color}`}>{icon}</span>
+      <span className="font-medium text-gray-700 w-24">{label}</span>
+      <span className="text-gray-500 text-xs">{detail}</span>
+    </div>
+  );
 }
 
 export default function RunButton({ onComplete, onProgress }: Props) {
@@ -35,15 +99,17 @@ export default function RunButton({ onComplete, onProgress }: Props) {
   useEffect(() => {
     if (!isActive || !runId) return;
 
-    let lastMatches = 0;
+    let lastSourceStates = "";
     intervalRef.current = setInterval(async () => {
       try {
         const updated = await runsApi.get(runId);
         setRun(updated);
 
-        const matches = (updated.progress as Record<string, number>)?.matches ?? 0;
-        if (matches > lastMatches) {
-          lastMatches = matches;
+        // Refresh job list when any source finishes scoring
+        const sources = (updated.progress as Record<string, unknown>)?.sources;
+        const stateKey = sources ? JSON.stringify(sources) : "";
+        if (stateKey !== lastSourceStates) {
+          lastSourceStates = stateKey;
           onProgress?.();
         }
 
@@ -54,7 +120,7 @@ export default function RunButton({ onComplete, onProgress }: Props) {
       } catch {
         if (intervalRef.current) clearInterval(intervalRef.current);
       }
-    }, 3000);
+    }, 2000);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
@@ -86,26 +152,21 @@ export default function RunButton({ onComplete, onProgress }: Props) {
   const progress = run?.progress as {
     phase?: string;
     detail?: string;
-    step?: string;
-    steps?: Step[];
-    scored?: number;
-    total?: number;
+    sources?: Record<string, SourceState>;
     matches?: number;
     elapsed_seconds?: number;
   };
 
-  // Fallback matches STEPS in worker.py — used before first progress update arrives
-  const steps: Step[] = progress?.steps ?? [
-    { key: "search", label: "Searching job boards" },
-    { key: "score", label: "AI scoring" },
-    { key: "research", label: "Company research" },
-    { key: "done", label: "Complete" },
-  ];
-
-  const currentStep = progress?.step || "search";
-  const currentStepIdx = steps.findIndex((s) => s.key === currentStep);
+  const sources = progress?.sources;
   const matches = progress?.matches ?? 0;
   const elapsed = progress?.elapsed_seconds ?? 0;
+  const phase = progress?.phase;
+
+  // Enrichment phase (after all sources done)
+  const isEnriching = phase === "enriching";
+  const allSourcesDone = sources && Object.values(sources).every(
+    (s) => s.status === "done" || s.status === "failed" || s.status === "skipped"
+  );
 
   function formatElapsed(seconds: number): string {
     if (seconds < 60) return `${seconds}s`;
@@ -117,70 +178,41 @@ export default function RunButton({ onComplete, onProgress }: Props) {
   return (
     <div>
       {isActive ? (
-        <div className="space-y-3">
-          {/* Step indicators */}
-          <div className="flex items-center gap-1">
-            {steps.filter(s => s.key !== "done").map((step, i) => {
-              const isComplete = i < currentStepIdx;
-              const isCurrent = i === currentStepIdx;
-              return (
-                <div key={step.key} className="flex items-center gap-1">
-                  {i > 0 && (
-                    <div className={`h-px w-4 ${isComplete ? "bg-blue-500" : "bg-gray-200"}`} />
-                  )}
-                  <div className="flex items-center gap-1.5">
-                    <div
-                      className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
-                        isComplete
-                          ? "bg-blue-600 text-white"
-                          : isCurrent
-                            ? "border-2 border-blue-600 text-blue-600"
-                            : "border border-gray-300 text-gray-400"
-                      }`}
-                    >
-                      {isComplete ? "✓" : i + 1}
-                    </div>
-                    <span
-                      className={`text-xs ${
-                        isCurrent ? "font-medium text-gray-900" : "text-gray-400"
-                      }`}
-                    >
-                      {step.label}
-                    </span>
-                  </div>
+        <div className="space-y-2">
+          {/* Per-source progress */}
+          {sources ? (
+            <div className="space-y-1">
+              {Object.entries(sources).map(([name, state]) => (
+                <SourceRow key={name} name={name} state={state} />
+              ))}
+              {allSourcesDone && !isEnriching && (
+                <div className="flex items-center gap-2 text-sm mt-1">
+                  <span className="text-xs font-bold text-blue-500 animate-pulse">◌</span>
+                  <span className="font-medium text-gray-700 w-24">Research</span>
+                  <span className="text-gray-500 text-xs">starting…</span>
                 </div>
-              );
-            })}
-          </div>
-
-          {/* Current activity */}
-          <div className="flex items-center gap-2">
-            <svg
-              className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-600"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-              />
-            </svg>
-            <span className="text-sm text-gray-600">
-              {progress?.detail || steps[currentStepIdx]?.label || "Working…"}
-            </span>
-          </div>
+              )}
+              {isEnriching && (
+                <div className="flex items-center gap-2 text-sm mt-1">
+                  <span className="text-xs font-bold text-blue-500 animate-pulse">◌</span>
+                  <span className="font-medium text-gray-700 w-24">Research</span>
+                  <span className="text-gray-500 text-xs">{progress?.detail || "researching companies…"}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            // Before first progress update
+            <div className="flex items-center gap-2">
+              <svg className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-600" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+              <span className="text-sm text-gray-600">Starting up…</span>
+            </div>
+          )}
 
           {/* Stats + cancel */}
-          <div className="flex items-center justify-between text-xs text-gray-400">
+          <div className="flex items-center justify-between text-xs text-gray-400 pt-1 border-t border-gray-100">
             <div className="flex gap-3">
               {matches > 0 && (
                 <span className="font-medium text-blue-600">{matches} matches</span>

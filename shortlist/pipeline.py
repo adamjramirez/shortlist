@@ -214,134 +214,102 @@ def run_pipeline(
 
     if not skip_collect:
         collectors = _get_collectors(config=config, db=db)
-
-        # Separate LinkedIn from fast sources
-        linkedin_collector = collectors.pop("linkedin", None)
-        fast_collectors = collectors  # hn, nextplay, etc.
-
-        # Start LinkedIn collection in background — spreads requests across
-        # the entire run instead of one burst. By the time we need LinkedIn
-        # results, most search pages are already fetched.
         import threading
-        linkedin_result = {"jobs": [], "error": None}
-        linkedin_done = threading.Event()
+        import queue
 
-        def _collect_linkedin():
-            if not linkedin_collector:
-                linkedin_done.set()
-                return
-            try:
-                logger.info("Collecting from linkedin (background)…")
-                jobs = linkedin_collector.fetch_new()
-                linkedin_result["jobs"] = jobs
-            except Exception as e:
-                linkedin_result["error"] = str(e)
-            finally:
-                linkedin_done.set()
+        # Per-source progress tracking
+        source_progress = {name: {"status": "searching"} for name in collectors}
 
-        # Emit initial status BEFORE starting LinkedIn thread
-        fast_names = list(fast_collectors.keys())
-        _emit(on_progress, f"Starting search…",
-              phase="collecting", detail=f"Searching {', '.join(fast_names)}…")
+        def _emit_sources(**extra):
+            """Emit progress with per-source state."""
+            _emit(on_progress, "", phase="pipeline",
+                  sources=dict(source_progress), matches=visible_matches, **extra)
 
-        linkedin_thread = threading.Thread(target=_collect_linkedin, daemon=True)
-        linkedin_thread.start()
+        # Queue for completed collections: (name, jobs_list, source_start, needs_descriptions)
+        results_queue: queue.Queue = queue.Queue()
 
-        # Process sources (HN first, then NextPlay which can be slow)
-        for name, collector in fast_collectors.items():
-            _check_cancel()
-            logger.info(f"Collecting from {name}...")
-            _emit(on_progress, f"Searching {name}…",
-                  phase="collecting",
-                  detail=f"Searching {name}… ({total_matches} matches so far)" if total_matches else f"Searching {name}…",
-                  matches=total_matches)
+        def _collect_source(name, collector):
+            """Collect jobs in a background thread, put results on queue."""
             source_start = datetime.now().isoformat()
             try:
+                logger.info(f"Collecting from {name}...")
                 jobs = collector.fetch_new()
-                for job in jobs:
-                    upsert_job(db, job)
-                jobs_collected += len(jobs)
-                _emit(on_progress, f"  → {name}: {len(jobs)} jobs",
-                      phase="collecting", detail=f"{name}: {len(jobs)} jobs",
-                      collected=jobs_collected)
-                _log_source_run(db, name, source_start, "success", len(jobs))
+                results_queue.put((name, jobs, source_start, name == "linkedin"))
             except Exception as e:
-                errors.append(f"{name}: {str(e)}")
-                _emit(on_progress, f"  → {name}: failed ({e})",
-                      phase="collecting", detail=f"{name}: failed")
-                _log_source_run(db, name, source_start, "failure", 0, str(e))
-                continue
+                results_queue.put((name, e, source_start, False))
 
-            if not jobs:
-                continue
+        # Launch ALL sources in parallel threads
+        threads = []
+        for name, collector in collectors.items():
+            t = threading.Thread(target=_collect_source, args=(name, collector), daemon=True)
+            t.start()
+            threads.append(t)
+        _emit_sources(detail="Searching all sources…")
 
-            # Filter → Score → Save immediately
+        def _process_collected(name, jobs_list, source_start, needs_descriptions):
+            """Filter → (fetch descriptions) → Score → Save. Runs on main thread (SQLite safe)."""
+            nonlocal jobs_collected, total_scored, total_matches, visible_matches
+
+            for job in jobs_list:
+                upsert_job(db, job)
+            jobs_collected += len(jobs_list)
+            _log_source_run(db, name, source_start, "success", len(jobs_list))
+
+            if not jobs_list:
+                source_progress[name]["status"] = "done"
+                source_progress[name].update({"collected": 0, "matches": 0})
+                _emit_sources(detail=f"{name}: no jobs found")
+                return
+
+            source_progress[name]["status"] = "filtering"
+            source_progress[name]["collected"] = len(jobs_list)
+            _emit_sources(detail=f"Filtering {name} jobs…")
+
             passed, rejected = _filter_new_jobs()
-            _emit(on_progress, f"  → {passed} passed, {rejected} rejected",
-                  phase="filtering", detail=f"{passed} passed, {rejected} rejected")
+            source_progress[name]["filtered"] = passed
+            source_progress[name]["rejected"] = rejected
 
             if passed > 0:
+                if needs_descriptions:
+                    source_progress[name]["status"] = "fetching"
+                    _emit_sources(detail=f"Fetching {passed} job descriptions…")
+                    _fetch_descriptions()
+
+                source_progress[name]["status"] = "scoring"
+                _emit_sources(detail=f"Scoring {name} jobs…")
+
                 scored, matches, vis = _score_filtered()
                 total_scored += scored
                 total_matches += matches
                 visible_matches += vis
-                if scored:
-                    _emit(on_progress, f"  → {visible_matches} matches so far",
-                          phase="scoring", detail=f"{visible_matches} matches so far",
-                          matches=visible_matches)
-                _notify_jobs_ready()
-
-        # Wait for LinkedIn background collection to finish
-        if linkedin_collector:
-            _check_cancel()
-            _emit(on_progress, "Waiting for LinkedIn results…",
-                  phase="collecting", detail=f"Searching LinkedIn… ({visible_matches} matches so far)",
-                  matches=visible_matches)
-            # Poll with timeout so we can check for cancellation
-            while not linkedin_done.wait(timeout=2.0):
-                _check_cancel()
-
-            source_start = datetime.now().isoformat()
-            if linkedin_result["error"]:
-                errors.append(f"linkedin: {linkedin_result['error']}")
-                _emit(on_progress, f"  → linkedin: failed ({linkedin_result['error']})",
-                      phase="collecting", detail="LinkedIn: failed")
-                _log_source_run(db, "linkedin", source_start, "failure", 0, linkedin_result["error"])
+                source_progress[name]["matches"] = vis
+                source_progress[name]["scored"] = scored
             else:
-                li_jobs = linkedin_result["jobs"]
-                for job in li_jobs:
-                    upsert_job(db, job)
-                jobs_collected += len(li_jobs)
-                _emit(on_progress, f"  → linkedin: {len(li_jobs)} jobs",
-                      phase="collecting", detail=f"LinkedIn: {len(li_jobs)} jobs",
-                      collected=jobs_collected)
-                _log_source_run(db, "linkedin", source_start, "success", len(li_jobs))
+                source_progress[name]["matches"] = 0
 
-                if li_jobs:
-                    # Filter → Fetch descriptions → Score → Save
-                    passed, rejected = _filter_new_jobs()
-                    _emit(on_progress, f"  → {passed} passed, {rejected} rejected",
-                          phase="filtering", detail=f"{passed} passed, {rejected} rejected")
+            source_progress[name]["status"] = "done"
+            _emit_sources(detail=f"{name} complete — {source_progress[name]['matches']} matches")
+            _notify_jobs_ready()
 
-                    if passed > 0:
-                        fetched = _fetch_descriptions()
-                        if fetched:
-                            _emit(on_progress, f"  → {fetched} descriptions fetched",
-                                  phase="fetching", detail=f"{fetched} descriptions fetched")
+        # Process results as they arrive (main thread — SQLite is single-threaded)
+        sources_remaining = len(collectors)
+        while sources_remaining > 0:
+            _check_cancel()
+            try:
+                name, result, source_start, needs_desc = results_queue.get(timeout=2.0)
+            except queue.Empty:
+                continue
 
-                        scored, matches, vis = _score_filtered()
-                        total_scored += scored
-                        total_matches += matches
-                        visible_matches += vis
-                        if scored:
-                            _emit(on_progress, f"  → {visible_matches} matches total",
-                                  phase="scoring", detail=f"{visible_matches} matches total",
-                                  matches=visible_matches)
-                        _notify_jobs_ready()
+            sources_remaining -= 1
 
-        _emit(on_progress, f"Collection done: {jobs_collected} jobs, {visible_matches} matches",
-              phase="collecting", detail=f"Found {visible_matches} matches from {jobs_collected} jobs",
-              collected=jobs_collected, matches=visible_matches)
+            if isinstance(result, Exception):
+                errors.append(f"{name}: {str(result)}")
+                source_progress[name]["status"] = "failed"
+                source_progress[name]["error"] = str(result)[:100]
+                _emit_sources(detail=f"{name} failed")
+                _log_source_run(db, name, source_start, "failure", 0, str(result))
+            else:
+                _process_collected(name, result, source_start, needs_desc)
     else:
         _emit(on_progress, "Skipping collection (--no-collect)",
               phase="collecting", detail="Skipping collection")

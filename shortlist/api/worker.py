@@ -169,31 +169,9 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
         import time
         run_start_time = time.monotonic()
 
-        # Map pipeline phases to user-visible steps
-        STEPS = [
-            {"key": "search", "label": "Searching job boards"},
-            {"key": "score", "label": "AI scoring"},
-            {"key": "research", "label": "Company research"},
-            {"key": "done", "label": "Complete"},
-        ]
-        PHASE_TO_STEP = {
-            "collecting": "search",
-            "filtering": "search",
-            "fetching": "score",
-            "scoring": "score",
-            "enriching": "research",
-            "tailoring": "research",
-            "finishing": "done",
-        }
-
         def on_progress(data: dict):
-            phase = data.get("phase", progress.get("phase", "collecting"))
             elapsed = time.monotonic() - run_start_time
-            step = PHASE_TO_STEP.get(phase, "search")
-
             data["elapsed_seconds"] = int(elapsed)
-            data["step"] = step
-            data["steps"] = STEPS
             progress.update(data)
 
         # Cancel event — checked by pipeline at phase boundaries
