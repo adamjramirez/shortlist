@@ -59,9 +59,10 @@ function formatYellowFlags(flags: string | null): string[] {
 interface Props {
   job: JobSummary;
   onStatusChange?: (id: number, status: string) => void;
+  availableProviders?: string[]; // providers with API keys configured
 }
 
-export default function JobCard({ job, onStatusChange }: Props) {
+export default function JobCard({ job, onStatusChange, availableProviders = [] }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -358,54 +359,76 @@ export default function JobCard({ job, onStatusChange }: Props) {
 
               {/* Cover letter */}
               <div className="pt-2 border-t border-gray-100 space-y-2">
-                {!generatingLetter && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        setGeneratingLetter(true);
-                        setLetterError("");
-                        try {
-                          const result = await jobsApi.generateCoverLetter(
-                            job.id,
-                            clModel || undefined,
-                            !!(detail?.cover_letter || coverLetter),
-                          );
-                          setCoverLetter(result.cover_letter);
-                          setLetterModel(result.model_used);
-                        } catch (err) {
-                          setLetterError(err instanceof Error ? err.message : "Generation failed");
-                        } finally {
-                          setGeneratingLetter(false);
-                        }
-                      }}
-                      className="rounded border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
-                    >
-                      {(detail?.cover_letter || coverLetter) ? "🔄 Regenerate" : "✍️ Generate"} Cover Letter
-                    </button>
-                    <select
-                      value={clModel}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => { e.stopPropagation(); setClModel(e.target.value); }}
-                      className="rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600"
-                    >
-                      <option value="">Default model</option>
-                      <optgroup label="Gemini">
-                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                      </optgroup>
-                      <optgroup label="OpenAI">
-                        <option value="gpt-4o">GPT-4o</option>
-                        <option value="gpt-4o-mini">GPT-4o Mini</option>
-                      </optgroup>
-                      <optgroup label="Anthropic">
-                        <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-                        <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku</option>
-                      </optgroup>
-                    </select>
-                  </div>
-                )}
+                {!generatingLetter && (() => {
+                  const models: { value: string; label: string; provider: string }[] = [
+                    { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "gemini" },
+                    { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "gemini" },
+                    { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "gemini" },
+                    { value: "gpt-4o", label: "GPT-4o", provider: "openai" },
+                    { value: "gpt-4o-mini", label: "GPT-4o Mini", provider: "openai" },
+                    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", provider: "anthropic" },
+                    { value: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku", provider: "anthropic" },
+                  ];
+                  const usable = models.filter((m) => availableProviders.includes(m.provider));
+                  const hasKey = availableProviders.length > 0;
+
+                  return (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        disabled={!hasKey}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          setGeneratingLetter(true);
+                          setLetterError("");
+                          try {
+                            const result = await jobsApi.generateCoverLetter(
+                              job.id,
+                              clModel || undefined,
+                              !!(detail?.cover_letter || coverLetter),
+                            );
+                            setCoverLetter(result.cover_letter);
+                            setLetterModel(result.model_used);
+                          } catch (err) {
+                            setLetterError(err instanceof Error ? err.message : "Generation failed");
+                          } finally {
+                            setGeneratingLetter(false);
+                          }
+                        }}
+                        className={`rounded border px-3 py-1.5 text-sm font-medium ${
+                          hasKey
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            : "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
+                        }`}
+                      >
+                        {(detail?.cover_letter || coverLetter) ? "🔄 Regenerate" : "✍️ Generate"} Cover Letter
+                      </button>
+                      {hasKey && usable.length > 1 && (
+                        <select
+                          value={clModel}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => { e.stopPropagation(); setClModel(e.target.value); }}
+                          className="rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600"
+                        >
+                          <option value="">Default model</option>
+                          {(["gemini", "openai", "anthropic"] as const)
+                            .filter((p) => availableProviders.includes(p))
+                            .map((p) => (
+                              <optgroup key={p} label={p === "gemini" ? "Gemini" : p === "openai" ? "OpenAI" : "Anthropic"}>
+                                {usable.filter((m) => m.provider === p).map((m) => (
+                                  <option key={m.value} value={m.value}>{m.label}</option>
+                                ))}
+                              </optgroup>
+                            ))}
+                        </select>
+                      )}
+                      {!hasKey && (
+                        <a href="/profile" className="text-xs text-blue-500 hover:text-blue-600">
+                          Add an API key to enable →
+                        </a>
+                      )}
+                    </div>
+                  );
+                })()}
                 {generatingLetter && (
                   <p className="text-sm text-gray-500 animate-pulse">
                     ✍️ Writing cover letter (~10s)…
