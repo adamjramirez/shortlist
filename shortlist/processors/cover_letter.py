@@ -216,28 +216,74 @@ def _clean_banned_phrases(text: str) -> str:
 
 
 def _extract_resume_summary(tex: str) -> str:
-    """Pull readable content from LaTeX, keeping all text inside braces."""
+    """Extract readable text from LaTeX resume, handling real-world templates.
+
+    Strategy: strip LaTeX commands progressively, keeping text content.
+    Handles fontspec, tabular*, custom commands, etc.
+    """
     import re
-    # Remove comments
-    text = re.sub(r'%.*$', '', tex, flags=re.MULTILINE)
-    # Keep content of formatting commands: \textbf{X} → X
-    text = re.sub(r'\\(?:textbf|textit|emph|underline|textsc|large|Large|huge|Huge)\{([^}]*)\}', r'\1', text)
-    # Section headings: \section{X} → X on its own line
-    text = re.sub(r'\\(?:section|subsection|subsubsection)\*?\{([^}]*)\}', r'\n\1\n', text)
-    # Multi-arg commands (resumeSubheading, etc.): keep ALL brace contents separated by " | "
-    def _expand_multi_arg(m):
-        cmd = m.group(0)
-        args = re.findall(r'\{([^}]*)\}', cmd)
-        return ' | '.join(a for a in args if a.strip())
-    text = re.sub(r'\\[a-zA-Z]+(?:\{[^}]*\}){2,}', _expand_multi_arg, text)
-    # Single-arg unknown commands: \foo{X} → X (keep the content)
+
+    text = tex
+
+    # 1. Remove everything before \begin{document}
+    doc_start = text.find(r'\begin{document}')
+    if doc_start >= 0:
+        text = text[doc_start + len(r'\begin{document}'):]
+    doc_end = text.find(r'\end{document}')
+    if doc_end >= 0:
+        text = text[:doc_end]
+
+    # 2. Remove comments
+    text = re.sub(r'%.*$', '', text, flags=re.MULTILINE)
+
+    # 3. Remove tabular environments but keep cell content
+    # \begin{tabular*}{...}{...} ... \end{tabular*}
+    text = re.sub(r'\\begin\{tabular\*?\}[^}]*\}(?:\{[^}]*\})?', '', text)
+    text = re.sub(r'\\end\{tabular\*?\}', '', text)
+
+    # 4. Remove column separators and alignment
+    text = text.replace('&', ' | ')
+    text = re.sub(r'\\\\(?:\[.*?\])?', '\n', text)
+
+    # 5. Strip font commands — \fontspec{...} \fontsize{...}{...} \selectfont etc.
+    text = re.sub(r'\\fontspec\{[^}]*\}', '', text)
+    text = re.sub(r'\\fontsize\{[^}]*\}\{[^}]*\}', '', text)
+    text = re.sub(r'\\selectfont', '', text)
+    text = re.sub(r'\\addfontfeatures\{[^}]*\}', '', text)
+
+    # 6. Strip color/formatting commands, keep content
+    text = re.sub(r'\\color\{[^}]*\}', '', text)
+    text = re.sub(r'\\textcolor\{[^}]*\}\{([^}]*)\}', r'\1', text)
+    text = re.sub(r'\\(?:textbf|textit|emph|underline|textsc)\{([^}]*)\}', r'\1', text)
+    text = re.sub(r'\\(?:small|footnotesize|tiny|large|Large|LARGE|huge|Huge|normalsize)\b', '', text)
+
+    # 7. Convert \href{url}{text} → text
+    text = re.sub(r'\\href\{[^}]*\}\{([^}]*)\}', r'\1', text)
+
+    # 8. Strip layout commands
+    for cmd in ['vspace', 'hspace', 'hfill', 'vfill', 'noindent', 'centering',
+                'raggedright', 'raggedleft', 'newpage', 'clearpage', 'pagebreak',
+                'item', 'enspace', 'quad', 'qquad']:
+        text = re.sub(rf'\\{cmd}(?:\{{[^}}]*\}}|\[[^\]]*\])?', ' ', text)
+
+    # 9. Remove environments we don't need
+    text = re.sub(r'\\begin\{(?:center|itemize|enumerate|description)\}', '', text)
+    text = re.sub(r'\\end\{(?:center|itemize|enumerate|description)\}', '', text)
+
+    # 10. Any remaining \command{content} → content
     text = re.sub(r'\\[a-zA-Z]+\{([^}]*)\}', r'\1', text)
-    # Remove environments
-    text = re.sub(r'\\(?:begin|end)\{[^}]*\}', '', text)
-    # Remove remaining bare commands (\hfill, \vspace, etc.)
+
+    # 11. Any remaining bare \commands → remove
     text = re.sub(r'\\[a-zA-Z]+(?:\[[^\]]*\])?', '', text)
-    # Clean up braces and whitespace
+
+    # 12. Clean up
     text = re.sub(r'[{}]', '', text)
+    text = re.sub(r'@[^@\s]*@', '', text)  # tabular @ expressions
+    text = re.sub(r'\|(?:\s*\|)+', '|', text)  # collapse multiple pipes
+    text = re.sub(r'(?m)^\s*[lr]\s*$', '', text)  # stray tabular column specs
     text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r' *\| *', ' | ', text)
+    text = re.sub(r'(?m)^\s+$', '', text)  # blank-ish lines
     text = re.sub(r'\n{3,}', '\n\n', text)
+
     return text.strip()
