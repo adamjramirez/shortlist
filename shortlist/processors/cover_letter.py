@@ -5,47 +5,63 @@ from shortlist import llm
 
 logger = logging.getLogger("shortlist.cover_letter")
 
-COVER_LETTER_PROMPT = """Write a cover letter for a {title} role at {company}. It should read like a thoughtful note from a real person — not a template, not a second resume.
+COVER_LETTER_PROMPT = """Write a cover letter for a {title} role at {company}.
 
-## What makes a great cover letter
+## The job of a cover letter
 
-A cover letter answers one question the resume can't: "Why you, why here, why now?"
-
-It's NOT a list of achievements (they already have the resume). It's the *context* around those achievements — the judgment calls, the motivation, the thread connecting your past to their future.
+A cover letter answers one question the resume can't: "Why you, why here, why now?" It is NOT a summary of the resume. The hiring manager already has the resume. They want to know the story behind the bullet points — the judgment calls, the hard parts, the reason you're reaching out to THEM.
 
 ## Structure (4 paragraphs, 250-350 words total)
 
 **Paragraph 1 — The connection (2-3 sentences):**
-Open with something specific about the company that connects to your own experience or values. Show you understand a challenge they face or a direction they're heading. Then bridge: "That's exactly the kind of problem I've been solving."
+Open with something specific about {company} that connects to your own experience. Not a compliment about the company — a SHARED problem or belief. Show you understand where they are and why it's hard. Then bridge naturally to why you've been in that exact situation.
 
-**Paragraph 2 — Your strongest story (4-5 sentences):**
-Pick ONE achievement from the resume that's most relevant to this role. Don't summarize it — tell the story. What was the situation? What was hard about it? What did you do that someone else wouldn't have? What was the outcome? This paragraph should make them think "I want to hear more about that."
+**Paragraph 2 — One real story (4-6 sentences):**
+Pick the single most relevant experience from the resume. Tell it as a STORY, not a summary:
+- What was the situation BEFORE you got involved?
+- What made it hard? (The obstacle, not just the task.)
+- What did YOU specifically decide or do that someone else in the role wouldn't have?
+- What changed as a result? (Use the real numbers from the resume.)
+This paragraph should make the reader think "Tell me more."
 
 **Paragraph 3 — The pattern (3-4 sentences):**
-Zoom out. Connect 2-3 other experiences briefly (one sentence each) to show this wasn't a one-off — it's a pattern. You consistently do X that they need. Use specific numbers but don't just list them. Weave them into a narrative: "That same approach at [Company] led to..."
+Reference at least one OTHER company from the resume by its exact name. For example, if the resume lists "BigCo" then write "At BigCo, I..." — never "at a previous role" or "at another company." Show this is a repeatable pattern across multiple organizations. One sentence per example, each with a specific number or outcome taken directly from the resume.
 
-**Paragraph 4 — Why now (2-3 sentences):**
-Why this company at this point in their journey, and what specifically you'd want to dig into in the first 90 days. Name a real challenge or opportunity, not a generic "contribute to growth." End with a concrete conversation starter: "I'd love to discuss how..." about a specific topic.
+**Paragraph 4 — Why this, why now (2-3 sentences):**
+Name a specific challenge or opportunity at {company} based on the company intel provided — not a vague "contribute to growth." Say what you'd focus on in the first 90 days concretely enough that the reader thinks "that's the right priority." End with a specific topic you'd want to discuss, not a generic "I'd love to chat."
 
-## Tone rules
-- Write like you'd talk to a peer over coffee, then tighten it up one notch.
-- Confidence comes from specifics, not adjectives. "I led" beats "I am a proven leader."
-- Match the seniority — VP roles get strategic voice, IC roles get craft voice.
-- Vary sentence length. Short sentences punch. Longer ones build context.
+## Tone
 
-## Hard rules
-- Do NOT use: "excited about the opportunity," "passionate about," "I believe I would be a great fit," "leverage my experience"
-- Do NOT repeat the job posting requirements back to them
-- Do NOT include [Your Name], placeholders, or "Dear Hiring Manager"
-- Do NOT write bullet points — this is a letter, not a list
-- Do NOT exceed 350 words
+Write like you're talking to a smart peer — not a form letter, not a LinkedIn post. Short sentences are good. So are longer ones that build an idea. Vary the rhythm.
+
+Confidence comes from specifics, not from adjectives. "We cut deploy time from 2 weeks to 4 hours" beats "I am a proven leader in engineering transformation."
+
+## ABSOLUTE RULES — violating ANY of these means starting over
+
+1. NEVER use these words or phrases (no exceptions, no variations):
+   excited, passionate, spearheaded, championed, forward-thinking, leverage,
+   "caught my attention", "great fit", "business outcomes", "key initiatives",
+   "shaped my understanding", "at my previous company", "at another company"
+
+2. NEVER invent company names. The resume below contains real company names.
+   Use ONLY those names. If only one company is listed, only reference one.
+   Do not create fictional companies like "DataCo" or "InnovateTech."
+
+3. NEVER invent numbers or metrics. Use ONLY the specific numbers that appear
+   in the resume data below. If the resume says "40%" then use "40%."
+   Do not fabricate figures like "50% improvement" if that number isn't in the resume.
+
+4. No bullet points. No placeholders. No "Dear Hiring Manager." Max 350 words.
 
 ---
 
-## Candidate Background
+## Candidate background
 {fit_context}
 
-## Resume (key details to draw from)
+## Resume (use ONLY the company names and numbers below — nothing invented)
+The following is the candidate's actual resume. Every company name and number is real.
+Reference them by name. Do not substitute with vague phrases like "another company."
+
 {resume_summary}
 
 ## Role
@@ -57,7 +73,7 @@ Why this company at this point in their journey, and what specifically you'd wan
 ## What we know about {company}
 {company_intel}
 
-## Why this is a match
+## Why this is a strong match
 {match_reasoning}
 
 ## What would genuinely interest this candidate
@@ -101,6 +117,38 @@ def generate_cover_letter(
     text = result.strip().strip('"').strip()
     if len(text) < 50:
         return None
+    return _clean_banned_phrases(text)
+
+
+# Phrases to strip or replace in post-processing if the model ignores instructions
+_BANNED_REPLACEMENTS = [
+    # Eagerness / excitement
+    ("I'm eager to", "I'd welcome the chance to"),
+    ("I am eager to", "I'd welcome the chance to"),
+    ("eager to", "interested in"),
+    ("excited by the opportunity", "drawn to the chance"),
+    ("excited about the opportunity", "drawn to the chance"),
+    ("excited to", "looking forward to"),
+    ("I'm excited", "I'm drawn"),
+    ("I am excited", "I'm drawn"),
+    # Corporate filler
+    ("caught my attention", "stood out to me"),
+    ("leverage my", "apply my"),
+    ("leverage our", "use our"),
+    ("leverage the", "use the"),
+    ("leverage ", "use "),
+    ("spearheaded", "led"),
+    ("Spearheaded", "Led"),
+    ("forward-thinking", "thoughtful"),
+    ("passionate about", "drawn to"),
+    ("Passionate about", "Drawn to"),
+]
+
+
+def _clean_banned_phrases(text: str) -> str:
+    """Post-process to catch banned phrases the model ignored."""
+    for old, new in _BANNED_REPLACEMENTS:
+        text = text.replace(old, new)
     return text
 
 
