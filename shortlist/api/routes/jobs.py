@@ -17,6 +17,12 @@ from shortlist.config import SCORE_VISIBLE
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
+def _is_job_board(company: str) -> bool:
+    """Check if company is a recruiter/aggregator."""
+    from shortlist.processors.enricher import is_job_board
+    return is_job_board(company)
+
+
 def _enrichment_summary(enrichment: dict | None) -> str | None:
     """One-line company intel from enrichment dict."""
     if not enrichment:
@@ -54,8 +60,18 @@ def _job_to_summary(job: Job) -> JobSummary:
         sources_seen=job.sources_seen or [],
         first_seen=job.first_seen.isoformat() if job.first_seen else None,
         has_tailored_resume=bool(job.tailored_resume_key),
-        company_intel=_enrichment_summary(job.enrichment),
+        company_intel=("⚠️ Recruiter/aggregator — actual company unknown"
+                       if _is_job_board(job.company)
+                       else _enrichment_summary(job.enrichment)),
     )
+
+
+def _clean_reasoning(text: str | None) -> str | None:
+    """Strip internal [Re-scored: ...] annotations from reasoning."""
+    if not text:
+        return text
+    import re
+    return re.sub(r"\s*\[Re-scored:.*?\]", "", text).strip()
 
 
 def _job_to_detail(job: Job) -> JobDetail:
@@ -63,7 +79,7 @@ def _job_to_detail(job: Job) -> JobDetail:
     return JobDetail(
         **summary,
         description=job.description,
-        score_reasoning=job.score_reasoning,
+        score_reasoning=_clean_reasoning(job.score_reasoning),
         yellow_flags=job.yellow_flags,
         enrichment=job.enrichment,
         notes=job.notes,
