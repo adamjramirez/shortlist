@@ -6,20 +6,47 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**Pipeline is fully operational and public.** 963 jobs in DB, 42 deduped top matches in brief, 50 tailored resumes.
+**Web UI close-the-gap features shipped.** All 3 batches deployed + cover letter generator.
 
 **Not yet done:**
 - Cron/launchd for overnight runs
-- 4 recovered location-filter jobs need scoring (status: `new`)
 
 **TODO — Tracking & Observability:**
 - Add PostHog event tracking for cover letter generation (model used, job_id, word count, generation time, QA pass time)
 - Add PostHog event tracking for resume tailoring (job_id, generation time, success/fail)
 - Add PostHog event tracking for profile generation (resume_id, generation time)
-- Backend logging: log cover letter prompt inputs (company, title, model) and QA pass corrections at INFO level
-- Log LaTeX extraction quality (word count before/after, company names detected)
 - Dashboard in PostHog: cover letter generation volume, model popularity, failure rate
 - Track which banned phrases the post-processor catches (to improve the prompt over time)
+
+---
+
+## 2026-03-12 — Close the gap: web UI vs CLI brief
+
+**What got done:**
+1. Batch 1: Interest pitch (`interest_note` on jobs, `generate_interest_note()`, pipeline wiring, API, JobCard "Why you might be interested")
+2. Batch 1: New/seen badges (`is_new` via `brief_count`, green "New" tag, worker increments on run complete)
+3. Batch 2: Direct ATS links (`get_career_url_for_domain()` from nextplay_cache, `career_page_url` on jobs, "Apply Direct →" button)
+4. Batch 3: Tailored resume (`tailor_resume_from_text()` DRY wrapper, POST/GET endpoints, Tigris storage, frontend download via fetch+blob)
+5. Cover letter generator — 3-layer pipeline: generate → QA pass → post-processor
+6. Per-provider API keys — store multiple keys, model selector dropdown on cover letter button
+7. Fixed LaTeX extraction — complete rewrite handles fontspec, tabular*, custom commands
+8. Fixed profile generator — added all 7 models to PROVIDERS + _CALLERS dicts
+9. Fixed JSON parsing — LaTeX backslashes (\$) in LLM responses no longer break parsing
+10. Fixed resume picker — was selecting template over real resume (scalar_one_or_none bug)
+11. Cover letter logging — extraction quality, QA corrections, post-processor catches
+
+**Bugs found & fixed:**
+- Tailor endpoint: LLM not configured (needed user's API key from profile)
+- Resume download: `<a href>` can't send JWT → switched to fetch+blob
+- Profile generator: `_CALLERS` and `PROVIDERS` only had 3 of 7 models
+- Resume picker: `scalar_one_or_none()` returns None with multiple resumes → `.first()`
+- Cover letters full of "Company Name" placeholders → root cause was template resume being picked + bad LaTeX extraction
+
+**Key decisions:**
+- Cover letter QA as 2nd LLM pass — catches what prompts can't enforce
+- Post-processor as deterministic safety net — banned phrase replacement
+- Resume picker prefers largest file when multiple exist (templates are tiny)
+- Per-provider keys stored in `config.llm.api_keys` dict, backward-compat with `encrypted_api_key`
 
 ---
 
