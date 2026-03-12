@@ -95,4 +95,50 @@ def create_app() -> FastAPI:
 
         return await asyncio.to_thread(_call)
 
+    @app.get("/api/debug/pg-sync-test")
+    async def pg_sync_test():
+        """Spike: confirm psycopg2 sync works from asyncio.to_thread on Fly."""
+        import asyncio, os, time
+
+        db_url = os.environ.get("DATABASE_URL", "")
+        if not db_url:
+            return {"ok": False, "error": "no DATABASE_URL"}
+
+        def _test():
+            import psycopg2
+            import psycopg2.extras
+            start = time.time()
+            try:
+                conn = psycopg2.connect(db_url)
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+                # Basic query
+                cur.execute("SELECT 1 AS val")
+                row = cur.fetchone()
+
+                # Write + read (temp table)
+                cur.execute("CREATE TEMP TABLE _spike_test (id serial, name text)")
+                cur.execute("INSERT INTO _spike_test (name) VALUES (%s) RETURNING id", ("hello",))
+                inserted_id = cur.fetchone()["id"]
+                cur.execute("SELECT * FROM _spike_test WHERE id = %s", (inserted_id,))
+                read_back = cur.fetchone()
+
+                # Count real data
+                cur.execute("SELECT COUNT(*) AS n FROM runs")
+                runs_count = cur.fetchone()["n"]
+
+                conn.close()
+                elapsed = round(time.time() - start, 3)
+                return {
+                    "ok": True,
+                    "select_1": row["val"],
+                    "insert_read": read_back["name"],
+                    "runs_count": runs_count,
+                    "time_seconds": elapsed,
+                }
+            except Exception as e:
+                return {"ok": False, "error": str(e), "time_seconds": round(time.time() - start, 3)}
+
+        return await asyncio.to_thread(_test)
+
     return app

@@ -465,6 +465,319 @@ def run_pipeline(
     return brief_path
 
 
+def run_pipeline_pg(
+    config: Config,
+    db_url: str,
+    user_id: int,
+    on_progress: callable = None,
+    cancel_event: "threading.Event | None" = None,
+) -> dict:
+    """Run the full pipeline writing directly to PostgreSQL.
+
+    Returns dict with run stats: {jobs_collected, total_scored, visible_matches, errors}.
+    """
+    from shortlist import pgdb
+    from shortlist.collectors.linkedin import fetch_description_for_url
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import queue
+
+    _ensure_llm(config)
+    conn = pgdb.get_pg_connection(db_url)
+
+    def _check_cancel():
+        if cancel_event and cancel_event.is_set():
+            raise CancelledError("Run cancelled by user")
+
+    errors = []
+    jobs_collected = 0
+    llm_calls = 0
+    total_scored = 0
+    total_matches = 0
+    visible_matches = 0
+    max_jobs = config.llm.max_jobs_per_run
+    jobs_scored_so_far = 0
+
+    def _filter_new_jobs():
+        nonlocal jobs_collected
+        new_jobs = pgdb.fetch_jobs(conn, user_id, "new")
+        rejected = 0
+        for row in new_jobs:
+            job = _row_to_raw_job(row)
+            result = apply_hard_filters(job, config)
+            if result.passed:
+                pgdb.update_job(conn, row["id"], status="filtered")
+            else:
+                pgdb.update_job(conn, row["id"], status="rejected", reject_reason=result.reason)
+                rejected += 1
+        conn.commit()
+        return len(new_jobs) - rejected, rejected
+
+    def _fetch_descriptions():
+        needs_desc = pgdb.fetch_jobs(
+            conn, user_id, "filtered",
+            extra_where="AND sources_seen::text LIKE '%%linkedin%%' AND length(description) < 200",
+        )
+        if not needs_desc:
+            return 0
+
+        def _fetch_one(row):
+            desc = fetch_description_for_url(row["url"])
+            return row["id"], desc
+
+        fetched = 0
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {executor.submit(_fetch_one, row): row for row in needs_desc}
+            for future in as_completed(futures):
+                try:
+                    row_id, desc = future.result()
+                    if desc:
+                        pgdb.update_job(conn, row_id, description=desc)
+                        fetched += 1
+                except Exception as e:
+                    logger.warning(f"Failed to fetch description: {e}")
+        conn.commit()
+        return fetched
+
+    def _score_filtered():
+        """Score filtered jobs. Returns (scored, matches, visible)."""
+        _check_cancel()
+        nonlocal llm_calls, jobs_scored_so_far
+        remaining = max_jobs - jobs_scored_so_far
+        if remaining <= 0:
+            return 0, 0, 0
+
+        filtered_jobs = pgdb.fetch_jobs(
+            conn, user_id, "filtered",
+            order="first_seen DESC", limit=remaining,
+        )
+
+        score_inputs = [(row["id"], _row_to_raw_job(row)) for row in filtered_jobs]
+        if not score_inputs:
+            return 0, 0, 0
+
+        _emit(on_progress, f"Scoring {len(score_inputs)} jobs…",
+              phase="scoring", detail=f"Scoring {len(score_inputs)} jobs…",
+              scored=jobs_scored_so_far, total=jobs_scored_so_far + len(score_inputs))
+
+        def _on_scored(done, total):
+            _emit(on_progress, f"  Scored {done}/{total}", phase="scoring",
+                  detail=f"Scoring jobs…",
+                  scored=jobs_scored_so_far + done,
+                  total=jobs_scored_so_far + total)
+
+        score_results = score_jobs_parallel(
+            score_inputs, config, max_workers=3,
+            on_scored=_on_scored, cancel_event=cancel_event,
+        )
+        _check_cancel()
+
+        matches = 0
+        visible = 0
+        # Batch updates
+        for row_id, score_result in score_results:
+            if score_result:
+                llm_calls += 1
+                status = "scored" if score_result.fit_score >= SCORE_SAVED else "low_score"
+                if score_result.fit_score >= SCORE_SAVED:
+                    matches += 1
+                if score_result.fit_score >= SCORE_VISIBLE:
+                    visible += 1
+
+                updates = {
+                    "status": status,
+                    "fit_score": score_result.fit_score,
+                    "matched_track": score_result.matched_track,
+                    "score_reasoning": score_result.reasoning,
+                    "yellow_flags": json.dumps(score_result.yellow_flags),
+                    "salary_estimate": score_result.salary_estimate,
+                    "salary_confidence": score_result.salary_confidence,
+                }
+                if score_result.corrected_title:
+                    updates["title"] = score_result.corrected_title
+                if score_result.corrected_company:
+                    updates["company"] = score_result.corrected_company
+                if score_result.corrected_location:
+                    updates["location"] = score_result.corrected_location
+
+                pgdb.update_job(conn, row_id, **updates)
+            else:
+                logger.warning(f"Failed to score job {row_id}")
+        conn.commit()
+
+        jobs_scored_so_far += len(score_inputs)
+        return len(score_inputs), matches, visible
+
+    # === Collect from all sources in parallel ===
+    collectors = _get_collectors(config=config, db=None)
+    source_progress = {name: {"status": "searching"} for name in collectors}
+
+    def _emit_sources(**extra):
+        _emit(on_progress, "", phase="pipeline",
+              sources=dict(source_progress), matches=visible_matches, **extra)
+
+    results_queue: queue.Queue = queue.Queue()
+
+    def _collect_source(name, collector):
+        source_start = datetime.now().isoformat()
+        try:
+            logger.info(f"Collecting from {name}...")
+            jobs = collector.fetch_new()
+            results_queue.put((name, jobs, source_start, name == "linkedin"))
+        except Exception as e:
+            results_queue.put((name, e, source_start, False))
+
+    threads = []
+    for name, collector in collectors.items():
+        t = threading.Thread(target=_collect_source, args=(name, collector), daemon=True)
+        t.start()
+        threads.append(t)
+    _emit_sources(detail="Searching all sources…")
+
+    def _process_collected(name, jobs_list, source_start, needs_descriptions):
+        nonlocal jobs_collected, total_scored, total_matches, visible_matches
+
+        for job in jobs_list:
+            pgdb.upsert_job(conn, user_id, job)
+        jobs_collected += len(jobs_list)
+        pgdb.log_source_run(conn, user_id, name, source_start, "success", len(jobs_list))
+
+        if not jobs_list:
+            source_progress[name].update({"status": "done", "collected": 0, "matches": 0})
+            _emit_sources(detail=f"{name}: no jobs found")
+            return
+
+        source_progress[name].update({"status": "filtering", "collected": len(jobs_list)})
+        _emit_sources(detail=f"Filtering {name} jobs…")
+
+        passed, rejected = _filter_new_jobs()
+        source_progress[name].update({"filtered": passed, "rejected": rejected})
+
+        if passed > 0:
+            if needs_descriptions:
+                source_progress[name]["status"] = "fetching"
+                _emit_sources(detail=f"Fetching {passed} job descriptions…")
+                _fetch_descriptions()
+
+            source_progress[name]["status"] = "scoring"
+            _emit_sources(detail=f"Scoring {name} jobs…")
+
+            scored, matches, vis = _score_filtered()
+            total_scored += scored
+            total_matches += matches
+            visible_matches += vis
+            source_progress[name].update({"matches": vis, "scored": scored})
+        else:
+            source_progress[name]["matches"] = 0
+
+        source_progress[name]["status"] = "done"
+        _emit_sources(detail=f"{name} complete — {source_progress[name]['matches']} matches")
+
+    # Process results as they arrive
+    sources_remaining = len(collectors)
+    while sources_remaining > 0:
+        _check_cancel()
+        try:
+            name, result, source_start, needs_desc = results_queue.get(timeout=2.0)
+        except queue.Empty:
+            continue
+
+        sources_remaining -= 1
+
+        if isinstance(result, Exception):
+            errors.append(f"{name}: {str(result)}")
+            source_progress[name].update({"status": "failed", "error": str(result)[:100]})
+            _emit_sources(detail=f"{name} failed")
+            pgdb.log_source_run(conn, user_id, name, source_start, "failure", 0, str(result))
+        else:
+            _process_collected(name, result, source_start, needs_desc)
+
+    # === Enrich companies ===
+    _check_cancel()
+    scored_jobs = pgdb.fetch_jobs(
+        conn, user_id, "scored",
+        extra_where="AND enrichment IS NULL",
+        order="fit_score DESC", limit=config.brief.top_n,
+    )
+
+    if scored_jobs:
+        _emit(on_progress, f"Enriching {len(scored_jobs)} companies...",
+              phase="enriching", detail=f"Researching {len(scored_jobs)} companies…")
+
+    for row in scored_jobs:
+        _check_cancel()
+        company = row["company"]
+        intel = pgdb.get_cached_enrichment(conn, user_id, company)
+        if not intel:
+            intel = enrich_company(company, row["description"] or "")
+            if intel:
+                pgdb.cache_enrichment(conn, user_id, company, intel)
+                llm_calls += 1
+
+        if intel:
+            pgdb.update_job(conn, row["id"],
+                            enrichment=intel.to_json(),
+                            enriched_at=datetime.now().isoformat())
+
+            rescore = rescore_with_enrichment(
+                row["fit_score"], row["score_reasoning"] or "",
+                row["yellow_flags"] or "[]", intel, config,
+            )
+            if rescore:
+                new_score, delta, reason = rescore
+                llm_calls += 1
+                new_status = "scored" if new_score >= SCORE_SAVED else "low_score"
+                pgdb.update_job(conn, row["id"],
+                                fit_score=new_score, status=new_status,
+                                score_reasoning=f"{row['score_reasoning']} [Re-scored: {reason}]")
+                logger.info(f"Re-scored {company}/{row['title']}: {row['fit_score']} → {new_score} ({delta:+d})")
+    conn.commit()
+
+    # === Discover career pages ===
+    companies_to_probe = pgdb.fetch_companies(
+        conn, user_id,
+        extra_where="AND domain IS NOT NULL AND (ats_platform IS NULL) AND domain != ''",
+    )
+
+    if companies_to_probe:
+        _emit(on_progress, f"Discovering career pages...",
+              phase="enriching", detail=f"Discovering career pages…")
+
+    for company_row in companies_to_probe:
+        domain = company_row["domain"]
+        try:
+            ats, slug = discover_ats_from_domain(domain)
+            if ats and slug:
+                pgdb.update_company(conn, company_row["id"],
+                                    ats_platform=ats,
+                                    career_page_url=f"https://jobs.{'ashbyhq.com' if ats == 'ashby' else 'boards-api.greenhouse.io' if ats == 'greenhouse' else 'api.lever.co'}/{slug}")
+                fetcher = FETCHERS.get(ats)
+                if fetcher:
+                    new_jobs = fetcher(slug, company_name=company_row["name"])
+                    for job in new_jobs:
+                        pgdb.upsert_job(conn, user_id, job)
+                    if new_jobs:
+                        jobs_collected += len(new_jobs)
+                        logger.info(f"Company discovery: {company_row['name']} → {ats}/{slug} → {len(new_jobs)} jobs")
+            else:
+                pgdb.update_company(conn, company_row["id"], ats_platform="none")
+        except Exception as e:
+            logger.warning(f"Career page discovery failed for {company_row['name']}: {e}")
+    conn.commit()
+
+    _emit(on_progress, "Done", phase="done",
+          detail=f"Complete — {visible_matches} matches",
+          matches=visible_matches)
+
+    conn.close()
+
+    return {
+        "jobs_collected": jobs_collected,
+        "total_scored": total_scored,
+        "visible_matches": visible_matches,
+        "errors": errors,
+    }
+
+
 def run_collect_only(config: Config, project_root: Path) -> int:
     """Run only the collect step. Returns number of jobs collected."""
     db_path = project_root / "jobs.db"

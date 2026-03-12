@@ -72,7 +72,7 @@ class Resume(Base):
 
 
 class Job(Base):
-    __tablename__ = "jobs_web"  # Separate from CLI's jobs table during migration
+    __tablename__ = "jobs"
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -110,7 +110,7 @@ class Job(Base):
 
 
 class Company(Base):
-    __tablename__ = "companies_web"
+    __tablename__ = "companies"
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
