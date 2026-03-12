@@ -174,6 +174,27 @@ def cache_ats_discovery(conn, domain: str, ats: str | None, slug: str | None, jo
     conn.commit()
 
 
+def get_career_url_for_domain(conn, domain: str) -> str | None:
+    """Look up cached ATS URL for a company domain. Normalizes www. prefix."""
+    clean = domain.lower().removeprefix("www.").strip()
+    for d in [clean, f"www.{clean}"]:
+        cached = get_cached_ats_discovery(conn, d)
+        if cached and cached["ats"] and cached["slug"]:
+            return _build_ats_url(cached["ats"], cached["slug"])
+    return None
+
+
+def _build_ats_url(ats: str, slug: str) -> str:
+    """Build a human-friendly ATS careers page URL."""
+    if ats == "greenhouse":
+        return f"https://boards.greenhouse.io/{slug}"
+    elif ats == "lever":
+        return f"https://jobs.lever.co/{slug}"
+    elif ats == "ashby":
+        return f"https://jobs.ashbyhq.com/{slug}"
+    return ""
+
+
 def count_jobs(conn, user_id: int, status: str) -> int:
     """Count jobs for a user by status."""
     with conn.cursor() as cur:

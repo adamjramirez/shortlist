@@ -650,9 +650,16 @@ def run_pipeline_pg(
                     llm_calls += 1
 
             if intel:
-                pgdb.update_job(conn, row["id"],
-                                enrichment=intel.to_json(),
-                                enriched_at=datetime.now().isoformat())
+                updates = {
+                    "enrichment": intel.to_json(),
+                    "enriched_at": datetime.now().isoformat(),
+                }
+                # Look up direct ATS careers page from NextPlay cache
+                if intel.website_domain and not row.get("career_page_url"):
+                    ats_url = pgdb.get_career_url_for_domain(conn, intel.website_domain)
+                    if ats_url:
+                        updates["career_page_url"] = ats_url
+                pgdb.update_job(conn, row["id"], **updates)
 
                 rescore = rescore_with_enrichment(
                     row["fit_score"], row["score_reasoning"] or "",

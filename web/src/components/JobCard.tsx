@@ -256,6 +256,16 @@ export default function JobCard({ job, onStatusChange }: Props) {
                     View Listing →
                   </a>
                 )}
+                {detail?.career_page_url && detail.career_page_url !== job.url && (
+                  <a
+                    href={detail.career_page_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
+                  >
+                    Apply Direct →
+                  </a>
+                )}
                 {(["saved", "applied", "skipped"] as const).map((s) => (
                   <button
                     key={s}
