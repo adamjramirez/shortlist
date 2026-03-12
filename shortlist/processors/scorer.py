@@ -67,10 +67,10 @@ Score this job for fit with the candidate profile. Return a JSON object with exa
 ```json
 {{
     "fit_score": <0-100 integer>,
-    "matched_track": "<em|ai|vp>",
+    "matched_track": "<one of: {track_keys}>",
     "reasoning": "<2-3 sentences explaining the score>",
     "yellow_flags": ["<list of concerns, empty if none>"],
-    "salary_estimate": "<estimated salary range if not listed, or repeat listed salary>",
+    "salary_estimate": "<format as $XXXk-$XXXk, e.g. $200k-$300k>",
     "salary_confidence": "<low|medium|high>"
 }}
 ```
@@ -97,14 +97,17 @@ def build_scoring_prompt(job: RawJob, config: Config) -> str:
     tracks_desc = []
     for key, track in config.tracks.items():
         tracks_desc.append(
-            f"- **{key.upper()}**: {track.title} "
+            f"- **{key}**: {track.title} "
             f"(target: {track.target_orgs}, min reports: {track.min_reports})"
         )
+
+    track_keys = ", ".join(config.tracks.keys()) or "default"
 
     return SCORING_PROMPT_TEMPLATE.format(
         name=config.name or "Candidate",
         fit_context=config.fit_context or "No additional context provided.",
         tracks_description="\n".join(tracks_desc),
+        track_keys=track_keys,
         local_zip=config.filters.location.local_zip or "",
         min_salary=config.filters.salary.min_base or 250000,
         title=job.title,

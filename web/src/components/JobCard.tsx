@@ -11,6 +11,48 @@ function scoreColor(score: number | null): string {
   return "bg-red-100 text-red-800";
 }
 
+function formatTrack(track: string | null): string {
+  if (!track) return "";
+  return track
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\bVp\b/g, "VP")
+    .replace(/\bEm\b/g, "EM")
+    .replace(/\bAi\b/g, "AI");
+}
+
+function formatSalary(salary: string | null): string {
+  if (!salary) return "";
+  // Clean up common LLM output formats
+  let s = salary.replace(/\$/g, "").replace(/,/g, "").trim();
+  // Handle range like "220000-350000" or "220000 - 350000"
+  const rangeMatch = s.match(/(\d{4,})\s*[-–]\s*(\d{4,})/);
+  if (rangeMatch) {
+    const low = Math.round(parseInt(rangeMatch[1]) / 1000);
+    const high = Math.round(parseInt(rangeMatch[2]) / 1000);
+    return `$${low}k–$${high}k`;
+  }
+  // Single number
+  const singleMatch = s.match(/(\d{4,})/);
+  if (singleMatch) {
+    const val = Math.round(parseInt(singleMatch[1]) / 1000);
+    return `$${val}k`;
+  }
+  // If it's already formatted or weird, truncate
+  return salary.length > 30 ? "" : salary;
+}
+
+function formatYellowFlags(flags: string | null): string[] {
+  if (!flags) return [];
+  try {
+    const parsed = JSON.parse(flags);
+    if (Array.isArray(parsed)) return parsed.filter(Boolean);
+  } catch {
+    // Not JSON, treat as plain text
+  }
+  return flags ? [flags] : [];
+}
+
 interface Props {
   job: JobSummary;
   onStatusChange?: (id: number, status: string) => void;
@@ -42,6 +84,9 @@ export default function JobCard({ job, onStatusChange }: Props) {
     onStatusChange?.(job.id, status);
   };
 
+  const salary = formatSalary(job.salary_estimate);
+  const track = formatTrack(job.matched_track);
+
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
       <div
@@ -51,23 +96,26 @@ export default function JobCard({ job, onStatusChange }: Props) {
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <span
-              className={`rounded px-2 py-0.5 text-sm font-semibold ${scoreColor(job.fit_score)}`}
+              className={`shrink-0 rounded px-2 py-0.5 text-sm font-semibold ${scoreColor(job.fit_score)}`}
             >
               {job.fit_score ?? "—"}
             </span>
             <h3 className="font-medium text-gray-900">{job.title}</h3>
           </div>
-          <p className="mt-1 text-sm text-gray-600">
-            {job.company}
-            {job.salary_estimate && (
-              <span className="ml-2 text-gray-400">· {job.salary_estimate}</span>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
+            <span className="font-medium text-gray-700">{job.company}</span>
+            {salary && (
+              <>
+                <span className="text-gray-300">·</span>
+                <span>{salary}</span>
+              </>
             )}
-            {job.matched_track && (
-              <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
-                {job.matched_track}
+            {track && (
+              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
+                {track}
               </span>
             )}
-          </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {job.user_status && (
@@ -85,24 +133,33 @@ export default function JobCard({ job, onStatusChange }: Props) {
             <p className="text-sm text-gray-400">Loading...</p>
           ) : detail ? (
             <div className="space-y-3">
+              {detail.location && (
+                <div className="text-sm text-gray-500">
+                  📍 {detail.location}
+                </div>
+              )}
               {detail.score_reasoning && (
                 <div>
                   <p className="text-xs font-medium uppercase text-gray-400">
-                    Reasoning
+                    Why this score
                   </p>
                   <p className="text-sm text-gray-700">
                     {detail.score_reasoning}
                   </p>
                 </div>
               )}
-              {detail.yellow_flags && (
+              {formatYellowFlags(detail.yellow_flags).length > 0 && (
                 <div>
                   <p className="text-xs font-medium uppercase text-gray-400">
-                    Yellow Flags
+                    ⚠️ Watch out for
                   </p>
-                  <p className="text-sm text-yellow-700">
-                    {detail.yellow_flags}
-                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {formatYellowFlags(detail.yellow_flags).map((flag, i) => (
+                      <li key={i} className="text-sm text-yellow-700">
+                        • {flag}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
               {detail.enrichment && (
@@ -110,12 +167,12 @@ export default function JobCard({ job, onStatusChange }: Props) {
                   <p className="text-xs font-medium uppercase text-gray-400">
                     Company Intel
                   </p>
-                  <pre className="text-xs text-gray-600">
+                  <pre className="text-xs text-gray-600 whitespace-pre-wrap">
                     {JSON.stringify(detail.enrichment, null, 2)}
                   </pre>
                 </div>
               )}
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex flex-wrap items-center gap-2 pt-2">
                 {job.url && (
                   <a
                     href={job.url}
