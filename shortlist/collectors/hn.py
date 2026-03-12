@@ -8,8 +8,7 @@ from shortlist import http
 # HN Algolia search API
 ALGOLIA_SEARCH_URL = "https://hn.algolia.com/api/v1/search"
 
-# Match "Company | Role | Location | ..." format in first line
-HEADER_PATTERN = re.compile(r"^([^|]+)\|([^|]+)\|([^|<]+)")
+
 
 
 class HNCollector:
@@ -94,19 +93,20 @@ class HNCollector:
         lines = re.split(r"<p>", raw_html)
         first_line = _clean_html(lines[0])
 
-        # Try to match "Company | Title | Location | ..." format
-        match = HEADER_PATTERN.match(first_line)
-        if not match:
+        # Must have at least one | to be a structured job posting
+        if "|" not in first_line:
             return None
 
-        company = match.group(1).strip()
-        title = match.group(2).strip()
-        location = match.group(3).strip()
+        # Split on pipes — field order varies (Company|Role|Location or Company|Location|Role)
+        # The LLM scorer will correct title/company/location from the full description
+        raw_fields = [s.strip() for s in first_line.split("|")]
+        company = raw_fields[0]
+        title = raw_fields[1] if len(raw_fields) > 1 else company
+        location = raw_fields[2] if len(raw_fields) > 2 else None
 
-        # Extract salary if present in header remainder
+        # Extract salary if present anywhere in header
         salary_text = None
-        remainder = first_line[match.end():]
-        salary_match = re.search(r"\$[\d,]+k?\s*[-–]\s*\$[\d,]+k?|\$[\d,]+k?", remainder)
+        salary_match = re.search(r"\$[\d,]+k?\s*[-–]\s*\$[\d,]+k?|\$[\d,]+k?", first_line)
         if salary_match:
             salary_text = salary_match.group(0)
 

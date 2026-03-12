@@ -172,16 +172,27 @@ def run_pipeline(
                 status = "scored" if score_result.fit_score >= 60 else "low_score"
                 if score_result.fit_score >= 60:
                     matches += 1
+                # Apply LLM-corrected title/company/location if provided
+                updates = {
+                    "status": status,
+                    "fit_score": score_result.fit_score,
+                    "matched_track": score_result.matched_track,
+                    "score_reasoning": score_result.reasoning,
+                    "yellow_flags": json.dumps(score_result.yellow_flags),
+                    "salary_estimate": score_result.salary_estimate,
+                    "salary_confidence": score_result.salary_confidence,
+                }
+                if score_result.corrected_title:
+                    updates["title"] = score_result.corrected_title
+                if score_result.corrected_company:
+                    updates["company"] = score_result.corrected_company
+                if score_result.corrected_location:
+                    updates["location"] = score_result.corrected_location
+
+                set_clause = ", ".join(f"{k} = ?" for k in updates)
                 db.execute(
-                    "UPDATE jobs SET status = ?, fit_score = ?, matched_track = ?, "
-                    "score_reasoning = ?, yellow_flags = ?, salary_estimate = ?, "
-                    "salary_confidence = ? WHERE id = ?",
-                    (
-                        status, score_result.fit_score, score_result.matched_track,
-                        score_result.reasoning, json.dumps(score_result.yellow_flags),
-                        score_result.salary_estimate, score_result.salary_confidence,
-                        row_id,
-                    ),
+                    f"UPDATE jobs SET {set_clause} WHERE id = ?",
+                    (*updates.values(), row_id),
                 )
             else:
                 logger.warning(f"Failed to score job {row_id}")
