@@ -18,7 +18,14 @@ SYSTEM_PROMPT = """You are analyzing a resume to set up an automated job search 
 
 Given the resume below, generate a job search profile with:
 
-1. **fit_context**: A 2-3 paragraph description of what this person should be looking for. Include their experience level, key skills, preferred industries/company stages, and likely dealbreakers. Write in first person as if the candidate wrote it.
+1. **fit_context**: A detailed 3-4 paragraph description of what this person should be looking for. Write in first person as if the candidate wrote it. MUST include:
+   - Years of experience and seniority level
+   - Core technical and leadership skills (be specific, not generic)
+   - Industries, company stages, and company sizes that fit
+   - What kind of problems they want to solve (based on their career pattern)
+   - Likely dealbreakers (e.g. "not interested in early-stage startups" or "no pure IC roles")
+   - What makes them distinctive vs other candidates at their level
+   Be thorough — this text is used to score every job they see.
 
 2. **tracks**: 1-3 role types they should search for. Each track needs:
    - title: Human-readable role title (e.g. "Senior Backend Engineer")
