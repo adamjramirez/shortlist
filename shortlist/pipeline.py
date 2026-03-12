@@ -549,7 +549,6 @@ def run_pipeline_pg(
         conn.commit()
         return fetched
 
-    num_sources = len(collectors)
     _sources_scored = 0
 
     def _score_filtered():
@@ -564,7 +563,7 @@ def run_pipeline_pg(
             return 0, 0, 0
 
         # Reserve budget for sources that haven't scored yet
-        sources_left = max(num_sources - _sources_scored, 1)
+        sources_left = max(len(collectors) - _sources_scored, 1)
         per_source_budget = max(remaining // sources_left, 20)
         _sources_scored += 1
 
