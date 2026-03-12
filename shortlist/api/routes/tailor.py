@@ -84,11 +84,28 @@ async def _get_best_resume(user: User, matched_track: str | None,
             data = await storage.get(resume.s3_key)
             return data.decode("utf-8"), resume.filename
 
-    # Fallback: most recent resume (use .first() not .one_or_none() in case of multiple)
+    # Fallback: most recent resume, preferring larger files (real resumes > templates)
     result = await session.execute(
         query.order_by(Resume.uploaded_at.desc())
     )
-    resume = result.scalars().first()
+    resumes = list(result.scalars().all())
+    # If multiple, pick the largest (templates are tiny, real resumes are 2KB+)
+    if len(resumes) > 1:
+        # Check sizes from storage
+        sizes = []
+        for r in resumes:
+            try:
+                data = await storage.get(r.s3_key)
+                sizes.append((len(data), r))
+            except Exception:
+                sizes.append((0, r))
+        sizes.sort(key=lambda x: x[0], reverse=True)
+        resume = sizes[0][1] if sizes else None
+        if resume:
+            logger.info(f"Picked largest resume from {len(resumes)} candidates: {resume.filename} ({sizes[0][0]} bytes)")
+            data = await storage.get(resume.s3_key)
+            return data.decode("utf-8"), resume.filename
+    resume = resumes[0] if resumes else None
     if not resume:
         raise HTTPException(status_code=400, detail="No resumes uploaded. Upload a .tex resume first.")
     logger.info(f"Picked most recent resume: {resume.filename} ({resume.id}, {len(resume.s3_key)} key)")
