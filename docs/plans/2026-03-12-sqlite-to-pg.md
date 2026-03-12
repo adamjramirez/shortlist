@@ -20,22 +20,32 @@ Why:
 - Raw SQL stays similar to current SQLite SQL (minimal rewrite)
 - PG handles concurrent writes, so future parallelism is unblocked
 
+## CLI Decision
+**Freeze SQLite for CLI. Don't maintain both.**
+
+The CLI (`cli.py`, `brief.py`) keeps its SQLite path as-is. It's a separate product surface that works. We don't touch it, don't update it, don't try to share a DB layer with the web pipeline. If CLI ever needs PG, that's a future decision.
+
+The web pipeline gets its own PG-native code path. No shared abstraction between CLI and web.
+
 ## Scope
 
 ### Files to change
 
 | File | Change | Size |
 |------|--------|------|
-| `shortlist/db.py` | Replace SQLite with psycopg2 PG connection, adapt SQL syntax | **Large** |
-| `shortlist/pipeline.py` | Remove `init_db`/`get_db`, accept PG conn, remove SQLite imports | Medium |
-| `shortlist/api/worker.py` | Remove `_copy_rows_to_pg`, `on_jobs_ready`, pass PG conn to pipeline | **Large** (simplifies) |
-| `shortlist/processors/enricher.py` | 3 calls: `get_cached_enrichment`, `cache_enrichment` — adapt SQL | Small |
-| `shortlist/collectors/nextplay.py` | `probe_cache` table reads/writes — adapt SQL | Small |
-| `shortlist/brief.py` | `BriefData.from_db` — adapt SQL (CLI only, can keep SQLite or switch) |
-| `shortlist/cli.py` | Pass PG URL or keep SQLite for local CLI use | Small |
+| `requirements.txt` | Add `psycopg2-binary` | Trivial |
+| `shortlist/pipeline.py` | Accept PG conn + `user_id`, adapt all 35 queries, remove `on_jobs_ready`, batch scorer updates | **Large** |
+| `shortlist/api/worker.py` | Remove `_copy_rows_to_pg`, `on_jobs_ready`, final copy block, temp dir; pass PG conn to pipeline | **Large** (net deletion) |
+| `shortlist/processors/enricher.py` | 3 functions: adapt `?` → `%s`, add `user_id` | Small |
+| `shortlist/collectors/nextplay.py` | `probe_cache` reads/writes: adapt SQL | Small |
 | `shortlist/api/models.py` | Rename `jobs_web` → `jobs`, `companies_web` → `companies` | Small |
-| `alembic/versions/` | New migration: rename tables, add missing columns | Small |
-| Tests | Update fixtures, remove SQLite temp files | Medium |
+| `alembic/versions/` | New migration: rename tables | Small |
+| Tests | Reuse existing PG test fixture from `tests/api/conftest.py` | Medium |
+
+### Files NOT changed (frozen)
+- `shortlist/db.py` — SQLite schema + helpers, CLI only
+- `shortlist/brief.py` — reads from local SQLite, CLI only
+- `shortlist/cli.py` — uses SQLite via `db.py`, CLI only
 
 ### SQL syntax changes (SQLite → PostgreSQL)
 
@@ -47,82 +57,163 @@ Why:
 | `INSERT OR IGNORE` | `INSERT ... ON CONFLICT DO NOTHING` |
 | `json_extract()` | `->` / `->>` operators |
 | `GROUP_CONCAT()` | `STRING_AGG()` |
-| No `RETURNING` (old ver) | `RETURNING id` |
 | `conn.row_factory = sqlite3.Row` | `cursor_factory=psycopg2.extras.RealDictCursor` |
 
 ### What gets deleted
 - `worker.py`: `_copy_rows_to_pg()` (~50 lines)
 - `worker.py`: `on_jobs_ready` callback + SQLite row→dict conversion (~20 lines)
 - `worker.py`: final SQLite copy block (~15 lines)
+- `worker.py`: `tempfile.TemporaryDirectory` + SQLite import
 - `pipeline.py`: `on_jobs_ready` parameter and `_notify_jobs_ready()` (~10 lines)
-- `db.py`: SQLite `SCHEMA` constant (~100 lines) — replaced with PG equivalent or removed (use Alembic)
 
-### What stays
-- `brief.py` can keep SQLite for CLI-only use (reads from local `jobs.db`)
-- `cli.py` can offer both: `--db-url` for PG, default to local SQLite
-- All SQLAlchemy models and async routes stay unchanged
+### Queries requiring `user_id` scoping
+
+Every query in `pipeline.py` that touches `jobs` or `companies` must add `AND user_id = %s`. Full list:
+
+| Function/location | Query | Notes |
+|---|---|---|
+| `_filter_new_jobs()` | `SELECT * FROM jobs WHERE status = 'new'` | Add `AND user_id = %s` |
+| `_filter_new_jobs()` | `UPDATE jobs SET status = 'filtered' WHERE id = ?` | Safe (by id), but verify id belongs to user |
+| `_filter_new_jobs()` | `UPDATE jobs SET status = 'rejected', reject_reason = ? WHERE id = ?` | Same |
+| `_fetch_descriptions()` | `SELECT id, url FROM jobs WHERE status = 'filtered' AND description IS NULL ...` | Add `AND user_id = %s` |
+| `_fetch_descriptions()` | `UPDATE jobs SET description = ? WHERE id = ?` | By id, safe |
+| `_score_filtered()` | `SELECT * FROM jobs WHERE status = 'filtered' ORDER BY ...` | Add `AND user_id = %s` |
+| `_score_filtered()` | `UPDATE jobs SET status = ?, fit_score = ?, ... WHERE id = ?` | By id, safe |
+| scored_count | `SELECT COUNT(*) FROM jobs WHERE status = 'scored'` | Add `AND user_id = %s` |
+| enrichment loop | `SELECT * FROM jobs WHERE status = 'scored' AND enrichment IS NULL ...` | Add `AND user_id = %s` |
+| enrichment update | `UPDATE jobs SET enrichment = ?, ... WHERE id = ?` | By id, safe |
+| rescore update | `UPDATE jobs SET fit_score = ?, ... WHERE id = ?` | By id, safe |
+| companies_to_probe | `SELECT ... FROM companies WHERE domain IS NOT NULL ...` | Add `AND user_id = %s` |
+| company updates | `UPDATE companies SET ats_platform = ? ... WHERE id = ?` | By id, safe |
+| tailoring loop | `SELECT * FROM jobs WHERE status = 'scored' ...` | Add `AND user_id = %s` |
+| tailoring update | `UPDATE jobs SET tailored_resume_path = ? WHERE id = ?` | By id, safe |
+| run_logs insert | `INSERT INTO run_logs ...` | Add `user_id` column or remove (use `runs` table) |
+| `upsert_job()` | `SELECT ... FROM jobs WHERE description_hash = ?` | Add `AND user_id = %s` |
+| `upsert_job()` | `INSERT INTO jobs ...` | Add `user_id` value |
+| `_log_source_run()` | `INSERT INTO sources/source_runs ...` | Add `user_id` or scope differently |
+| enricher: `get_cached_enrichment()` | `SELECT ... FROM companies WHERE name_normalized = ?` | Add `AND user_id = %s` |
+| enricher: `cache_enrichment()` | `INSERT INTO companies ...` | Add `user_id` value |
+| nextplay: probe cache | `SELECT/INSERT FROM probe_cache ...` | Probe cache is global (not per-user), keep as-is or move to PG shared table |
+
+### Race condition note
+`_filter_new_jobs()` and `_score_filtered()` query by `status` column. Currently safe because processing runs on a single thread (main thread processes results sequentially from the queue). If we later parallelize the processing step, these queries would need `source` scoping or row-level locking. **Not a problem now — just don't parallelize processing without addressing this.**
 
 ## Implementation Steps
 
-### Step 1: DB layer (`shortlist/db.py`)
-- Add `get_pg_connection(db_url: str)` → returns `psycopg2.connection` with `RealDictCursor`
-- Adapt `upsert_job()`: `?` → `%s`, `INSERT OR IGNORE` → `ON CONFLICT`
-- Add `user_id` parameter to all functions (PG is multi-tenant)
-- Keep `init_db()` / `get_db()` for CLI backward compat
+### Step 0: Spike test (do first, 10 minutes)
+Confirm `psycopg2` works from inside `asyncio.to_thread()` on Fly.io.
 
-**Verify:** Unit test `upsert_job` against PG test database
+```python
+# Add to debug endpoint temporarily
+import psycopg2
+def test_pg_sync():
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    cur = conn.cursor()
+    cur.execute("SELECT 1")
+    result = cur.fetchone()
+    conn.close()
+    return {"result": result[0]}
+```
 
-### Step 2: Pipeline (`shortlist/pipeline.py`)
-- Accept `db_url: str` and `user_id: int` instead of `project_root: Path`
-- Open `psycopg2` connection at start, close at end
-- Replace all `db.execute("...", (...))` with PG-compatible SQL
-- Remove `on_jobs_ready` parameter entirely
-- Add `user_id` to all job inserts/queries
-- Results are immediately visible in PG — no copy step needed
+Deploy, hit endpoint, confirm it returns `{"result": 1}`. If this crashes/hangs → stop, keep SQLite.
 
-**Verify:** Run pipeline against test PG, check jobs appear in `jobs` table
+**Kill criterion met if:** psycopg2 hangs or crashes from asyncio.to_thread on Fly shared-cpu.
 
-### Step 3: Worker (`shortlist/api/worker.py`)
-- Remove `_copy_rows_to_pg()` function
-- Remove `on_jobs_ready` callback
-- Remove final SQLite copy block
-- Remove `tempfile.TemporaryDirectory` — no more temp SQLite
-- Pass `db_url` and `user_id` to `run_pipeline()`
-- Progress flush loop stays (writes to `runs` table via async SQLAlchemy)
+### Step 1: Table rename migration (Alembic)
+Rename tables before changing any code. This is safe because:
+- Alembic runs on deploy before the app starts
+- Old code doesn't exist yet (we haven't changed it)
 
-**Verify:** End-to-end: start run → jobs appear on dashboard incrementally
+```python
+# alembic/versions/NNN_rename_tables.py
+def upgrade():
+    op.rename_table('jobs_web', 'jobs')
+    op.rename_table('companies_web', 'companies')
 
-### Step 4: Table rename migration
-- Alembic migration: `jobs_web` → `jobs`, `companies_web` → `companies`
-- Update `api/models.py` table names
-- Update any raw SQL referencing old names
+def downgrade():
+    op.rename_table('jobs', 'jobs_web')
+    op.rename_table('companies', 'companies_web')
+```
 
-**Verify:** `fly deploy`, run migration, existing data preserved
+Update `api/models.py`:
+- `Job.__tablename__ = "jobs"`
+- `Company.__tablename__ = "companies"`
 
-### Step 5: Enricher + NextPlay (`shortlist/processors/enricher.py`, `shortlist/collectors/nextplay.py`)
-- Adapt 3 enricher functions to use `%s` params
-- Adapt NextPlay probe cache to PG
-- Both receive PG connection from pipeline
+**Verify:** Deploy, confirm app works with renamed tables, existing data intact.
 
-**Verify:** Enrichment runs, probe cache works
+### Step 2: DB layer for pipeline
+Add `psycopg2-binary` to `requirements.txt`.
 
-### Step 6: CLI compatibility (`shortlist/cli.py`)
-- Add `--db-url` flag (default: local SQLite for backward compat)
-- When PG URL provided, use PG connection throughout
+Create `shortlist/pgdb.py` (new file, separate from `db.py`):
+- `get_pg_connection(db_url: str)` → `psycopg2.connection` with `RealDictCursor`
+- `upsert_job(conn, user_id, job)` → PG-native upsert with `ON CONFLICT (user_id, description_hash)`
+- `_log_source_run(conn, ...)` → PG-native insert
 
-**Verify:** `shortlist run` still works locally with SQLite
+Keep it simple: functions that take a connection + user_id, return dicts. No ORM. No classes.
+
+**Verify:** Unit test `upsert_job` and `_log_source_run` against test PG.
+
+### Step 3: Pipeline migration (`shortlist/pipeline.py`)
+- New entry point: `run_pipeline_pg(config, db_url, user_id, ...)` alongside existing `run_pipeline()`
+- Uses `pgdb.get_pg_connection()` instead of `init_db()`
+- All queries adapted: `?` → `%s`, add `user_id` scoping per table above
+- Batch scorer updates: collect all `(status, fit_score, ..., id)` tuples, execute single `executemany()`
+- Remove `on_jobs_ready` parameter — results are already in PG
+- Remove `_notify_jobs_ready()` function
+- Keep `on_progress` and `cancel_event` unchanged
+
+**Verify:** Run full pipeline against test PG, confirm:
+- Jobs appear in `jobs` table with correct `user_id`
+- Enrichment data populates
+- No SQLite files created
+- Existing `run_pipeline()` still works for CLI
+
+### Step 4: Worker simplification (`shortlist/api/worker.py`)
+- Delete `_copy_rows_to_pg()` function entirely
+- Delete `on_jobs_ready` callback and SQLite row conversion
+- Delete final SQLite copy block
+- Delete `tempfile.TemporaryDirectory`
+- Call `run_pipeline_pg(config, db_url, user_id, ...)` instead of `run_pipeline()`
+- Progress flush loop stays unchanged (async SQLAlchemy for `runs` table)
+- Final `update_run(status="completed", ...)` uses count from PG directly
+
+**Verify:** End-to-end on Fly: start run → HN results appear on dashboard in ~30s → NextPlay/LinkedIn results appear as they complete → enrichment runs → done.
+
+### Step 5: Enricher + NextPlay
+- `enricher.py`: `get_cached_enrichment(conn, user_id, company)` and `cache_enrichment(conn, user_id, ...)` — adapt `?` → `%s`, add `user_id`
+- `nextplay.py`: probe cache — decide: move to PG shared table (no user_id, it's global), or keep as a simple dict cache in memory for the run duration
+
+**Verify:** Enrichment populates company intel on scored jobs. NextPlay probe cache avoids redundant ATS probes.
+
+### Step 6: Test updates
+- Pipeline tests: use test PG from `tests/api/conftest.py` fixture
+- Create `sync_pg_connection` fixture that gives a `psycopg2` connection to the test DB
+- Remove any SQLite temp file cleanup from pipeline tests
+- Verify scorer, enricher, filter tests work against PG
+
+**Verify:** `pytest tests/ -x` — all pass.
 
 ### Step 7: Cleanup
-- Remove dead code from worker
-- Update tests to use PG fixtures where appropriate  
-- Delete SQLite schema from `db.py` if CLI is fully migrated
+- Remove dead imports (`sqlite3`, `tempfile`) from `pipeline.py` and `worker.py`
+- Remove `on_jobs_ready` from `run_pipeline()` signature (or keep for CLI compat)
+- Update `docs/WEB_UI_PLAN.md` to reflect new architecture
+- Update this plan with actual outcomes
 
 ## Kill Criteria
-- If PG sync connection from `asyncio.to_thread` has the same issues as httpx → stop, keep SQLite
-- If pipeline performance degrades >2x due to PG network latency → stop, investigate
+- **Step 0 fails:** psycopg2 hangs/crashes from asyncio.to_thread on Fly → stop, keep SQLite
+- **Step 3 perf:** Pipeline takes >2x longer due to PG network latency → investigate batching before continuing
+- **Step 4 data:** Jobs don't appear incrementally on dashboard → debug before proceeding
 
 ## Dependencies
-- `psycopg2-binary` (add to requirements.txt)
+- `psycopg2-binary` added to `requirements.txt`
 
 ## Estimated Effort
-~3-4 focused hours across 6 steps. Steps 1-3 are the core change. Steps 4-7 are cleanup.
+- Step 0: 10 minutes
+- Step 1: 15 minutes
+- Step 2: 30 minutes
+- Step 3: 90 minutes (largest — 35 queries to adapt)
+- Step 4: 30 minutes (net deletion)
+- Step 5: 20 minutes
+- Step 6: 30 minutes
+- Step 7: 15 minutes
+- **Total: ~4 hours**
