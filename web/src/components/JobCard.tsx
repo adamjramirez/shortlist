@@ -65,6 +65,9 @@ export default function JobCard({ job, onStatusChange }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [loading, setLoading] = useState(false);
+  const [tailoring, setTailoring] = useState(false);
+  const [tailorResult, setTailorResult] = useState<{ changes_made: string[] } | null>(null);
+  const [tailorError, setTailorError] = useState("");
 
   const handleExpand = async () => {
     if (expanded) {
@@ -282,6 +285,54 @@ export default function JobCard({ job, onStatusChange }: Props) {
                     {s === "saved" ? "⭐ Save" : s === "applied" ? "✅ Applied" : "Skip"}
                   </button>
                 ))}
+              </div>
+
+              {/* Resume tailoring */}
+              <div className="pt-2 border-t border-gray-100">
+                {!job.has_tailored_resume && !tailoring && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setTailoring(true);
+                      setTailorError("");
+                      try {
+                        const result = await jobsApi.tailor(job.id);
+                        setTailorResult(result);
+                        onStatusChange?.(job.id, "");
+                      } catch (err) {
+                        setTailorError(err instanceof Error ? err.message : "Tailoring failed");
+                      } finally {
+                        setTailoring(false);
+                      }
+                    }}
+                    className="rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100"
+                  >
+                    ✨ Generate Tailored Resume
+                  </button>
+                )}
+                {tailoring && (
+                  <p className="text-sm text-gray-500 animate-pulse">
+                    ⏳ Tailoring resume (~15s)…
+                  </p>
+                )}
+                {tailorError && (
+                  <p className="text-sm text-red-600">{tailorError}</p>
+                )}
+                {job.has_tailored_resume && (
+                  <a
+                    href={jobsApi.resumeUrl(job.id)}
+                    className="inline-flex items-center rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100"
+                  >
+                    📄 Download Tailored Resume (.tex)
+                  </a>
+                )}
+                {tailorResult?.changes_made && tailorResult.changes_made.length > 0 && (
+                  <ul className="mt-1 text-xs text-gray-500 space-y-0.5">
+                    {tailorResult.changes_made.map((c, i) => (
+                      <li key={i}>• {c}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
           ) : null}

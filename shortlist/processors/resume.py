@@ -141,23 +141,13 @@ def select_resume(track_key: str, config: Config, job_title: str,
     return project_root / paths[0]
 
 
-def tailor_resume(resume_path: Path, job_title: str, job_company: str,
-                  job_description: str) -> TailoredResume | None:
-    """Tailor a resume for a specific job listing.
-
-    Returns TailoredResume with modified LaTeX and change notes,
-    or None on failure.
-    """
-    if not resume_path.exists():
-        logger.error(f"Resume not found: {resume_path}")
-        return None
-
-    resume_tex = resume_path.read_text()
-
+def _tailor_from_tex(resume_tex: str, job_title: str, job_company: str,
+                     job_description: str, base_path: str = "(uploaded)") -> TailoredResume | None:
+    """Core tailoring logic — takes LaTeX text, returns TailoredResume or None."""
     prompt = TAILOR_PROMPT.format(
         title=job_title,
         company=job_company,
-        description=job_description[:3000],  # Cap to avoid token limits
+        description=job_description[:3000],
         resume_tex=resume_tex,
     )
 
@@ -168,7 +158,7 @@ def tailor_resume(resume_path: Path, job_title: str, job_company: str,
     try:
         data = _parse_tailor_json(result)
         return TailoredResume(
-            base_resume_path=str(resume_path),
+            base_resume_path=base_path,
             tailored_tex=data.get("tailored_tex", resume_tex),
             changes_made=data.get("changes_made", []),
             interest_note=data.get("interest_note", ""),
@@ -176,6 +166,24 @@ def tailor_resume(resume_path: Path, job_title: str, job_company: str,
     except Exception as e:
         logger.error(f"Failed to parse tailor response: {e}")
         return None
+
+
+def tailor_resume(resume_path: Path, job_title: str, job_company: str,
+                  job_description: str) -> TailoredResume | None:
+    """Tailor a resume from a file path (CLI). Returns TailoredResume or None."""
+    if not resume_path.exists():
+        logger.error(f"Resume not found: {resume_path}")
+        return None
+    return _tailor_from_tex(
+        resume_path.read_text(), job_title, job_company, job_description,
+        base_path=str(resume_path),
+    )
+
+
+def tailor_resume_from_text(resume_tex: str, job_title: str, job_company: str,
+                            job_description: str) -> TailoredResume | None:
+    """Tailor a resume from raw LaTeX text (web — no file on disk)."""
+    return _tailor_from_tex(resume_tex, job_title, job_company, job_description)
 
 
 def save_tailored_resume(tailored: TailoredResume, output_dir: Path,

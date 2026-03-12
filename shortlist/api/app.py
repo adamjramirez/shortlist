@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import update
 
-from shortlist.api.routes import auth, jobs, profile, resumes, runs
+from shortlist.api.routes import auth, jobs, profile, resumes, runs, tailor
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(resumes.router)
     app.include_router(runs.router)
     app.include_router(jobs.router)
+    app.include_router(tailor.router)
 
     @app.get("/api/health")
     async def health():

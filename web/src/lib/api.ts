@@ -154,6 +154,14 @@ export const jobs = {
       method: "PUT",
       body: JSON.stringify({ status }),
     }),
+
+  tailor: (id: number) =>
+    request<{ filename: string; changes_made: string[]; interest_note: string }>(
+      `/jobs/${id}/tailor`,
+      { method: "POST" },
+    ),
+
+  resumeUrl: (id: number) => `/api/jobs/${id}/resume`,
 };
 
 // --- Runs ---
