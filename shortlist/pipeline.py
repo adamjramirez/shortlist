@@ -618,6 +618,46 @@ def run_pipeline_pg(
         jobs_scored_so_far += len(score_inputs)
         return len(score_inputs), matches, visible
 
+    def _enrich_scored_jobs():
+        """Enrich all scored jobs that don't have enrichment yet."""
+        nonlocal llm_calls
+        unenriched = pgdb.fetch_jobs(
+            conn, user_id, "scored",
+            extra_where="AND enrichment IS NULL",
+            order="fit_score DESC", limit=config.brief.top_n,
+        )
+        for i, row in enumerate(unenriched, 1):
+            _check_cancel()
+            company = row["company"]
+            _emit(on_progress, f"Researching {company}…",
+                  phase="enriching",
+                  detail=f"Researching {company} ({i}/{len(unenriched)})…")
+            intel = pgdb.get_cached_enrichment(conn, user_id, company)
+            if not intel:
+                intel = enrich_company(company, row["description"] or "")
+                if intel:
+                    pgdb.cache_enrichment(conn, user_id, company, intel)
+                    llm_calls += 1
+
+            if intel:
+                pgdb.update_job(conn, row["id"],
+                                enrichment=intel.to_json(),
+                                enriched_at=datetime.now().isoformat())
+
+                rescore = rescore_with_enrichment(
+                    row["fit_score"], row["score_reasoning"] or "",
+                    row["yellow_flags"] or "[]", intel, config,
+                )
+                if rescore:
+                    new_score, delta, reason = rescore
+                    llm_calls += 1
+                    new_status = "scored" if new_score >= SCORE_SAVED else "low_score"
+                    pgdb.update_job(conn, row["id"],
+                                    fit_score=new_score, status=new_status,
+                                    score_reasoning=f"{row['score_reasoning']} [Re-scored: {reason}]")
+                    logger.info(f"Re-scored {company}/{row['title']}: {row['fit_score']} → {new_score} ({delta:+d})")
+        conn.commit()
+
     # === Collect from all sources in parallel ===
     collectors = _get_collectors(config=config, db=None, pg_db_url=db_url)
     source_timers: dict[str, float] = {}  # name → start time (monotonic)
@@ -712,6 +752,12 @@ def run_pipeline_pg(
             total_matches += matches
             visible_matches += vis
             source_progress[name].update({"matches": vis, "scored": scored})
+
+            # Enrich immediately so cards show company intel
+            if vis > 0:
+                source_progress[name]["status"] = "enriching"
+                _emit_sources(detail=f"Researching {name} companies…")
+                _enrich_scored_jobs()
         else:
             source_progress[name]["matches"] = 0
 
@@ -738,50 +784,6 @@ def run_pipeline_pg(
             pgdb.log_source_run(conn, user_id, name, source_start, "failure", 0, str(result))
         else:
             _process_collected(name, result, source_start, needs_desc)
-
-    # === Enrich companies ===
-    _check_cancel()
-    scored_jobs = pgdb.fetch_jobs(
-        conn, user_id, "scored",
-        extra_where="AND enrichment IS NULL",
-        order="fit_score DESC", limit=config.brief.top_n,
-    )
-
-    if scored_jobs:
-        _emit(on_progress, f"Enriching {len(scored_jobs)} companies...",
-              phase="enriching", detail=f"Researching {len(scored_jobs)} companies…")
-
-    for i, row in enumerate(scored_jobs, 1):
-        _check_cancel()
-        company = row["company"]
-        _emit(on_progress, f"Researching {company}…",
-              phase="enriching",
-              detail=f"Researching {company} ({i}/{len(scored_jobs)})…")
-        intel = pgdb.get_cached_enrichment(conn, user_id, company)
-        if not intel:
-            intel = enrich_company(company, row["description"] or "")
-            if intel:
-                pgdb.cache_enrichment(conn, user_id, company, intel)
-                llm_calls += 1
-
-        if intel:
-            pgdb.update_job(conn, row["id"],
-                            enrichment=intel.to_json(),
-                            enriched_at=datetime.now().isoformat())
-
-            rescore = rescore_with_enrichment(
-                row["fit_score"], row["score_reasoning"] or "",
-                row["yellow_flags"] or "[]", intel, config,
-            )
-            if rescore:
-                new_score, delta, reason = rescore
-                llm_calls += 1
-                new_status = "scored" if new_score >= SCORE_SAVED else "low_score"
-                pgdb.update_job(conn, row["id"],
-                                fit_score=new_score, status=new_status,
-                                score_reasoning=f"{row['score_reasoning']} [Re-scored: {reason}]")
-                logger.info(f"Re-scored {company}/{row['title']}: {row['fit_score']} → {new_score} ({delta:+d})")
-    conn.commit()
 
     # === Discover career pages ===
     companies_to_probe = pgdb.fetch_companies(
