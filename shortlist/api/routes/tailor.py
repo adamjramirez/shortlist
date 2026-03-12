@@ -8,9 +8,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shortlist.api.crypto import decrypt
 from shortlist.api.db import get_session
 from shortlist.api.deps import get_current_user
-from shortlist.api.models import Job, Resume, User
+from shortlist.api.models import Job, Profile, Resume, User
 from shortlist.api.storage import Storage, get_storage
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,29 @@ async def tailor_job(
         )
 
     resume_tex, _ = await _get_best_resume(user, job.matched_track, session, storage)
+
+    # Configure LLM with user's API key
+    result = await session.execute(
+        select(Profile).where(Profile.user_id == user.id)
+    )
+    profile = result.scalar_one_or_none()
+    if not profile or not profile.config:
+        raise HTTPException(status_code=400, detail="Profile not configured")
+
+    config = profile.config
+    encrypted_key = config.get("llm", {}).get("encrypted_api_key", "")
+    if not encrypted_key:
+        raise HTTPException(status_code=400, detail="No API key configured. Set one in your profile.")
+
+    import os
+    from shortlist import llm as llm_module
+
+    api_key = decrypt(encrypted_key)
+    model = config.get("llm", {}).get("model", "gemini-2.0-flash")
+    provider = llm_module.detect_provider(model)
+    env_key = llm_module._ENV_KEYS[provider]
+    os.environ[env_key] = api_key
+    llm_module.configure(model)
 
     # Run LLM tailoring in thread to avoid blocking
     from shortlist.processors.resume import tailor_resume_from_text

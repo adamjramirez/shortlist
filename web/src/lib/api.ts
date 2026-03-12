@@ -161,7 +161,23 @@ export const jobs = {
       { method: "POST" },
     ),
 
-  resumeUrl: (id: number) => `/api/jobs/${id}/resume`,
+  downloadResume: async (id: number) => {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/jobs/${id}/resume`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new ApiError(res.status, "Download failed");
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match?.[1] || `tailored-${id}.tex`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // --- Runs ---

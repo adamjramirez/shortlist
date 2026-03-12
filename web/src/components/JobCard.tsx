@@ -318,13 +318,20 @@ export default function JobCard({ job, onStatusChange }: Props) {
                 {tailorError && (
                   <p className="text-sm text-red-600">{tailorError}</p>
                 )}
-                {job.has_tailored_resume && (
-                  <a
-                    href={jobsApi.resumeUrl(job.id)}
+                {(job.has_tailored_resume || tailorResult) && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await jobsApi.downloadResume(job.id);
+                      } catch {
+                        setTailorError("Download failed");
+                      }
+                    }}
                     className="inline-flex items-center rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100"
                   >
                     📄 Download Tailored Resume (.tex)
-                  </a>
+                  </button>
                 )}
                 {tailorResult?.changes_made && tailorResult.changes_made.length > 0 && (
                   <ul className="mt-1 text-xs text-gray-500 space-y-0.5">
