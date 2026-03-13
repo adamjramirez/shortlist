@@ -45,11 +45,11 @@ def make_portable(tex: str) -> str:
     # Remove inline \fontspec{FontName} calls (used in document body)
     tex = re.sub(r"\\fontspec\s*\{[^}]*\}", "", tex)
 
-    # Add lmodern + fontenc after \documentclass line if not already present
-    if r"\usepackage{lmodern}" not in tex:
+    # Add fontspec back with Latin Modern (always available in tectonic/XeTeX)
+    if r"\usepackage{fontspec}" not in tex:
         tex = re.sub(
             r"(\\documentclass(?:\[.*?\])?\{[^}]*\}\s*\n)",
-            r"\1\\usepackage[T1]{fontenc}\n\\usepackage{lmodern}\n",
+            r"\1\\usepackage{fontspec}\n\\setmainfont{Latin Modern Roman}\n\\setsansfont{Latin Modern Sans}\n\\setmonofont{Latin Modern Mono}\n",
             tex,
         )
 

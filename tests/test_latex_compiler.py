@@ -70,18 +70,21 @@ Hello
 
 
 class TestMakePortable:
-    def test_strips_fontspec(self):
+    def test_strips_custom_fonts(self):
         result = make_portable(FONTSPEC_TEX)
-        assert r"\usepackage{fontspec}" not in result
-        assert r"\setmainfont" not in result
-        assert r"\setsansfont" not in result
-        assert r"\setmonofont" not in result
+        # Custom font assignments removed
+        assert r"\setmainfont{EB Garamond}" not in result
+        assert r"\setsansfont{Lato}" not in result
+        assert r"\setmonofont{Fira Code}" not in result
         assert r"\newfontfamily" not in result
+        # Latin Modern substituted
+        assert r"\setmainfont{Latin Modern Roman}" in result
 
-    def test_adds_lmodern(self):
+    def test_adds_latin_modern_fontspec(self):
         result = make_portable(FONTSPEC_TEX)
-        assert r"\usepackage{lmodern}" in result
-        assert r"\usepackage[T1]{fontenc}" in result
+        assert r"\usepackage{fontspec}" in result
+        assert r"\setmainfont{Latin Modern Roman}" in result
+        assert r"\setsansfont{Latin Modern Sans}" in result
 
     def test_preserves_content(self):
         result = make_portable(FONTSPEC_TEX)
@@ -116,9 +119,8 @@ class TestMakePortable:
 
     def test_minimal_fontspec(self):
         result = make_portable(FONTSPEC_MINIMAL)
-        assert r"\usepackage{fontspec}" not in result
         assert "Inter" not in result
-        assert r"\usepackage{lmodern}" in result
+        assert r"\setmainfont{Latin Modern Roman}" in result
 
     def test_strips_inline_fontspec(self):
         tex = r"""\documentclass{article}
@@ -142,8 +144,8 @@ class TestMakePortable:
         """Content with \\\\documentclass (JSON fallback) is normalized."""
         tex = "\\\\documentclass{article}\n\\\\usepackage{fontspec}\n\\\\setmainfont{Arial}\n\\\\begin{document}\n{\\\\fontspec{Lato Bold}Header}\\\\[14pt]\n\\\\end{document}\n"
         result = make_portable(tex)
-        assert "fontspec" not in result
-        assert r"\usepackage{lmodern}" in result
+        assert r"\fontspec{Lato" not in result  # custom fonts stripped
+        assert r"\setmainfont{Latin Modern Roman}" in result
         assert r"\begin{document}" in result
         assert "Header" in result
         # LaTeX line breaks \\[14pt] must be preserved
