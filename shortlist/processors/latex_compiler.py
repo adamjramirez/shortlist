@@ -25,6 +25,9 @@ def make_portable(tex: str) -> str:
     if "\\\\documentclass" in tex or "\\\\usepackage" in tex:
         tex = re.sub(r"\\\\([a-zA-Z])", r"\\\1", tex)
 
+    # Fix split commands from bad \\n unescaping: \<newline>oindent → \noindent
+    tex = re.sub(r"\\\n([a-z])", r"\\\1", tex)
+
     # Remove \usepackage{fontspec} (with optional options)
     tex = re.sub(r"\\usepackage(\[.*?\])?\{fontspec\}\s*\n?", "", tex)
 

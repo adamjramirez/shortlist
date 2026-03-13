@@ -350,9 +350,11 @@ def _extract_tailor_fields(text: str) -> dict:
     )
     if tex_match:
         raw = tex_match.group(1)
-        # Unescape JSON string escapes: \\n → newline, \\\\ → backslash
-        raw = raw.replace("\\n", "\n")
+        # Unescape JSON string escapes — order matters!
+        # 1. \\\\ → \\ first (so \\noindent doesn't become \+newline+oindent)
         raw = raw.replace("\\\\", "\\")
+        # 2. \\n → newline (after backslash unescape, only real \n remain)
+        raw = raw.replace("\\n", "\n")
         raw = raw.replace('\\"', '"')
         result["tailored_tex"] = raw
 
