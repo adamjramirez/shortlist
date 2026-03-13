@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 import subprocess
 
-from shortlist.processors.latex_compiler import compile_latex
+from shortlist.processors.latex_compiler import compile_latex, make_portable
 
 
 VALID_TEX = r"""\documentclass[11pt]{article}
@@ -44,6 +44,81 @@ class TestCompileLatex:
         mock_run.return_value = None
         result = compile_latex("")
         assert result is None
+
+
+FONTSPEC_TEX = r"""\documentclass[11pt]{article}
+\usepackage{fontspec}
+\setmainfont{EB Garamond}
+\setsansfont{Lato}[
+  BoldFont={Lato Bold},
+  ItalicFont={Lato Italic},
+]
+\setmonofont{Fira Code}
+\newfontfamily\headingfont{Raleway}[BoldFont={Raleway Bold}]
+\begin{document}
+\textbf{Jane Smith} --- Senior Engineer
+\end{document}
+"""
+
+FONTSPEC_MINIMAL = r"""\documentclass{article}
+\usepackage{fontspec}
+\setmainfont{Inter}
+\begin{document}
+Hello
+\end{document}
+"""
+
+
+class TestMakePortable:
+    def test_strips_fontspec(self):
+        result = make_portable(FONTSPEC_TEX)
+        assert r"\usepackage{fontspec}" not in result
+        assert r"\setmainfont" not in result
+        assert r"\setsansfont" not in result
+        assert r"\setmonofont" not in result
+        assert r"\newfontfamily" not in result
+
+    def test_adds_lmodern(self):
+        result = make_portable(FONTSPEC_TEX)
+        assert r"\usepackage{lmodern}" in result
+        assert r"\usepackage[T1]{fontenc}" in result
+
+    def test_preserves_content(self):
+        result = make_portable(FONTSPEC_TEX)
+        assert r"\textbf{Jane Smith}" in result
+        assert r"\begin{document}" in result
+        assert r"\documentclass[11pt]{article}" in result
+
+    def test_preserves_other_packages(self):
+        tex = r"""\documentclass{article}
+\usepackage{fontspec}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\setmainfont{Arial}
+\begin{document}Hello\end{document}
+"""
+        result = make_portable(tex)
+        assert r"\usepackage{enumitem}" in result
+        assert r"\usepackage[hidelinks]{hyperref}" in result
+
+    def test_noop_for_pdflatex(self):
+        """Already pdflatex-compatible → unchanged except lmodern added."""
+        result = make_portable(VALID_TEX)
+        # Content preserved
+        assert r"\textbf{Jane Smith}" in result
+
+    def test_handles_multiline_font_options(self):
+        result = make_portable(FONTSPEC_TEX)
+        # The multi-line \setsansfont with options should be fully removed
+        assert "BoldFont" not in result
+        assert "ItalicFont" not in result
+        assert "Lato" not in result
+
+    def test_minimal_fontspec(self):
+        result = make_portable(FONTSPEC_MINIMAL)
+        assert r"\usepackage{fontspec}" not in result
+        assert "Inter" not in result
+        assert r"\usepackage{lmodern}" in result
 
 
 class TestCompileLatexIntegration:

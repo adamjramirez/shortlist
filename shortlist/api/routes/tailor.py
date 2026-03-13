@@ -237,14 +237,10 @@ async def download_resume(
             )
         else:
             logger.warning(f"On-demand PDF compilation failed for job {job_id}")
-            uses_fontspec = "fontspec" in tex_source or "\\setmainfont" in tex_source
-            hint = (
-                "Your resume uses custom fonts (fontspec) that aren't available on the server. "
-                "Download the .tex file and compile locally, or use Overleaf."
-                if uses_fontspec else
-                "LaTeX compilation failed. Download the .tex file and compile locally."
+            raise HTTPException(
+                status_code=422,
+                detail="PDF compilation failed. Download the .tex file and compile locally or with Overleaf.",
             )
-            raise HTTPException(status_code=422, detail=hint)
 
     # Serve .tex (explicit request, or PDF compilation fallback)
     data = await storage.get(job.tailored_resume_key)

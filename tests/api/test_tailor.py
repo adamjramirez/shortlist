@@ -395,29 +395,38 @@ async def test_download_pdf_compile_failure_returns_error(
 
 
 @pytest.mark.asyncio
-async def test_download_pdf_compile_failure_fontspec_hint(
+async def test_download_pdf_fontspec_compiles_via_make_portable(
     client, auth_headers, user_with_tex_resume, test_storage
 ):
-    """If compilation fails and .tex uses fontspec, hint about custom fonts."""
+    """Fontspec resumes compile successfully after make_portable strips custom fonts."""
     fixture = user_with_tex_resume
     job_id = fixture["job_id"]
 
     with patch("shortlist.api.routes.tailor._configure_llm", return_value="gemini-2.0-flash"), \
          patch("shortlist.processors.resume.tailor_resume_from_text") as mock_tailor:
         mock_tailor.return_value = MagicMock(
-            tailored_tex="\\usepackage{fontspec}\\setmainfont{EB Garamond}\\begin{document}Hello\\end{document}",
+            tailored_tex="\\documentclass{article}\n\\usepackage{fontspec}\\setmainfont{EB Garamond}\\begin{document}Hello\\end{document}",
             changes_made=[],
             interest_note="",
         )
         await client.post(f"/api/jobs/{job_id}/tailor", headers=auth_headers)
 
-    with patch("shortlist.processors.latex_compiler.compile_latex") as mock_compile:
-        mock_compile.return_value = None
+    compiled_input = []
+
+    def fake_compile(tex_content):
+        compiled_input.append(tex_content)
+        return b"%PDF-compiled"
+
+    with patch("shortlist.processors.latex_compiler.compile_latex", side_effect=fake_compile):
         resp = await client.get(
             f"/api/jobs/{job_id}/resume?format=pdf", headers=auth_headers
         )
-        assert resp.status_code == 422
-        assert "custom fonts" in resp.json()["detail"]
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        # compile_latex receives original tex — make_portable runs inside it
+        assert len(compiled_input) == 1
+        # The stored .tex still has fontspec (original preserved for .tex download)
+        assert "fontspec" in compiled_input[0]
 
 
 @pytest.mark.asyncio

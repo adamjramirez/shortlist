@@ -1,5 +1,6 @@
 """LaTeX → PDF compilation using tectonic."""
 import logging
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -7,6 +8,44 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 COMPILE_TIMEOUT = 30  # seconds
+
+
+def make_portable(tex: str) -> str:
+    """Strip fontspec/custom font commands and substitute pdflatex-compatible fonts.
+
+    Preserves document structure and content. Replaces custom fonts with
+    Latin Modern (lmodern) which tectonic always has available.
+    """
+    if r"\usepackage{fontspec}" not in tex and r"\usepackage[" not in tex:
+        # Quick check — no fontspec, likely already pdflatex-compatible
+        if "fontspec" not in tex:
+            return tex
+
+    # Remove \usepackage{fontspec} (with optional options)
+    tex = re.sub(r"\\usepackage(\[.*?\])?\{fontspec\}\s*\n?", "", tex)
+
+    # Remove \setmainfont, \setsansfont, \setmonofont, \newfontfamily
+    # These can have [...] options before OR after {FontName}, spanning multiple lines
+    for cmd in (r"\\setmainfont", r"\\setsansfont", r"\\setmonofont", r"\\newfontfamily\s*\\[a-zA-Z]+"):
+        tex = re.sub(
+            cmd + r"\s*(?:\[.*?\])?\s*\{[^}]*\}\s*(?:\[.*?\])?\s*\n?",
+            "",
+            tex,
+            flags=re.DOTALL,
+        )
+
+    # Remove \defaultfontfeatures{...}
+    tex = re.sub(r"\\defaultfontfeatures\s*(?:\[.*?\])?\s*\{[^}]*\}\s*\n?", "", tex, flags=re.DOTALL)
+
+    # Add lmodern + fontenc after \documentclass line if not already present
+    if r"\usepackage{lmodern}" not in tex:
+        tex = re.sub(
+            r"(\\documentclass(?:\[.*?\])?\{[^}]*\}\s*\n)",
+            r"\1\\usepackage[T1]{fontenc}\n\\usepackage{lmodern}\n",
+            tex,
+        )
+
+    return tex
 
 
 def _run_tectonic(tex_path: Path) -> bytes | None:
@@ -49,7 +88,9 @@ def compile_latex(tex_content: str) -> bytes | None:
     if not tex_content or not tex_content.strip():
         return None
 
+    portable = make_portable(tex_content)
+
     with tempfile.TemporaryDirectory(prefix="shortlist-tex-") as tmpdir:
         tex_path = Path(tmpdir) / "resume.tex"
-        tex_path.write_text(tex_content)
+        tex_path.write_text(portable)
         return _run_tectonic(tex_path)
