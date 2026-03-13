@@ -23,7 +23,8 @@ def make_portable(tex: str) -> str:
     # Only unescape \\X where X is a letter (LaTeX commands), preserving
     # \\ (line break), \\[ (display math / line break with spacing), etc.
     if "\\\\documentclass" in tex or "\\\\usepackage" in tex:
-        tex = re.sub(r"\\\\([a-zA-Z])", r"\\\1", tex)
+        # Unescape commands (\\word → \word) and special chars (\\& → \&, \\$ → \$, etc.)
+        tex = re.sub(r"\\\\([a-zA-Z&$%#_{}~^])", r"\\\1", tex)
 
     # Fix mangled commands from bad JSON \\n unescaping:
     # \\noindent in JSON → \n consumed as newline → \<newline>oindent in stored text
