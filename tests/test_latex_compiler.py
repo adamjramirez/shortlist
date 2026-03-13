@@ -140,14 +140,14 @@ class TestMakePortable:
 
     def test_handles_double_escaped_backslashes(self):
         """Content with \\\\documentclass (JSON fallback) is normalized."""
-        tex = "\\\\documentclass{article}\n\\\\usepackage{fontspec}\n\\\\setmainfont{Arial}\n\\\\begin{document}\n{\\\\fontspec{Lato Bold}Header}\n\\\\end{document}\n"
+        tex = "\\\\documentclass{article}\n\\\\usepackage{fontspec}\n\\\\setmainfont{Arial}\n\\\\begin{document}\n{\\\\fontspec{Lato Bold}Header}\\\\[14pt]\n\\\\end{document}\n"
         result = make_portable(tex)
         assert "fontspec" not in result
         assert r"\usepackage{lmodern}" in result
         assert r"\begin{document}" in result
         assert "Header" in result
-        # Should have single backslashes now
-        assert "\\\\" not in result or "\\documentclass" not in result
+        # LaTeX line breaks \\[14pt] must be preserved
+        assert "\\\\[14pt]" in result
 
     def test_strips_addfontfeatures(self):
         tex = r"""\documentclass{article}
