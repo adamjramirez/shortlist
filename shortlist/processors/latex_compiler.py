@@ -16,10 +16,12 @@ def make_portable(tex: str) -> str:
     Preserves document structure and content. Replaces custom fonts with
     Latin Modern (lmodern) which tectonic always has available.
     """
-    if r"\usepackage{fontspec}" not in tex and r"\usepackage[" not in tex:
-        # Quick check — no fontspec, likely already pdflatex-compatible
-        if "fontspec" not in tex:
-            return tex
+    if "fontspec" not in tex:
+        return tex
+
+    # Normalize double-escaped backslashes (from JSON fallback parser)
+    if "\\\\documentclass" in tex or "\\\\usepackage" in tex:
+        tex = tex.replace("\\\\", "\\")
 
     # Remove \usepackage{fontspec} (with optional options)
     tex = re.sub(r"\\usepackage(\[.*?\])?\{fontspec\}\s*\n?", "", tex)
@@ -34,8 +36,12 @@ def make_portable(tex: str) -> str:
             flags=re.DOTALL,
         )
 
-    # Remove \defaultfontfeatures{...}
+    # Remove \defaultfontfeatures{...} and \addfontfeatures{...}
     tex = re.sub(r"\\defaultfontfeatures\s*(?:\[.*?\])?\s*\{[^}]*\}\s*\n?", "", tex, flags=re.DOTALL)
+    tex = re.sub(r"\\addfontfeatures\s*\{[^}]*\}", "", tex)
+
+    # Remove inline \fontspec{FontName} calls (used in document body)
+    tex = re.sub(r"\\fontspec\s*\{[^}]*\}", "", tex)
 
     # Add lmodern + fontenc after \documentclass line if not already present
     if r"\usepackage{lmodern}" not in tex:

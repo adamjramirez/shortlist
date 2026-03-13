@@ -120,6 +120,47 @@ class TestMakePortable:
         assert "Inter" not in result
         assert r"\usepackage{lmodern}" in result
 
+    def test_strips_inline_fontspec(self):
+        tex = r"""\documentclass{article}
+\usepackage{fontspec}
+\begin{document}
+{\fontspec{Lato Bold}\small SECTION HEADER}
+{\fontspec{Lato Light}\small Normal text}
+{\fontspec{EB Garamond}Main body text}
+\end{document}
+"""
+        result = make_portable(tex)
+        assert r"\fontspec{Lato Bold}" not in result
+        assert r"\fontspec{Lato Light}" not in result
+        assert r"\fontspec{EB Garamond}" not in result
+        # Content preserved
+        assert "SECTION HEADER" in result
+        assert "Normal text" in result
+        assert "Main body text" in result
+
+    def test_handles_double_escaped_backslashes(self):
+        """Content with \\\\documentclass (JSON fallback) is normalized."""
+        tex = "\\\\documentclass{article}\n\\\\usepackage{fontspec}\n\\\\setmainfont{Arial}\n\\\\begin{document}\n{\\\\fontspec{Lato Bold}Header}\n\\\\end{document}\n"
+        result = make_portable(tex)
+        assert "fontspec" not in result
+        assert r"\usepackage{lmodern}" in result
+        assert r"\begin{document}" in result
+        assert "Header" in result
+        # Should have single backslashes now
+        assert "\\\\" not in result or "\\documentclass" not in result
+
+    def test_strips_addfontfeatures(self):
+        tex = r"""\documentclass{article}
+\usepackage{fontspec}
+\begin{document}
+{\fontspec{Lato Bold}\addfontfeatures{LetterSpace=10}HEADER}
+\end{document}
+"""
+        result = make_portable(tex)
+        assert r"\addfontfeatures" not in result
+        assert "LetterSpace" not in result
+        assert "HEADER" in result
+
 
 class TestCompileLatexIntegration:
     """Integration tests that require tectonic installed."""

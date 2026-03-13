@@ -8,7 +8,7 @@ import pytest
 from shortlist.processors.resume import (
     select_resume, tailor_resume, save_tailored_resume,
     TailoredResume, _extract_summary, _parse_tailor_json,
-    generate_resume_from_text,
+    _extract_tailor_fields, generate_resume_from_text,
 )
 from shortlist.llm import parse_json
 from shortlist.config import Config, Track
@@ -275,3 +275,21 @@ class TestSaveTailoredResume:
             "Acme Corp & Sons, Inc.", "em", "2026-03-10"
         )
         assert "acme-corp-sons-inc" in output.name
+
+
+class TestExtractTailorFields:
+    def test_unescapes_json_backslashes(self):
+        """Double-escaped backslashes from LLM JSON are unescaped."""
+        text = r'''{"tailored_tex": "\\documentclass{article}\n\\usepackage{fontspec}\n\\begin{document}\nHello\n\\end{document}", "changes_made": ["adjusted summary"], "interest_note": "Great fit"}'''
+        result = _extract_tailor_fields(text)
+        tex = result["tailored_tex"]
+        # Should have single backslashes (proper LaTeX)
+        assert tex.startswith("\\documentclass")
+        assert "\\\\documentclass" not in tex
+        assert "\\usepackage{fontspec}" in tex
+        assert "\n" in tex  # newlines unescaped
+
+    def test_unescapes_interest_note(self):
+        text = r'''{"tailored_tex": "\\documentclass{article}\n\\begin{document}\nHi\n\\end{document}", "changes_made": [], "interest_note": "Line one\\nLine two"}'''
+        result = _extract_tailor_fields(text)
+        assert "\n" in result["interest_note"]

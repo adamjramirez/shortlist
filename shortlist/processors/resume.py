@@ -349,7 +349,12 @@ def _extract_tailor_fields(text: str) -> dict:
         text, re.DOTALL,
     )
     if tex_match:
-        result["tailored_tex"] = tex_match.group(1).replace("\\n", "\n")
+        raw = tex_match.group(1)
+        # Unescape JSON string escapes: \\n → newline, \\\\ → backslash
+        raw = raw.replace("\\n", "\n")
+        raw = raw.replace("\\\\", "\\")
+        raw = raw.replace('\\"', '"')
+        result["tailored_tex"] = raw
 
     # Extract changes_made
     changes_match = re.search(r'"changes_made"\s*:\s*\[(.*?)\]', text, re.DOTALL)
@@ -360,7 +365,11 @@ def _extract_tailor_fields(text: str) -> dict:
     # Extract interest_note
     note_match = re.search(r'"interest_note"\s*:\s*"(.*?)"(?:\s*\})', text, re.DOTALL)
     if note_match:
-        result["interest_note"] = note_match.group(1).replace("\\n", "\n")
+        raw = note_match.group(1)
+        raw = raw.replace("\\n", "\n")
+        raw = raw.replace("\\\\", "\\")
+        raw = raw.replace('\\"', '"')
+        result["interest_note"] = raw
 
     if not result.get("tailored_tex"):
         raise json.JSONDecodeError("Could not extract tailored_tex", text, 0)
