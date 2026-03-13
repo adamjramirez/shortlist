@@ -73,18 +73,20 @@ class TestMakePortable:
     def test_strips_custom_fonts(self):
         result = make_portable(FONTSPEC_TEX)
         # Custom font assignments removed
-        assert r"\setmainfont{EB Garamond}" not in result
-        assert r"\setsansfont{Lato}" not in result
-        assert r"\setmonofont{Fira Code}" not in result
+        assert "EB Garamond" not in result
+        assert "Lato" not in result
+        assert "Fira Code" not in result
+        assert "Raleway" not in result
         assert r"\newfontfamily" not in result
-        # Latin Modern substituted
-        assert r"\setmainfont{Latin Modern Roman}" in result
+        # Latin Modern OTF substituted
+        assert "lmroman10-regular.otf" in result
 
     def test_adds_latin_modern_fontspec(self):
         result = make_portable(FONTSPEC_TEX)
         assert r"\usepackage{fontspec}" in result
-        assert r"\setmainfont{Latin Modern Roman}" in result
-        assert r"\setsansfont{Latin Modern Sans}" in result
+        assert "lmroman10-regular.otf" in result
+        assert "lmsans10-regular.otf" in result
+        assert "lmmono10-regular.otf" in result
 
     def test_preserves_content(self):
         result = make_portable(FONTSPEC_TEX)
@@ -112,15 +114,15 @@ class TestMakePortable:
 
     def test_handles_multiline_font_options(self):
         result = make_portable(FONTSPEC_TEX)
-        # The multi-line \setsansfont with options should be fully removed
-        assert "BoldFont" not in result
-        assert "ItalicFont" not in result
-        assert "Lato" not in result
+        # The multi-line \setsansfont with user's font options should be removed
+        assert "Lato Bold" not in result
+        assert "Lato Italic" not in result
+        assert "Lato}" not in result  # \setsansfont{Lato} gone
 
     def test_minimal_fontspec(self):
         result = make_portable(FONTSPEC_MINIMAL)
         assert "Inter" not in result
-        assert r"\setmainfont{Latin Modern Roman}" in result
+        assert "lmroman10-regular.otf" in result
 
     def test_strips_inline_fontspec(self):
         tex = r"""\documentclass{article}
@@ -145,7 +147,7 @@ class TestMakePortable:
         tex = "\\\\documentclass{article}\n\\\\usepackage{fontspec}\n\\\\setmainfont{Arial}\n\\\\begin{document}\n{\\\\fontspec{Lato Bold}Header}\\\\[14pt]\n\\\\end{document}\n"
         result = make_portable(tex)
         assert r"\fontspec{Lato" not in result  # custom fonts stripped
-        assert r"\setmainfont{Latin Modern Roman}" in result
+        assert "lmroman10-regular.otf" in result
         assert r"\begin{document}" in result
         assert "Header" in result
         # LaTeX line breaks \\[14pt] must be preserved
