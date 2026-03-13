@@ -26,13 +26,14 @@ def make_portable(tex: str) -> str:
         tex = re.sub(r"\\\\([a-zA-Z])", r"\\\1", tex)
 
     # Fix mangled commands from bad JSON \\n unescaping:
-    # \\noindent in JSON string → \n consumed as newline → \<newline>oindent
-    # After joining: \oindent (missing 'n'). Fix known commands:
+    # \\noindent in JSON → \n consumed as newline → \<newline>oindent in stored text
+    # Pattern: backslash + newline + rest-of-command (the 'n' was eaten by \n escape)
+    # Common: \noindent, \newcommand, \newline, \newpage, \newlength
+    tex = re.sub(r"\\\n(oindent|ewcommand|ewline|ewpage|ewlength)", r"\\n\1", tex)
+    # Same but with \\<newline> (double-escaped variant)
+    tex = re.sub(r"\\\\\n(oindent|ewcommand|ewline|ewpage|ewlength)", r"\\n\1", tex)
+    # Also fix any \oindent that survived (from other code paths)
     tex = tex.replace("\\oindent", "\\noindent")
-    tex = tex.replace("\\ewcommand", "\\newcommand")
-    tex = tex.replace("\\ewline", "\\newline")
-    # Also rejoin \<newline>word → \word for any remaining splits
-    tex = re.sub(r"\\\n([a-z]+)", r"\\\1", tex)
 
     # Remove \usepackage{fontspec} (with optional options)
     tex = re.sub(r"\\usepackage(\[.*?\])?\{fontspec\}\s*\n?", "", tex)
