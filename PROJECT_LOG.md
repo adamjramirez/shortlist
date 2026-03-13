@@ -6,14 +6,91 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**PDF resume support complete.** Full pipeline: upload PDF → extract text → generate tailored LaTeX → compile to PDF → download.
+**PDF resume support deployed and working.** Full pipeline: upload PDF → extract text → generate tailored LaTeX → compile to PDF → download. LaTeX users can also download PDF via on-demand compilation with font substitution.
 
 **Not yet done:**
-- Deploy PDF resume support (all 6 checkpoints committed, awaiting green light)
 - Cron/launchd for overnight runs
 - PostHog dashboard setup (funnels, error rates, model popularity)
 - Backend PostHog for server-side metrics (banned phrase tracking, pipeline timing)
 - Banned phrase post-processor tracking
+- Follow-up: show extracted text for user review
+
+---
+
+## 2026-03-12 — PDF resume deploy, code review, PDF download for LaTeX users
+
+**What got done:**
+1. Deployed PDF resume support to Fly.io (all 6 checkpoints)
+2. Code review (7-stage): found 3 issues, all fixed
+   - `delete_resume` now cleans up `extracted_text_key` from storage
+   - Shared `make_test_pdf` fixture in `tests/api/conftest.py` (was duplicated 3x)
+   - Added `test_delete_pdf_resume_cleans_up_extracted_text`
+3. Fixed Dockerfile for tectonic: `libharfbuzz0b` for shared libs, `printf` for test .tex
+4. **PDF download for LaTeX users** — "Download PDF" button compiles .tex → PDF on demand
+   - Backend: download endpoint compiles on demand, caches result, 422 on failure
+   - Frontend: two buttons side-by-side (Download .tex + Download PDF) with loading state
+5. **`make_portable()` in `latex_compiler.py`** — strips fontspec/custom fonts, substitutes Latin Modern OTF
+   - Strips `\usepackage{fontspec}`, `\setmainfont{...}`, `\setsansfont{...}`, `\setmonofont{...}`
+   - Strips inline `\fontspec{FontName}` and `\addfontfeatures{...}` calls
+   - Strips `\newfontfamily` and `\defaultfontfeatures`
+   - Re-adds fontspec with Latin Modern OTF files (lmroman10-regular.otf etc.)
+   - Normalizes double-escaped backslashes from JSON fallback parser
+   - Fixes mangled commands from bad `\n` unescaping (`\noindent` → `\oindent`)
+   - Unescapes LaTeX special chars (`\\&` → `\&`, `\\$` → `\$`)
+6. **Fixed `_extract_tailor_fields()` JSON unescape ordering** — `\\` before `\n` to prevent splitting `\noindent`
+
+**Bugs found & fixed:**
+- Dockerfile: tectonic needs `libgraphite2` (via `libharfbuzz0b`) on Debian slim
+- Dockerfile: `echo` mangles `\b`, `\d`, `\e` as escape sequences → use `printf`
+- Dockerfile: `libicu72` doesn't exist in Debian Trixie → `libharfbuzz0b` pulls correct `libicu76`
+- `_extract_tailor_fields`: unescape order was `\n`→newline then `\\`→`\`, splitting `\\noindent` into `\` + newline + `oindent`. Fixed to `\\`→`\` first.
+- `make_portable`: `tex.replace("\\\\", "\\")` was too aggressive — converted `\\[14pt]` (line break) to `\[` (math mode). Fixed: only unescape `\\letter` and `\\special-char`.
+- Tectonic: `Latin Modern Roman` font name doesn't resolve — needs OTF filenames (`lmroman10-regular.otf`)
+- Tectonic: T1 fontenc can't handle Unicode em-dashes — switched to fontspec + Latin Modern OTF (XeTeX native)
+- Stored .tex had `\` + newline + `oindent` (the `n` consumed by `\n` escape) — added regex to reconstruct `\noindent`
+- Stored .tex had `\\&` (double-escaped ampersand) — added special chars to unescape regex
+
+**Key decisions:**
+- `make_portable()` runs inside `compile_latex()` — callers don't need to know about it
+- Original .tex preserved for download (with user's custom fonts); PDF uses Latin Modern substitution
+- On-demand compilation cached in storage for future downloads
+- 422 error (not silent fallback) when compilation fails — frontend shows server's error message
+
+**Test count:** 496 passed, 2 skipped
+
+---
+
+## 2026-03-12 — PostHog event tracking + internal docs refresh
+
+**What got done:**
+1. PostHog custom event tracking — 26 events across all user actions
+2. Error tracking for every failure path (8 error events)
+3. Onboarding funnel tracking (step viewed on checklist render)
+4. Filter change tracking (score threshold + track dropdown)
+5. Cover letter behavior (model changed, copied, failed)
+6. API key saved by provider
+7. CLAUDE.md complete rewrite — web-first architecture, all file locations, deploy workflow
+8. INTENT.md updated — cover letter philosophy, removed personal details, web product framing
+
+**Events added (26 total):**
+- Auth: signed_up, logged_in, signup_failed, login_failed
+- Profile: profile_analyzed, profile_analysis_failed, profile_saved, profile_save_failed, resume_uploaded, resume_upload_failed, api_key_saved
+- Runs: run_started, run_completed (matches), run_cancelled, run_failed
+- Jobs: job_expanded (score, company), job_status_changed, filter_changed (filter, value)
+- Cover letters: cover_letter_generated (model, regenerate), cover_letter_failed, cover_letter_copied, cover_letter_model_changed
+- Resumes: resume_tailored, resume_tailor_failed, resume_downloaded
+- Onboarding: onboarding_step_viewed (step label)
+
+**Key decisions:**
+- Import aliased as `analytics` in JobCard and page.tsx to avoid shadowing local `track` variables
+- Onboarding tracking fires on `done` count change, not every render
+- Error events capture the error message string for grouping in PostHog
+
+**What's next:**
+1. Set up PostHog dashboards (activation funnel, error rates, model popularity)
+2. Remove debug endpoints
+3. Landing page rewrite
+4. Mobile responsiveness + loading skeletons
 
 ---
 
@@ -136,7 +213,7 @@ Session-by-session progress log. Read this first when resuming work.
 
 **What got done:**
 1. Landing page redesign, mobile responsiveness, debug endpoint removal, loading skeletons, pagination (deployed)
-2. PDF resume upload — pdfplumber text extraction, stored alongside original PDF
+2. PDF resume upload — PyMuPDF text extraction (pdfplumber fails on custom fonts), stored alongside original PDF
 3. Migration 005: `resume_type`, `extracted_text_key`, `tailored_resume_pdf_key` columns
 4. Split `_get_best_resume()` → `_pick_best_resume()` + `_fetch_resume_text()` — track match > recency, PDF uses extracted text
 5. Profile generation + cover letters updated to use extracted text for PDF resumes
@@ -148,6 +225,8 @@ Session-by-session progress log. Read this first when resuming work.
 11. Download endpoint: `?format=pdf` (default) or `?format=tex`, graceful degradation
 12. Frontend: PDF download button, .tex source link, caution labels, LaTeX preference tooltip
 13. Landing page updated: "Your resume — LaTeX preferred, PDF also works"
+14. Switched PDF extractor from pdfplumber to PyMuPDF — pdfplumber fails on all custom fonts
+15. E2E tests (12) + PDF format tests (32) across 8 diverse PDF formats
 
 **Key decisions:**
 - PDF users get a generated resume from standard template (can't preserve original formatting)
@@ -155,45 +234,6 @@ Session-by-session progress log. Read this first when resuming work.
 - Compilation is on-demand only (user clicks tailor button)
 - Graceful degradation: compile failure → .tex still available, no 500
 - tectonic pre-cached in Docker (~100MB package cache) to avoid runtime cold start
+- PyMuPDF over pdfplumber: pdfplumber fails on all custom fonts (13 fonts tested)
 
-**Test count:** 435 passed, 2 skipped (tectonic integration) — was 412 before PDF work
-
-**What's next:**
-1. Deploy to Fly.io (awaiting green light)
-2. Manual test: upload PDF → generate profile → run → tailor → download PDF
-3. Follow-up: PDF compilation for LaTeX users (fontspec/XeLaTeX handling)
-4. Follow-up: show extracted text for user review
-
----
-
-## 2026-03-12 — PostHog event tracking + internal docs refresh
-
-**What got done:**
-1. PostHog custom event tracking — 26 events across all user actions
-2. Error tracking for every failure path (8 error events)
-3. Onboarding funnel tracking (step viewed on checklist render)
-4. Filter change tracking (score threshold + track dropdown)
-5. Cover letter behavior (model changed, copied, failed)
-6. API key saved by provider
-7. CLAUDE.md complete rewrite — web-first architecture, all file locations, deploy workflow
-8. INTENT.md updated — cover letter philosophy, removed personal details, web product framing
-
-**Events added (26 total):**
-- Auth: signed_up, logged_in, signup_failed, login_failed
-- Profile: profile_analyzed, profile_analysis_failed, profile_saved, profile_save_failed, resume_uploaded, resume_upload_failed, api_key_saved
-- Runs: run_started, run_completed (matches), run_cancelled, run_failed
-- Jobs: job_expanded (score, company), job_status_changed, filter_changed (filter, value)
-- Cover letters: cover_letter_generated (model, regenerate), cover_letter_failed, cover_letter_copied, cover_letter_model_changed
-- Resumes: resume_tailored, resume_tailor_failed, resume_downloaded
-- Onboarding: onboarding_step_viewed (step label)
-
-**Key decisions:**
-- Import aliased as `analytics` in JobCard and page.tsx to avoid shadowing local `track` variables
-- Onboarding tracking fires on `done` count change, not every render
-- Error events capture the error message string for grouping in PostHog
-
-**What's next:**
-1. Set up PostHog dashboards (activation funnel, error rates, model popularity)
-2. Remove debug endpoints
-3. Landing page rewrite
-4. Mobile responsiveness + loading skeletons
+**Test count:** 479 passed, 2 skipped (tectonic integration)

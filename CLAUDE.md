@@ -21,7 +21,7 @@ cd web && npm run dev      # Frontend dev server (port 3000)
 uvicorn shortlist.api.app:create_app --factory --port 8001  # Backend
 
 # Tests
-pytest tests/ -q           # 412 tests, ~10s
+pytest tests/ -q           # 496 tests, ~22s
 cd web && npm run build    # Frontend type check + build
 
 # Deploy
@@ -77,7 +77,7 @@ User clicks "Run now"
 | PG layer | `pgdb.py` (sync psycopg2, nextplay_cache CRUD) |
 | LLM | `llm.py` (subprocess+curl for Gemini, `json_schema` optional param) |
 | Collectors | `collectors/{hn,linkedin,nextplay,career_page}.py` |
-| Processors | `processors/{filter,scorer,enricher,resume,cover_letter}.py` |
+| Processors | `processors/{filter,scorer,enricher,resume,cover_letter,latex_compiler}.py` |
 
 ### Frontend Structure
 
@@ -96,11 +96,36 @@ User clicks "Run now"
 |-------|---------|
 | `users` | Auth (email, bcrypt password hash) |
 | `profiles` | JSON config (fit_context, tracks, filters, llm keys) |
-| `resumes` | Metadata + S3 key to Tigris |
+| `resumes` | Metadata + S3 key to Tigris (`resume_type`: tex/pdf, `extracted_text_key` for PDFs) |
 | `runs` | Pipeline runs (status, progress JSON, timestamps) |
-| `jobs` | Scored jobs (fit_score, enrichment, interest_note, cover_letter, career_page_url, tailored_resume_key) |
+| `jobs` | Scored jobs (fit_score, enrichment, interest_note, cover_letter, career_page_url, tailored_resume_key, tailored_resume_pdf_key) |
 | `companies` | Enrichment cache (30-day TTL) |
 | `nextplay_cache` | System-level ATS discovery cache (24h TTL, shared across users) |
+
+### PDF Resume + LaTeX Compilation
+
+```
+PDF user uploads .pdf
+  → PyMuPDF extracts text → stored as .txt alongside original
+  → Tailor: generate_resume_from_text() → full LaTeX from template
+  → compile_latex() → tectonic → PDF cached in storage
+
+LaTeX user uploads .tex
+  → Tailor: tailor_resume_from_text() → surgical edits preserving structure
+  → Download PDF: make_portable() strips fontspec/custom fonts
+    → substitutes Latin Modern OTF → compile_latex() → PDF
+  → Download .tex: original with custom fonts preserved
+```
+
+**`make_portable()`** (`latex_compiler.py`): transforms any LaTeX for tectonic compilation
+- Strips `fontspec`, `\setmainfont`, `\fontspec{...}`, `\addfontfeatures{...}`
+- Substitutes Latin Modern OTF fonts (lmroman10-regular.otf etc.)
+- Fixes double-escaped backslashes from JSON fallback parser
+- Reconstructs mangled `\noindent` (from `\n` escape consuming the `n`)
+- Unescapes LaTeX special chars (`\\&` → `\&`)
+
+**`_extract_tailor_fields()`** (`resume.py`): JSON fallback when LaTeX breaks `json.loads`
+- Unescape order matters: `\\` → `\` BEFORE `\n` → newline
 
 ### Key Patterns
 
@@ -140,7 +165,7 @@ Profile config stores:
 
 ## Testing
 
-- **412 tests**, ~10s, all unit tests
+- **496 tests**, ~22s, all unit tests
 - All tests mock `shortlist.http._wait` to disable rate limiting
 - Pipeline tests mock scoring/enrichment (not individual functions)
 - API tests use async SQLAlchemy with in-memory SQLite
@@ -176,3 +201,7 @@ fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB ac
 - ❌ Adding new models without updating BOTH `_CALLERS` and `PROVIDERS` in `llm_client.py`
 - ❌ Assuming LaTeX resumes parse cleanly — backslashes break JSON, fontspec/tabular break extraction
 - ❌ Using `scalar_one_or_none()` when multiple rows possible — use `.scalars().first()`
+- ❌ Unescaping `\n` before `\\` in JSON fallback parser — splits `\\noindent` into `\` + newline + `oindent`
+- ❌ Using font names like `Latin Modern Roman` with tectonic — use OTF filenames (`lmroman10-regular.otf`)
+- ❌ Using T1 fontenc with tectonic — it's XeTeX-based, use fontspec + OTF fonts for Unicode support
+- ❌ Doing `tex.replace("\\\\", "\\")` globally — destroys LaTeX line breaks (`\\[14pt]`). Only unescape before letters/special chars
