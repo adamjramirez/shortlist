@@ -17,6 +17,23 @@ Session-by-session progress log. Read this first when resuming work.
 
 ---
 
+## 2026-03-12 — Common Crawl integration: KILLED
+
+**What happened:** Built full CC integration across adamlab (shared client) and shortlist (ATS discovery, domain resolution, grounded enrichment). 3 phases, ~200 lines of production code, 36 tests, 2 hours. Then tested whether it actually adds value. It doesn't. Reverted everything.
+
+**Why it was killed:**
+- LLM-only enrichment already produces accurate company intel for well-known companies (tested Retool, Ramp, Navan — all correct on stage, headcount, description, location)
+- CC /about pages contain marketing copy that's less precise than LLM training data
+- CC API is unreliable (went fully down during our value test)
+- Cost: 16 CDX queries + 5 WARC fetches per company = ~35s added latency, on an API that goes down
+- The ATS discovery was marginally faster than live probing but not reliably available
+
+**The mistake:** Followed a detailed plan through spike → build → wire without ever checking the output of the existing system first. A 5-minute LLM-only enrichment test would have killed this before any code was written. The spike validated data *availability* (CC has pages) but never validated data *value* (does it improve enrichment output).
+
+**Lesson:** Before building a new data source integration, run the existing system and read its output. Ask "what's wrong with this?" If the answer is "nothing much," stop.
+
+---
+
 ## 2026-03-12 — PDF resume deploy, code review, PDF download for LaTeX users
 
 **What got done:**

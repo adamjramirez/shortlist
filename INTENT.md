@@ -47,6 +47,10 @@ Not a job board. A personal chief of staff for your job search. Open source at h
 - **NextPlay is system-level cache.** Articles, companies, ATS providers are identical for all users. Only scoring is user-specific.
 - **3 scorer workers** on shared-cpu-2x. Less pressure on the VM. 50 jobs in ~28s is fine.
 
+## Dead ends (tried and killed)
+
+- **Common Crawl for company enrichment (2026-03-12).** CC has pages for 17/20 companies, but the LLM already knows what those companies do from training data. CC adds marketing copy, not new facts. CC API is also unreliable (goes down, 504s on broad queries). The enrichment output doesn't improve. Don't revisit unless LLM enrichment starts producing wrong answers for a meaningful number of companies.
+
 ## When to stop
 
 - Spending more than 15 min reviewing matches (feed is too noisy — scoring needs work)
