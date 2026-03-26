@@ -34,6 +34,7 @@ EMPTY_CONFIG = {
     "llm": {},
     "brief": {},
     "substack_sid": "",
+    "aww_node_id": "",
 }
 
 

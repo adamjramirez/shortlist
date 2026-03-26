@@ -51,6 +51,7 @@ class ProfileUpdate(BaseModel):
     llm: dict | None = None
     brief: dict | None = None
     substack_sid: str | None = None
+    aww_node_id: str | None = None  # AWW node ID for pulling networking slice
 
 
 class ProfileResponse(BaseModel):
@@ -61,6 +62,7 @@ class ProfileResponse(BaseModel):
     llm: dict
     brief: dict
     substack_sid: str = ""
+    aww_node_id: str = ""
 
 
 # --- Resume ---

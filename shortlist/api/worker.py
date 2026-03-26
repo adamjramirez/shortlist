@@ -80,8 +80,18 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
         sal = filters_raw.get("salary", {})
         role = filters_raw.get("role_type", {})
 
+        # AWW integration: if user has an aww_node_id, pull their networking
+        # slice from the AWW server as fit_context. Falls back to stored fit_context.
+        fit_context = config.get("fit_context", "")
+        aww_node_id = config.get("aww_node_id", "")
+        if aww_node_id:
+            from shortlist.aww_client import pull_networking_slice
+            aww_context = pull_networking_slice(aww_node_id)
+            if aww_context:
+                fit_context = aww_context
+
         pipeline_config = Config(
-            fit_context=config.get("fit_context", ""),
+            fit_context=fit_context,
             tracks=tracks,
             filters=Filters(
                 location=LocationFilter(
