@@ -2,6 +2,7 @@
 
 **Read `PROJECT_LOG.md` first** — current state, session history, what's next.
 **Read `INTENT.md`** — what this project values, scoring philosophy, decided tradeoffs.
+**Adam's profile:** `~/Code/profile/` — career context, health, identity. CVs live in `shortlist/cv-new/`.
 
 ---
 

@@ -271,6 +271,7 @@ def fetch_ashby_jobs(org_slug: str, company_name: str | None = None) -> list[Raw
                     "}"
                 ),
             },
+            headers={"Accept": "application/json"},
         )
         resp.raise_for_status()
     except Exception as e:
@@ -331,6 +332,7 @@ def _fetch_ashby_description(org_slug: str, job_id: str) -> str:
                     "}"
                 ),
             },
+            headers={"Accept": "application/json"},
         )
         resp.raise_for_status()
         posting = resp.json().get("data", {}).get("jobPosting", {})

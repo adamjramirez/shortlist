@@ -1,0 +1,102 @@
+[
+  {
+    "id": 947,
+    "title": "Customer Educational Advisor (Work from Home)",
+    "company": "Nerdy",
+    "original_score": 5,
+    "score_a": 0,
+    "score_b": 0,
+    "reasoning_a": "This role is a sales and customer retention position, not an Engineering Manager...",
+    "reasoning_b": "This role is a customer retention sales position, not an engineering management ..."
+  },
+  {
+    "id": 948,
+    "title": "Director of Engineering (AI-Native)",
+    "company": "Nerdy",
+    "original_score": 90,
+    "score_a": 75,
+    "score_b": 75,
+    "reasoning_a": "This role is a Director level engineering management position, which aligns well...",
+    "reasoning_b": "The role aligns well with Adam's interest in leadership and AI-powered solutions..."
+  },
+  {
+    "id": 949,
+    "title": "Director of Engineering (AI-Native)",
+    "company": "Nerdy",
+    "original_score": 95,
+    "score_a": 85,
+    "score_b": 75,
+    "reasoning_a": "This role is a strong fit for Adam, aligning with his experience in AI product d...",
+    "reasoning_b": "Adam's experience as a CTO and interest in fractional CTO roles align well with ..."
+  },
+  {
+    "id": 950,
+    "title": "Director of Engineering (AI-Native)",
+    "company": "Nerdy",
+    "original_score": 92,
+    "score_a": 75,
+    "score_b": 75,
+    "reasoning_a": "Adam's expertise in AI product development and managing multiple engineering tea...",
+    "reasoning_b": "Adam's background in technology, leadership, and interest in AI aligns well with..."
+  },
+  {
+    "id": 951,
+    "title": "IT Operations Specialist",
+    "company": "Nerdy",
+    "original_score": 5,
+    "score_a": 10,
+    "score_b": 25,
+    "reasoning_a": "This role is an IT Operations Specialist, which is a hands-on individual contrib...",
+    "reasoning_b": "This role is an IT Operations Specialist, which is an individual contributor rol..."
+  },
+  {
+    "id": 952,
+    "title": " Senior DevOps Engineer (AI-Native)(Full Time",
+    "company": "Nerdy",
+    "original_score": 15,
+    "score_a": 30,
+    "score_b": 30,
+    "reasoning_a": "This role is for a Senior DevOps Engineer, which is an individual contributor ro...",
+    "reasoning_b": "This role is for a Senior DevOps Engineer, which is an individual contributor ro..."
+  },
+  {
+    "id": 953,
+    "title": "Senior DevOps Engineer (AI-Native)(Full Time ",
+    "company": "Nerdy",
+    "original_score": 5,
+    "score_a": 20,
+    "score_b": 30,
+    "reasoning_a": "This role is for a Senior DevOps Engineer, which is an Individual Contributor (I...",
+    "reasoning_b": "This role is for a Senior DevOps Engineer, which is an Individual Contributor (I..."
+  },
+  {
+    "id": 954,
+    "title": "Senior Director, Product Engineering",
+    "company": "Nerdy",
+    "original_score": 93,
+    "score_a": 85,
+    "score_b": 75,
+    "reasoning_a": "This role aligns well with Adam's experience in software and product leadership,...",
+    "reasoning_b": "The role is a strong fit for an Engineering Manager track, offering a leadership..."
+  },
+  {
+    "id": 955,
+    "title": "Senior Software Engineer (AI-Native) (Full-ti",
+    "company": "Nerdy",
+    "original_score": 15,
+    "score_a": 30,
+    "score_b": 30,
+    "reasoning_a": "This role is for a Senior Software Engineer, which is an individual contributor ...",
+    "reasoning_b": "This role is for a Senior Software Engineer, which is an individual contributor ..."
+  },
+  {
+    "id": 956,
+    "title": "Senior Software Engineer (AI-Native) (Full-ti",
+    "company": "Nerdy",
+    "original_score": 15,
+    "score_a": 25,
+    "score_b": 10,
+    "reasoning_a": "This role is for a Senior Software Engineer, which is an Individual Contributor ...",
+    "reasoning_b": "This role is for a Senior Software Engineer, which is an Individual Contributor ..."
+  }
+]

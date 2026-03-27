@@ -34,7 +34,8 @@ def load_grant(source: Optional[str] = None) -> Optional[dict]:
 
     if source:
         if os.path.exists(source):
-            raw = open(source).read()
+            with open(source) as f:
+                raw = f.read()
         else:
             raw = source
     else:
@@ -42,7 +43,8 @@ def load_grant(source: Optional[str] = None) -> Optional[dict]:
         if not raw:
             path = os.environ.get("AWW_GRANT_FILE")
             if path and os.path.exists(path):
-                raw = open(path).read()
+                with open(path) as f:
+                    raw = f.read()
 
     if not raw:
         return None

@@ -5,6 +5,63 @@ from typing import Any
 
 import yaml
 
+# AWW node directory — personal knowledge node (github.com/adamjramirez/aww)
+_AWW_NODE_DIR = Path.home() / ".aww" / "node"
+# Documents to read from AWW node, in order of relevance for job scoring
+_AWW_DOCS = ["intent.md", "expertise.md", "projects.md", "preferences.md"]
+
+
+def _aww_has_professional_context() -> bool:
+    """Return True if the AWW node has meaningful professional context.
+
+    Checks intent.md and expertise.md — the professional documents.
+    If both are empty or missing, AWW hasn't accumulated enough work
+    email to be useful for job scoring yet.
+    """
+    MIN_CHARS = 500  # below this is noise, not signal
+    total = 0
+    for doc_name in ("intent.md", "expertise.md"):
+        path = _AWW_NODE_DIR / doc_name
+        if not path.exists():
+            continue
+        content = path.read_text(encoding="utf-8").strip()
+        if content.startswith("---"):
+            sections = content.split("\n---\n", 1)
+            body = sections[1].strip() if len(sections) == 2 else ""
+        else:
+            body = content
+        total += len(body)
+    return total >= MIN_CHARS
+
+
+def _load_aww_context() -> str:
+    """Read synthesized context from AWW node if available.
+
+    Strips YAML frontmatter and concatenates body content from the core
+    node documents. Returns empty string if AWW is not set up.
+    """
+    if not _AWW_NODE_DIR.exists():
+        return ""
+
+    parts = []
+    for doc_name in _AWW_DOCS:
+        path = _AWW_NODE_DIR / doc_name
+        if not path.exists():
+            continue
+        content = path.read_text(encoding="utf-8").strip()
+        if not content or content == "---":
+            continue
+        # Strip YAML frontmatter (--- ... ---)
+        if content.startswith("---"):
+            sections = content.split("\n---\n", 1)
+            body = sections[1].strip() if len(sections) == 2 else ""
+        else:
+            body = content
+        if body:
+            parts.append(body)
+
+    return "\n\n".join(parts)
+
 # --- Score thresholds (single source of truth) ---
 SCORE_SAVED = 60        # Minimum to save as "scored" in DB (vs "low_score")
 SCORE_VISIBLE = 75      # Minimum shown to users in the web UI
@@ -111,9 +168,16 @@ def load_config(path: Path) -> Config:
         role_type=_build_dataclass(RoleTypeFilter, filters_raw.get("role_type")),
     )
 
+    # Use AWW synthesized context if it has professional signal — always current,
+    # pulled from real data (email, etc.). Falls back to manually written fit_context
+    # when AWW only has personal/lifestyle content (node hasn't accumulated enough
+    # professional email yet).
+    aww_context = _load_aww_context()
+    fit_context = aww_context if _aww_has_professional_context() else raw.get("fit_context", "")
+
     return Config(
         name=raw.get("name", ""),
-        fit_context=raw.get("fit_context", ""),
+        fit_context=fit_context,
         tracks=tracks,
         filters=filters,
         preferences=raw.get("preferences", {}),
