@@ -38,7 +38,8 @@ Name: {name}
 {tracks_description}
 
 ### Hard Requirements
-- Location: Remote or within 30 min of {local_zip}
+- Location: {location_requirement}
+- If a role says "Remote" but restricts to a specific country/region the candidate is NOT in, score below 60.
 - Salary: Minimum ${min_salary:,} base
 - Must be a management/leadership role with direct reports
 - Prefer ~20+ reports (adjusted for company size/stage)
@@ -100,6 +101,18 @@ The title/company/location fields above may be wrong due to parsing errors. Use 
 Return ONLY the JSON object, no other text."""
 
 
+def _build_location_requirement(config: Config) -> str:
+    """Build a clean location requirement string from user config."""
+    local_cities = config.filters.location.local_cities
+    local_zip = config.filters.location.local_zip
+    parts = []
+    if local_cities:
+        parts.append(", ".join(local_cities))
+    if local_zip:
+        parts.append(local_zip)
+    return f"Remote or near {' / '.join(parts)}" if parts else "Remote"
+
+
 def build_scoring_prompt(job: RawJob, config: Config) -> str:
     """Build the scoring prompt for a job."""
     tracks_desc = []
@@ -116,7 +129,7 @@ def build_scoring_prompt(job: RawJob, config: Config) -> str:
         fit_context=config.fit_context or "No additional context provided.",
         tracks_description="\n".join(tracks_desc),
         track_keys=track_keys,
-        local_zip=config.filters.location.local_zip or "",
+        location_requirement=_build_location_requirement(config),
         min_salary=config.filters.salary.min_base or 250000,
         title=job.title,
         company=job.company,

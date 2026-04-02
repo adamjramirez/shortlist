@@ -106,6 +106,56 @@ async def test_generate_does_not_save(client, auth_headers, resume_id, profile_w
 
 
 @pytest.mark.asyncio
+async def test_generate_profile_429_error(client, auth_headers, resume_id, profile_with_key, app):
+    """429 from LLM returns a helpful error message suggesting Gemini."""
+    import httpx as httpx_mod
+
+    class RateLimitedGenerator:
+        async def generate_profile(self, resume_text: str) -> dict:
+            resp = httpx_mod.Response(
+                429, request=httpx_mod.Request("POST", "https://example.com")
+            )
+            raise httpx_mod.HTTPStatusError(
+                "rate limited", request=resp.request, response=resp
+            )
+
+    app.dependency_overrides[get_profile_generator] = lambda: RateLimitedGenerator()
+    resp = await client.post(
+        "/api/profile/generate",
+        json={"resume_id": resume_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 429
+    detail = resp.json()["detail"].lower()
+    assert "rate limit" in detail
+    assert "gemini" in detail
+
+
+@pytest.mark.asyncio
+async def test_generate_profile_502_error(client, auth_headers, resume_id, profile_with_key, app):
+    """Non-429 HTTP error from LLM returns 502 with status code."""
+    import httpx as httpx_mod
+
+    class ServerErrorGenerator:
+        async def generate_profile(self, resume_text: str) -> dict:
+            resp = httpx_mod.Response(
+                503, request=httpx_mod.Request("POST", "https://example.com")
+            )
+            raise httpx_mod.HTTPStatusError(
+                "service unavailable", request=resp.request, response=resp
+            )
+
+    app.dependency_overrides[get_profile_generator] = lambda: ServerErrorGenerator()
+    resp = await client.post(
+        "/api/profile/generate",
+        json={"resume_id": resume_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 502
+    assert "503" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_generate_unauthenticated(client):
     resp = await client.post(
         "/api/profile/generate",

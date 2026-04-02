@@ -63,8 +63,8 @@ class CompanyIntel:
         })
 
     @classmethod
-    def from_json(cls, name: str, data: str) -> "CompanyIntel":
-        d = json.loads(data)
+    def from_json(cls, name: str, data: str | dict) -> "CompanyIntel":
+        d = data if isinstance(data, dict) else json.loads(data)
         return cls(
             name=name,
             stage=d.get("stage", "unknown"),

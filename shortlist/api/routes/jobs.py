@@ -65,6 +65,7 @@ def _job_to_summary(job: Job) -> JobSummary:
         company_intel=(f"⚠️ Posted by {job.company} (recruiter/job board). The actual hiring company isn't listed — no company intel available."
                        if _is_job_board(job.company)
                        else _enrichment_summary(job.enrichment)),
+        score_reasoning=_clean_reasoning(job.score_reasoning),
     )
 
 
@@ -81,7 +82,6 @@ def _job_to_detail(job: Job) -> JobDetail:
     return JobDetail(
         **summary,
         description=job.description,
-        score_reasoning=_clean_reasoning(job.score_reasoning),
         yellow_flags=job.yellow_flags,
         enrichment=job.enrichment,
         interest_note=job.interest_note,

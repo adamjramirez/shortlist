@@ -55,11 +55,11 @@ export interface JobSummary {
   has_tailored_pdf: boolean;
   is_new: boolean;
   company_intel: string | null;
+  score_reasoning: string | null;
 }
 
 export interface JobDetail extends JobSummary {
   description: string | null;
-  score_reasoning: string | null;
   yellow_flags: string | null;
   enrichment: Record<string, unknown> | null;
   interest_note: string | null;

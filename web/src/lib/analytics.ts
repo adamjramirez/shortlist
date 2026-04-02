@@ -44,11 +44,15 @@ export const track = {
     trackEvent("resume_downloaded", { job_id: jobId, company }),
 
   // --- Run events ---
-  runStarted: () =>
-    trackEvent("run_started"),
+  runStarted: () => {
+    trackEvent("run_started");
+    try { posthog.setPersonProperties({ has_run: true }); } catch { /* SSR */ }
+  },
 
-  runCompleted: (matches: number, duration?: number) =>
-    trackEvent("run_completed", { matches, duration_seconds: duration }),
+  runCompleted: (matches: number, duration?: number) => {
+    trackEvent("run_completed", { matches, duration_seconds: duration });
+    try { posthog.setPersonProperties({ has_completed_run: true }); } catch { /* SSR */ }
+  },
 
   runCancelled: () =>
     trackEvent("run_cancelled"),
@@ -63,20 +67,26 @@ export const track = {
   profileAnalysisFailed: (error: string) =>
     trackEvent("profile_analysis_failed", { error }),
 
-  profileSaved: () =>
-    trackEvent("profile_saved"),
+  profileSaved: () => {
+    trackEvent("profile_saved");
+    try { posthog.setPersonProperties({ profile_complete: true }); } catch { /* SSR */ }
+  },
 
   profileSaveFailed: (error: string) =>
     trackEvent("profile_save_failed", { error }),
 
-  resumeUploaded: (filename: string) =>
-    trackEvent("resume_uploaded", { filename }),
+  resumeUploaded: (filename: string) => {
+    trackEvent("resume_uploaded", { filename });
+    try { posthog.setPersonProperties({ has_resume: true }); } catch { /* SSR */ }
+  },
 
   resumeUploadFailed: (filename: string, error: string) =>
     trackEvent("resume_upload_failed", { filename, error }),
 
-  apiKeySaved: (provider: string) =>
-    trackEvent("api_key_saved", { provider }),
+  apiKeySaved: (provider: string) => {
+    trackEvent("api_key_saved", { provider });
+    try { posthog.setPersonProperties({ has_api_key: true, api_provider: provider }); } catch { /* SSR */ }
+  },
 
   // --- Auth events ---
   signedUp: () =>

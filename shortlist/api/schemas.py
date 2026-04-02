@@ -94,11 +94,11 @@ class JobSummary(BaseModel):
     has_tailored_pdf: bool = False
     is_new: bool = False
     company_intel: str | None  # One-line summary from enrichment
+    score_reasoning: str | None = None  # Short explanation for the score
 
 
 class JobDetail(JobSummary):
     description: str | None
-    score_reasoning: str | None
     yellow_flags: str | None
     enrichment: dict | None
     interest_note: str | None = None
