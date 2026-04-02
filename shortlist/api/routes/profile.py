@@ -1,6 +1,7 @@
 """Profile routes — get/update user profile config."""
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -167,6 +168,20 @@ async def generate_profile(
 
     try:
         result = await generator.generate_profile(resume_text)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Your API key hit rate limits. Wait a minute and try again. "
+                    "Tip: Gemini keys have generous free-tier limits \u2014 "
+                    "switch to Gemini 2.0 Flash in your profile settings."
+                ),
+            )
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI provider error ({e.response.status_code}). Try again shortly.",
+        )
     except Exception as e:
         raise HTTPException(
             status_code=502,

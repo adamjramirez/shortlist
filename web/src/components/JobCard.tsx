@@ -146,7 +146,14 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
             )}
           </div>
 
-          {/* Row 3: Track + Company intel + Sources */}
+          {/* Row 3: Score reasoning one-liner */}
+          {job.score_reasoning && (
+            <p className="mt-1 text-xs text-gray-500 line-clamp-1">
+              {job.score_reasoning}
+            </p>
+          )}
+
+          {/* Row 4: Track + Company intel + Sources */}
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
             {track && (
               <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-600 font-medium">

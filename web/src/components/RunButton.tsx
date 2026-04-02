@@ -107,7 +107,15 @@ export default function RunButton({ onComplete, onProgress, onActiveChange }: Pr
       const active = runs.find(
         (r) => r.status === "pending" || r.status === "running",
       );
-      if (active) setRun(active);
+      if (active) {
+        setRun(active);
+      } else if (runs.length > 0 && runs[0].status === "completed") {
+        const firedKey = `run_completed_${runs[0].id}`;
+        if (!sessionStorage.getItem(firedKey)) {
+          track.runCompleted((runs[0].progress?.matches as number) ?? 0);
+          sessionStorage.setItem(firedKey, "1");
+        }
+      }
     });
   }, []);
 
@@ -137,8 +145,10 @@ export default function RunButton({ onComplete, onProgress, onActiveChange }: Pr
             onComplete?.();
           }
         }
-      } catch {
+      } catch (err) {
         if (intervalRef.current) clearInterval(intervalRef.current);
+        const msg = err instanceof Error ? err.message : "Polling failed";
+        track.runFailed(msg);
       }
     }, 2000);
 

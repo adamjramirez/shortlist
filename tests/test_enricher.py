@@ -61,6 +61,17 @@ class TestCompanyIntel:
         assert restored.headcount_estimate == 200
         assert restored.glassdoor_rating == 4.2
 
+    def test_from_json_with_dict(self):
+        """PG JSON columns return dicts — from_json must handle both."""
+        intel = CompanyIntel.from_json("Acme", {
+            "stage": "series_b",
+            "headcount_estimate": 200,
+            "growth_signal": "growing",
+        })
+        assert intel.stage == "series_b"
+        assert intel.headcount_estimate == 200
+        assert intel.growth_signal == "growing"
+
     def test_has_material_info_true(self):
         intel = CompanyIntel(
             name="X", stage="B", glassdoor_rating=4.0,

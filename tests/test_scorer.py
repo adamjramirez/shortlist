@@ -86,6 +86,31 @@ class TestBuildScoringPrompt:
         prompt = build_scoring_prompt(sample_job, config)
         assert "remote" in prompt.lower() or "Remote" in prompt
 
+    def test_scoring_prompt_includes_local_cities(self, sample_job):
+        """UK user's cities appear in prompt so LLM can penalize US-only roles."""
+        uk_config = Config(
+            name="Test",
+            filters=Filters(
+                location=LocationFilter(
+                    remote=True,
+                    local_zip="TQ13 8EH",
+                    local_cities=["London"],
+                ),
+                salary=SalaryFilter(min_base=120000),
+                role_type=RoleTypeFilter(),
+            ),
+        )
+        prompt = build_scoring_prompt(sample_job, uk_config)
+        assert "London" in prompt
+        assert "TQ13 8EH" in prompt
+        assert "score below 60" in prompt.lower()
+
+    def test_scoring_prompt_zip_only(self, sample_job, config):
+        """US user with zip but no cities still gets clean location line."""
+        prompt = build_scoring_prompt(sample_job, config)
+        assert "75098" in prompt
+        assert "Remote or near" in prompt
+
 
 class TestParseScoreResponse:
     def test_parses_valid_json(self):

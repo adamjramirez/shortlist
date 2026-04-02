@@ -606,7 +606,7 @@ export default function ProfilePage() {
                 </span>
               )}
               {error && (
-                <span className="text-sm text-red-600">{error}</span>
+                <span className={`text-sm ${error.toLowerCase().includes("rate limit") ? "text-amber-600" : "text-red-600"}`}>{error}</span>
               )}
             </div>
             <button

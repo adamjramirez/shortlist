@@ -6,14 +6,68 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**PDF resume support deployed and working.** Full pipeline: upload PDF → extract text → generate tailored LaTeX → compile to PDF → download. LaTeX users can also download PDF via on-demand compilation with font substitution.
+**Analytics + resilience overhaul deployed.** PostHog proper init with user identification + session recording. Pipeline crash fix (from_json dict handling). LLM retry with backoff. Location scoring for non-US users.
 
 **Not yet done:**
-- Cron/launchd for overnight runs
+- Deploy this PR to Fly.io
+- Email Mihai about the 429 fix
 - PostHog dashboard setup (funnels, error rates, model popularity)
-- Backend PostHog for server-side metrics (banned phrase tracking, pipeline timing)
-- Banned phrase post-processor tracking
-- Follow-up: show extracted text for user review
+- Backend PostHog for server-side metrics
+- Cron/launchd for overnight runs
+
+---
+
+## 2026-04-02 — PostHog overhaul, pipeline crash fix, LLM retry, location scoring
+
+**What got done:**
+1. PostHog proper init (`posthog.ts`) with `capture_pageview: "history_change"`, session recording (`maskAllInputs`), reverse proxy
+2. User identification: `posthog.identify()` on login/signup/hydration, `posthog.reset()` on logout
+3. Activation milestones: `setPersonProperties()` on 5 events (has_resume, has_api_key, profile_complete, has_run, has_completed_run)
+4. Pipeline crash fix: `CompanyIntel.from_json()` now accepts both str (SQLite) and dict (PG JSON column)
+5. Pipeline resilience: try/except around enrichment + interest note loops — one bad job can't kill a run
+6. LLM retry: `_retry_on_transient()` with 2 retries + exponential backoff (2s, 4s) for 429/5xx
+7. 429 error UX: actionable message suggesting Gemini, amber warning instead of red
+8. Location scoring: prompt now includes local_cities + instruction to penalize country-restricted remote roles
+9. RunButton: fires `runFailed` on polling catch, retroactive `run_completed` with sessionStorage dedup
+
+**User data investigation (6 users):**
+- User 3 (abisade): bounced, no profile
+- User 4 (Mihai): 429 victim × 4 on OpenAI, has key saved but empty profile — retry fix addresses this
+- User 5 (rach): bounced, no profile
+- User 6 (Jeremiah): full onboarding, run #27 crashed (from_json bug), got US jobs despite being UK-based
+- Activation cliff: profile analysis (4 signups → 1 profile analyzed)
+
+**Decisions:**
+- Hardcoded PostHog token (public client-side key, standard practice)
+- `capture_pageview: "history_change"` not manual — avoids SPA double-counting
+- Retry in `generate_profile()` not per-caller — single point, all providers covered
+- `score below 60` for country-restricted remote — aligns with existing scoring guide (40-59 = weak fit)
+
+**Test count:** 527 passed (+10 new), 1 pre-existing failure (test_aww_client)
+
+---
+
+## 2026-03-25 — Score reasoning on cards, PostHog report tool, memory optimization
+
+**What got done:**
+1. Surfaced `score_reasoning` on collapsed job cards — moved from `JobDetail` to `JobSummary`, one-line truncated display via `line-clamp-1`
+2. Built generic PostHog report script at `~/Code/adamlab/scripts/posthog_report.py` — works for any project, config-driven registry, HogQL queries
+3. Creatomap script now delegates to shared version
+4. Memory optimization for 512MB Fly VM: Node.js heap capped at 192MB, uvicorn recycles after 10k requests
+5. Fixed duplicate `score_reasoning` kwarg in `_job_to_detail()` after schema move
+
+**Traffic check (PostHog + DB):**
+- Shortlist: 5 users, 3 signed up Mar 18, none engaged beyond signup. 121 pageviews / 24 visitors in 30 days. Only Adam has run the pipeline.
+- Creatomap: 568 pageviews, 196 unique visitors, 41 from HN, 2 interest submissions
+
+**OOM incident:** Fly VM crashed (512MB). Root cause: likely deploy-time memory spike (Next.js + FastAPI cold-starting simultaneously). Fixed with `--max-old-space-size=192` and `--limit-max-requests 10000`.
+
+**Decisions:**
+- Don't scale up VM — no active users, optimize instead
+- `--limit-max-requests 10000` not 1000 — health checks every 10s would recycle uvicorn every 3 hours at 1000
+- Resonance Fly resources confirmed suspended (not costing anything)
+
+**Test count:** 517 passed, 1 pre-existing failure (test_aww_client)
 
 ---
 

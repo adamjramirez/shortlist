@@ -3,11 +3,18 @@
 Production: calls provider APIs via httpx.
 Tests: returns canned response via dependency override.
 """
+import asyncio
 import json
+import logging
 import re
 from typing import Protocol
 
 import httpx
+
+logger = logging.getLogger(__name__)
+
+_MAX_RETRIES = 2
+_BACKOFF_BASE = 2.0  # seconds: 2s, 4s
 
 
 class ProfileGenerator(Protocol):
@@ -195,6 +202,28 @@ _CALLERS = {
 }
 
 
+async def _retry_on_transient(coro_factory, description: str = "LLM call"):
+    """Retry an async callable on 429/5xx with exponential backoff."""
+    last_exc = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return await coro_factory()
+        except httpx.HTTPStatusError as e:
+            last_exc = e
+            status = e.response.status_code
+            if status == 429 or status >= 500:
+                if attempt < _MAX_RETRIES:
+                    wait = _BACKOFF_BASE * (2 ** attempt)
+                    logger.warning(
+                        "%s got %d, retrying in %.0fs (attempt %d/%d)",
+                        description, status, wait, attempt + 1, _MAX_RETRIES + 1,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+            raise  # non-retryable status (4xx other than 429)
+    raise last_exc  # exhausted retries
+
+
 class LLMProfileGenerator:
     """Production implementation — calls real LLM APIs."""
 
@@ -206,7 +235,10 @@ class LLMProfileGenerator:
         caller = _CALLERS.get(self.model)
         if not caller:
             raise ValueError(f"Unsupported model: {self.model}")
-        raw = await caller(self.api_key, self.model, resume_text)
+        raw = await _retry_on_transient(
+            lambda: caller(self.api_key, self.model, resume_text),
+            f"Profile generation ({self.model})",
+        )
         return _extract_json(raw)
 
 

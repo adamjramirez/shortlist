@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import posthog from "posthog-js";
 import { auth as authApi, setToken, clearToken, isLoggedIn } from "./api";
 import type { User } from "./types";
 
@@ -28,7 +29,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isLoggedIn()) {
       authApi
         .me()
-        .then(setUser)
+        .then((u) => {
+          setUser(u);
+          posthog.identify(String(u.id), { email: u.email });
+        })
         .catch(() => {
           clearToken();
         })
@@ -42,16 +46,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const resp = await authApi.login(email, password);
     setToken(resp.token);
     setUser({ id: resp.user_id, email: resp.email });
+    posthog.identify(String(resp.user_id), { email: resp.email });
   };
 
   const signup = async (email: string, password: string) => {
     const resp = await authApi.signup(email, password);
     setToken(resp.token);
     setUser({ id: resp.user_id, email: resp.email });
+    posthog.identify(String(resp.user_id), { email: resp.email });
   };
 
   const logout = () => {
     clearToken();
+    posthog.reset();
     setUser(null);
   };
 

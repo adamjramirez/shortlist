@@ -22,7 +22,7 @@ cd web && npm run dev      # Frontend dev server (port 3000)
 uvicorn shortlist.api.app:create_app --factory --port 8001  # Backend
 
 # Tests
-pytest tests/ -q           # 496 tests, ~22s
+pytest tests/ -q           # 527 tests, ~22s
 cd web && npm run build    # Frontend type check + build
 
 # Deploy
@@ -138,6 +138,10 @@ LaTeX user uploads .tex
 - **Rate limiter slot reservation** — lock held microseconds, not during sleep
 - **Per-source scoring budget** — `remaining // sources_left`, minimum 20 per source
 - **Score threshold 75 for visibility** — SCORE_SAVED=60 (DB), SCORE_VISIBLE=75 (API), SCORE_STRONG=85
+- **`score_reasoning` in JobSummary** — visible on collapsed cards (line-clamp-1), no expand needed
+- **PostHog person properties for activation** — `setPersonProperties()` on 5 milestones (has_resume, has_api_key, profile_complete, has_run, has_completed_run) for cohort analysis
+- **LLM retry with `_retry_on_transient()`** — coro_factory pattern, 2 retries + exponential backoff, only 429/5xx
+- **Per-item try/except in pipeline loops** — enrichment + interest note loops catch per-job errors so one failure doesn't kill the run
 
 ### Cover Letter Pipeline (3 layers)
 
@@ -166,7 +170,7 @@ Profile config stores:
 
 ## Testing
 
-- **496 tests**, ~22s, all unit tests
+- **527 tests**, ~22s, all unit tests
 - All tests mock `shortlist.http._wait` to disable rate limiting
 - Pipeline tests mock scoring/enrichment (not individual functions)
 - API tests use async SQLAlchemy with in-memory SQLite
@@ -184,7 +188,8 @@ fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB ac
 
 **Fly secrets:** DATABASE_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL_S3, AWS_REGION, BUCKET_NAME, TIGRIS_BUCKET, ENCRYPTION_KEY, JWT_SECRET, FLY_WORKER_TOKEN, PROXY_URL, PROXY_URLS, GEMINI_API_KEY
 
-**VM:** shared-cpu-2x / 1024MB  
+**VM:** shared-cpu-1x / 512MB  
+**Memory tuning:** Node.js capped at 192MB (`--max-old-space-size=192`), uvicorn recycles after 10k requests (`--limit-max-requests 10000`)  
 **Domain:** shortlist.addslift.com (CNAME → fly.dev)
 
 ---
@@ -206,3 +211,10 @@ fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB ac
 - ❌ Using font names like `Latin Modern Roman` with tectonic — use OTF filenames (`lmroman10-regular.otf`)
 - ❌ Using T1 fontenc with tectonic — it's XeTeX-based, use fontspec + OTF fonts for Unicode support
 - ❌ Doing `tex.replace("\\\\", "\\")` globally — destroys LaTeX line breaks (`\\[14pt]`). Only unescape before letters/special chars
+- ❌ Moving a field from child to parent Pydantic model without checking `**summary` spread in child constructor — causes "got multiple values for keyword argument"
+- ❌ Setting `--limit-max-requests` too low on uvicorn — health checks (every 10s) count toward the limit. 1000 requests = recycle every 3 hours. Use 10000+.
+- ❌ Suggesting infra scaling before optimizing — check traffic first. 5 users don't need 1GB RAM.
+- ❌ Using `fly postgres connect` interactively in scripts — hangs. Use `fly ssh console -C` with inline Python instead.
+- ❌ Assuming `json.loads()` on PG JSON columns — psycopg2 auto-deserializes JSON columns to dicts. Use `isinstance(data, dict)` guard in any `from_json()` method.
+- ❌ Bare `except Exception` around loops with cancel checks — if `_check_cancel()` is inside the try, `CancelledError(Exception)` gets swallowed. Always put cancel checks outside try blocks.
+- ❌ Letting one bad job crash the entire pipeline run — wrap per-item LLM/enrichment work in try/except so the run continues.

@@ -642,37 +642,40 @@ def run_pipeline_pg(
             _emit(on_progress, f"Researching {company}…",
                   phase="enriching",
                   detail=f"Researching {company} ({i}/{len(unenriched)})…")
-            intel = pgdb.get_cached_enrichment(conn, user_id, company)
-            if not intel:
-                intel = enrich_company(company, row["description"] or "")
+            try:
+                intel = pgdb.get_cached_enrichment(conn, user_id, company)
+                if not intel:
+                    intel = enrich_company(company, row["description"] or "")
+                    if intel:
+                        pgdb.cache_enrichment(conn, user_id, company, intel)
+                        llm_calls += 1
+
                 if intel:
-                    pgdb.cache_enrichment(conn, user_id, company, intel)
-                    llm_calls += 1
+                    updates = {
+                        "enrichment": intel.to_json(),
+                        "enriched_at": datetime.now().isoformat(),
+                    }
+                    # Look up direct ATS careers page from NextPlay cache
+                    if intel.website_domain and not row.get("career_page_url"):
+                        ats_url = pgdb.get_career_url_for_domain(conn, intel.website_domain)
+                        if ats_url:
+                            updates["career_page_url"] = ats_url
+                    pgdb.update_job(conn, row["id"], **updates)
 
-            if intel:
-                updates = {
-                    "enrichment": intel.to_json(),
-                    "enriched_at": datetime.now().isoformat(),
-                }
-                # Look up direct ATS careers page from NextPlay cache
-                if intel.website_domain and not row.get("career_page_url"):
-                    ats_url = pgdb.get_career_url_for_domain(conn, intel.website_domain)
-                    if ats_url:
-                        updates["career_page_url"] = ats_url
-                pgdb.update_job(conn, row["id"], **updates)
-
-                rescore = rescore_with_enrichment(
-                    row["fit_score"], row["score_reasoning"] or "",
-                    row["yellow_flags"] or "[]", intel, config,
-                )
-                if rescore:
-                    new_score, delta, reason = rescore
-                    llm_calls += 1
-                    new_status = "scored" if new_score >= SCORE_SAVED else "low_score"
-                    pgdb.update_job(conn, row["id"],
-                                    fit_score=new_score, status=new_status,
-                                    score_reasoning=f"{row['score_reasoning']} [Re-scored: {reason}]")
-                    logger.info(f"Re-scored {company}/{row['title']}: {row['fit_score']} → {new_score} ({delta:+d})")
+                    rescore = rescore_with_enrichment(
+                        row["fit_score"], row["score_reasoning"] or "",
+                        row["yellow_flags"] or "[]", intel, config,
+                    )
+                    if rescore:
+                        new_score, delta, reason = rescore
+                        llm_calls += 1
+                        new_status = "scored" if new_score >= SCORE_SAVED else "low_score"
+                        pgdb.update_job(conn, row["id"],
+                                        fit_score=new_score, status=new_status,
+                                        score_reasoning=f"{row['score_reasoning']} [Re-scored: {reason}]")
+                        logger.info(f"Re-scored {company}/{row['title']}: {row['fit_score']} → {new_score} ({delta:+d})")
+            except Exception as e:
+                logger.error("Enrichment failed for job %s (%s): %s", row["id"], company, e)
         conn.commit()
 
         # Generate interest notes for scored jobs that don't have one yet
@@ -687,15 +690,18 @@ def run_pipeline_pg(
             _emit(on_progress, f"Writing pitch for {row['company']}…",
                   phase="enriching",
                   detail=f"Writing pitch ({i}/{len(needs_notes)})…")
-            intel_json = row.get("enrichment")
-            intel = CompanyIntel.from_json(row["company"], intel_json) if intel_json else None
-            note = generate_interest_note(
-                row["company"], row["title"], row["description"] or "",
-                config.fit_context, intel,
-            )
-            if note:
-                pgdb.update_job(conn, row["id"], interest_note=note)
-                llm_calls += 1
+            try:
+                intel_json = row.get("enrichment")
+                intel = CompanyIntel.from_json(row["company"], intel_json) if intel_json else None
+                note = generate_interest_note(
+                    row["company"], row["title"], row["description"] or "",
+                    config.fit_context, intel,
+                )
+                if note:
+                    pgdb.update_job(conn, row["id"], interest_note=note)
+                    llm_calls += 1
+            except Exception as e:
+                logger.error("Interest note failed for job %s (%s): %s", row["id"], row["company"], e)
         conn.commit()
 
     # === Collect from all sources in parallel ===
