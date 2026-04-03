@@ -6,7 +6,7 @@ import type { Resume } from "@/lib/types";
 import TagInput from "./TagInput";
 
 const inputClass =
-  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 
 interface TrackEditorProps {
   tracks: TrackForm[];
@@ -183,7 +183,7 @@ export default function TrackEditor({
           <button
             type="button"
             onClick={add}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
           >
             + Add your first role
           </button>

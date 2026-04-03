@@ -104,6 +104,19 @@ class TestLinkedInCollector:
             assert j.description_hash
             assert len(j.description_hash) == 64
 
+    def test_parse_search_extracts_posted_at(self, collector):
+        with patch.object(collector, "_fetch_description", return_value="desc"):
+            jobs = collector._parse_search_results(MOCK_SEARCH_HTML)
+        assert jobs[0].posted_at == "2026-03-09"
+        assert jobs[1].posted_at == "2026-03-10"
+
+    def test_parse_search_posted_at_none_when_missing(self, collector):
+        html_no_time = '<li><div data-entity-urn="urn:li:jobPosting:555"><a class="base-card__full-link" href="https://linkedin.com/jobs/view/x-555">Title</a><h4 class="base-search-card__subtitle">Co</h4><span class="job-search-card__location">US</span></div></li>'
+        with patch.object(collector, "_fetch_description", return_value="desc"):
+            jobs = collector._parse_search_results(html_no_time)
+        assert len(jobs) == 1
+        assert jobs[0].posted_at is None
+
     def test_deduplicates_within_run(self, collector):
         """Same job ID appearing twice should only be returned once."""
         double_html = MOCK_SEARCH_HTML + MOCK_SEARCH_HTML

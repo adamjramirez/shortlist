@@ -4,7 +4,7 @@ import { FiltersForm } from "@/lib/profile-types";
 import TagInput from "./TagInput";
 
 const inputClass =
-  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 
 interface FiltersEditorProps {
   filters: FiltersForm;
@@ -38,7 +38,7 @@ export default function FiltersEditor({
               type="checkbox"
               checked={filters.location.remote}
               onChange={(e) => updateLocation({ remote: e.target.checked })}
-              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
             />
             Include remote jobs
           </label>
@@ -124,7 +124,7 @@ export default function FiltersEditor({
             <select
               value={filters.salary.currency}
               onChange={(e) => updateSalary({ currency: e.target.value })}
-              className="w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
               <option value="USD">USD</option>
               <option value="EUR">EUR</option>
@@ -151,7 +151,7 @@ export default function FiltersEditor({
             onChange={(e) =>
               updateRoleType({ reject_explicit_ic: e.target.checked })
             }
-            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
           />
           <div>
             <span>Skip roles explicitly labeled as IC-only</span>

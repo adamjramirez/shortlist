@@ -1,6 +1,7 @@
 """Career page parsers for Greenhouse, Lever, and Ashby ATS platforms."""
 import logging
 import re
+from datetime import datetime, timezone
 from html import unescape
 from urllib.parse import urlparse
 
@@ -212,6 +213,7 @@ def fetch_greenhouse_jobs(org_slug: str, company_name: str | None = None) -> lis
             description=_clean_html(item.get("content", "")),
             source="greenhouse",
             location=item.get("location", {}).get("name", ""),
+            posted_at=item.get("updated_at"),
         ))
 
     logger.info(f"Greenhouse/{org_slug}: {len(jobs)} jobs")
@@ -242,6 +244,15 @@ def fetch_lever_jobs(org_slug: str, company_name: str | None = None) -> list[Raw
             description += f"\n{lst.get('text', '')}:\n"
             description += "\n".join(f"- {c}" for c in lst.get("content", ""))
 
+        # Lever returns createdAt as unix milliseconds
+        posted_at = None
+        created_ms = item.get("createdAt")
+        if created_ms:
+            try:
+                posted_at = datetime.fromtimestamp(created_ms / 1000, tz=timezone.utc).isoformat()
+            except (TypeError, ValueError, OSError):
+                pass
+
         jobs.append(RawJob(
             title=item.get("text", ""),
             company=name,
@@ -249,6 +260,7 @@ def fetch_lever_jobs(org_slug: str, company_name: str | None = None) -> list[Raw
             description=description,
             source="lever",
             location=item.get("categories", {}).get("location", ""),
+            posted_at=posted_at,
         ))
 
     logger.info(f"Lever/{org_slug}: {len(jobs)} jobs")

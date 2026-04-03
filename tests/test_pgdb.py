@@ -18,6 +18,7 @@ class FakeJob:
     description_hash: str = "abc123"
     salary_text: str = "$200k"
     source: str = "hn"
+    posted_at: str | None = None
 
 
 class FakeCursor:
@@ -87,6 +88,7 @@ def pg_conn():
             sources_seen TEXT DEFAULT '[]',
             first_seen TIMESTAMP,
             last_seen TIMESTAMP,
+            posted_at TIMESTAMP,
             status TEXT DEFAULT 'new',
             UNIQUE(user_id, description_hash)
         )
@@ -157,3 +159,41 @@ def test_log_source_run_failure(pg_conn, caplog):
                        jobs_found=0, error="rate limited")
     assert "linkedin" in caplog.text
     assert "rate limited" in caplog.text
+
+
+def test_upsert_job_stores_posted_at(pg_conn):
+    job = FakeJob(posted_at="2026-03-15T10:30:00+00:00")
+    upsert_job(pg_conn, user_id=1, job=job)
+
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT posted_at FROM jobs WHERE user_id = 1")
+        row = cur.fetchone()
+
+    assert row["posted_at"] is not None
+
+
+def test_upsert_job_posted_at_none_when_missing(pg_conn):
+    job = FakeJob()  # posted_at=None
+    upsert_job(pg_conn, user_id=1, job=job)
+
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT posted_at FROM jobs WHERE user_id = 1")
+        row = cur.fetchone()
+
+    assert row["posted_at"] is None
+
+
+def test_upsert_job_preserves_existing_posted_at(pg_conn):
+    """Re-seen job should NOT overwrite existing posted_at."""
+    job1 = FakeJob(source="hn", posted_at="2026-03-15T10:30:00+00:00")
+    upsert_job(pg_conn, user_id=1, job=job1)
+
+    job2 = FakeJob(source="linkedin", posted_at="2026-03-20T08:00:00+00:00")
+    upsert_job(pg_conn, user_id=1, job=job2)
+
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT posted_at FROM jobs WHERE user_id = 1")
+        row = cur.fetchone()
+
+    # Should keep the first posted_at (COALESCE behavior)
+    assert "2026-03-15" in str(row["posted_at"])

@@ -29,6 +29,30 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+
+def _raw_job_from_cache_dict(d: dict) -> RawJob:
+    """Reconstruct a RawJob from a cached dict, handling old/new formats."""
+    # Old cache format used 'salary', new uses 'salary_text'
+    if "salary" in d and "salary_text" not in d:
+        d["salary_text"] = d.pop("salary")
+    elif "salary" in d:
+        d.pop("salary")  # both present, prefer salary_text
+
+    # Normalize empty strings to None for optional fields
+    if not d.get("posted_at"):
+        d["posted_at"] = None
+    if not d.get("salary_text"):
+        d["salary_text"] = None
+    if not d.get("location"):
+        d["location"] = None
+
+    # Strip any keys RawJob doesn't accept
+    import dataclasses
+    valid_fields = {f.name for f in dataclasses.fields(RawJob)}
+    d = {k: v for k, v in d.items() if k in valid_fields}
+
+    return RawJob(**d)
+
 FEED_URL = "https://nextplayso.substack.com/feed"
 API_URL = "https://nextplayso.substack.com/api/v1/posts"
 
@@ -381,7 +405,7 @@ class NextPlayCollector:
                         ats, slug = cached["ats"], cached["slug"]
                         if ats and slug and cached["jobs"]:
                             jobs_data = cached["jobs"] if isinstance(cached["jobs"], list) else json.loads(cached["jobs"])
-                            jobs = [RawJob(**j) for j in jobs_data]
+                            jobs = [_raw_job_from_cache_dict(dict(j)) for j in jobs_data]
                             logger.debug(f"NextPlay cache hit: {domain} → {ats}/{slug} ({len(jobs)} jobs)")
                             return domain, jobs
                         return domain, []  # Cached as "no ATS"
@@ -416,7 +440,7 @@ class NextPlayCollector:
                     jobs_json = [{"title": j.title, "company": j.company, "url": j.url,
                                   "source": j.source, "location": j.location or "",
                                   "description": j.description or "",
-                                  "salary": j.salary or "", "posted_at": j.posted_at or ""}
+                                  "salary_text": j.salary_text or "", "posted_at": j.posted_at or ""}
                                  for j in jobs]
                     pgdb.cache_ats_discovery(pg, domain, ats, slug, jobs_json)
 

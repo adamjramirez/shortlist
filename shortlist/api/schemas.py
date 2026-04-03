@@ -90,6 +90,7 @@ class JobSummary(BaseModel):
     user_status: str | None
     sources_seen: list[str]
     first_seen: str | None
+    posted_at: str | None = None
     has_tailored_resume: bool
     has_tailored_pdf: bool = False
     is_new: bool = False
@@ -107,11 +108,19 @@ class JobDetail(JobSummary):
     notes: str | None
 
 
+class JobStatusCounts(BaseModel):
+    new: int = 0
+    saved: int = 0
+    applied: int = 0
+    skipped: int = 0
+
+
 class JobListResponse(BaseModel):
     jobs: list[JobSummary]
     total: int
     page: int
     per_page: int
+    counts: JobStatusCounts | None = None
 
 
 class JobStatusUpdate(BaseModel):

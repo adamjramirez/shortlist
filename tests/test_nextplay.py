@@ -361,3 +361,45 @@ class TestProbeHomepages:
         c._seen_slugs.add("greenhouse:coolstartup")
         c._probe_homepages(["coolstartup.io"])
         mock_gh.assert_not_called()
+
+
+class TestCacheDeserialization:
+    """NextPlay cache stores RawJob dicts — test that old and new formats both work."""
+
+    def test_new_format_with_posted_at(self):
+        """New cache format uses salary_text and posted_at."""
+        from shortlist.collectors.nextplay import _raw_job_from_cache_dict
+        d = {
+            "title": "EM", "company": "Acme", "url": "https://acme.com",
+            "description": "desc", "source": "greenhouse",
+            "location": "Remote", "salary_text": "$200k",
+            "posted_at": "2026-03-15T10:00:00+00:00",
+        }
+        job = _raw_job_from_cache_dict(d)
+        assert job.salary_text == "$200k"
+        assert job.posted_at == "2026-03-15T10:00:00+00:00"
+
+    def test_old_format_with_salary_key(self):
+        """Old cache format used 'salary' instead of 'salary_text'."""
+        from shortlist.collectors.nextplay import _raw_job_from_cache_dict
+        d = {
+            "title": "EM", "company": "Acme", "url": "https://acme.com",
+            "description": "desc", "source": "greenhouse",
+            "location": "Remote", "salary": "$200k",
+            "posted_at": "",
+        }
+        job = _raw_job_from_cache_dict(d)
+        assert job.salary_text == "$200k"
+        assert job.posted_at is None  # empty string → None
+
+    def test_old_format_missing_posted_at(self):
+        """Oldest cache format might not have posted_at at all."""
+        from shortlist.collectors.nextplay import _raw_job_from_cache_dict
+        d = {
+            "title": "EM", "company": "Acme", "url": "https://acme.com",
+            "description": "desc", "source": "greenhouse",
+            "location": "Remote", "salary": "$200k",
+        }
+        job = _raw_job_from_cache_dict(d)
+        assert job.posted_at is None
+        assert job.salary_text == "$200k"

@@ -84,7 +84,7 @@ User clicks "Run now"
 
 | Area | Files |
 |------|-------|
-| Pages | `app/{page,login,signup,profile,history}/page.tsx` |
+| Pages | `app/{page,login,signup,profile,history,getting-started}/page.tsx` |
 | Components | `components/{JobCard,RunButton,OnboardingChecklist,Nav,...}.tsx` |
 | API client | `lib/api.ts` (fetch wrapper with JWT) |
 | Types | `lib/types.ts`, `lib/profile-types.ts`, `lib/constants.ts` |
@@ -99,7 +99,7 @@ User clicks "Run now"
 | `profiles` | JSON config (fit_context, tracks, filters, llm keys) |
 | `resumes` | Metadata + S3 key to Tigris (`resume_type`: tex/pdf, `extracted_text_key` for PDFs) |
 | `runs` | Pipeline runs (status, progress JSON, timestamps) |
-| `jobs` | Scored jobs (fit_score, enrichment, interest_note, cover_letter, career_page_url, tailored_resume_key, tailored_resume_pdf_key) |
+| `jobs` | Scored jobs (fit_score, enrichment, interest_note, cover_letter, career_page_url, tailored_resume_key, tailored_resume_pdf_key, posted_at) |
 | `companies` | Enrichment cache (30-day TTL) |
 | `nextplay_cache` | System-level ATS discovery cache (24h TTL, shared across users) |
 
@@ -138,7 +138,11 @@ LaTeX user uploads .tex
 - **Rate limiter slot reservation** — lock held microseconds, not during sleep
 - **Per-source scoring budget** — `remaining // sources_left`, minimum 20 per source
 - **Score threshold 75 for visibility** — SCORE_SAVED=60 (DB), SCORE_VISIBLE=75 (API), SCORE_STRONG=85
-- **`score_reasoning` in JobSummary** — visible on collapsed cards (line-clamp-1), no expand needed
+- **`score_reasoning` in JobSummary** — visible in expanded view (moved from collapsed to reduce density)
+- **`posted_at` on RawJob/DB/API** — actual posting date from source (HN, LinkedIn, Greenhouse, Lever). Normalized to ISO 8601 at collector level.
+- **Design system** — `web/DESIGN.md` is canonical. Zinc neutrals, emerald-600 accent, Outfit + JetBrains Mono. No blue, no stone, no emoji, no framer-motion.
+- **JobListResponse.counts** — `{new, saved, applied, skipped}` computed server-side for status filter pills
+- **Quick actions on hover** — save/skip icons fade in via `group-hover:opacity-100`, always rendered (opacity toggle, not conditional) to prevent grid layout shift
 - **PostHog person properties for activation** — `setPersonProperties()` on 5 milestones (has_resume, has_api_key, profile_complete, has_run, has_completed_run) for cohort analysis
 - **LLM retry with `_retry_on_transient()`** — coro_factory pattern, 2 retries + exponential backoff, only 429/5xx
 - **Per-item try/except in pipeline loops** — enrichment + interest note loops catch per-job errors so one failure doesn't kill the run
@@ -170,7 +174,7 @@ Profile config stores:
 
 ## Testing
 
-- **527 tests**, ~22s, all unit tests
+- **542 tests**, ~23s, all unit tests
 - All tests mock `shortlist.http._wait` to disable rate limiting
 - Pipeline tests mock scoring/enrichment (not individual functions)
 - API tests use async SQLAlchemy with in-memory SQLite
@@ -218,3 +222,7 @@ fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB ac
 - ❌ Assuming `json.loads()` on PG JSON columns — psycopg2 auto-deserializes JSON columns to dicts. Use `isinstance(data, dict)` guard in any `from_json()` method.
 - ❌ Bare `except Exception` around loops with cancel checks — if `_check_cancel()` is inside the try, `CancelledError(Exception)` gets swallowed. Always put cancel checks outside try blocks.
 - ❌ Letting one bad job crash the entire pipeline run — wrap per-item LLM/enrichment work in try/except so the run continues.
+- ❌ Nesting `<button>` inside `<button>` — invalid HTML, breaks a11y. Use `<div role="button" tabIndex={0}>` for outer, real `<button>` for inner with `stopPropagation`.
+- ❌ Using conditional render for hover elements in CSS grid — column collapses when content is removed, causing layout shift. Use `opacity-0 pointer-events-none` instead.
+- ❌ NextPlay cache serialization using `j.salary` — RawJob has `salary_text`, not `salary`. Cache dict also needs `_raw_job_from_cache_dict()` for old/new format compat.
+- ❌ Showing `first_seen` (crawl time) as "posting date" — misleading. Use `posted_at` from source APIs (HN `created_at`, LinkedIn `<time>`, Greenhouse `updated_at`, Lever `createdAt`).

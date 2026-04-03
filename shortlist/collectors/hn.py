@@ -1,5 +1,6 @@
 """HN Who's Hiring collector."""
 import re
+from datetime import datetime, timezone
 from html import unescape
 
 from shortlist.collectors.base import BaseCollector, RawJob
@@ -116,6 +117,13 @@ class HNCollector:
         object_id = comment.get("objectID", "")
         url = f"https://news.ycombinator.com/item?id={object_id}"
 
+        # Extract posting date from HN API
+        posted_at = comment.get("created_at")  # ISO 8601 string from Algolia
+        if not posted_at:
+            ts = comment.get("created_at_i")
+            if ts:
+                posted_at = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
         return RawJob(
             title=title,
             company=company,
@@ -124,6 +132,7 @@ class HNCollector:
             source="hn",
             location=location if location else None,
             salary_text=salary_text,
+            posted_at=posted_at,
         )
 
 

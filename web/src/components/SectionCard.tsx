@@ -22,14 +22,14 @@ export default function SectionCard({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
+    <section className="border-t border-gray-200/60 pt-6">
       <div
-        className={`flex items-start gap-3 px-5 pt-5 ${collapsible ? "cursor-pointer select-none" : ""} ${open ? "pb-1" : "pb-5"}`}
+        className={`flex items-start gap-3 ${collapsible ? "cursor-pointer select-none" : ""} ${open ? "mb-4" : ""}`}
         onClick={collapsible ? () => setOpen(!open) : undefined}
       >
         {step !== undefined && (
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
-            {step}
+          <span className="font-mono text-xs text-gray-300 w-5 text-right shrink-0 pt-1">
+            {String(step).padStart(2, "0")}
           </span>
         )}
         <div className="flex-1">
@@ -39,10 +39,15 @@ export default function SectionCard({
           )}
         </div>
         {collapsible && (
-          <span className="mt-0.5 text-gray-400">{open ? "▾" : "▸"}</span>
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 mt-1 ${open ? "rotate-180" : ""}`}
+            fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
         )}
       </div>
-      {open && <div className="px-5 pb-5 pt-3">{children}</div>}
+      {open && <div className={step !== undefined ? "pl-8" : ""}>{children}</div>}
     </section>
   );
 }

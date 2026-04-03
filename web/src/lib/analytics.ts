@@ -108,4 +108,14 @@ export const track = {
   // --- Onboarding ---
   onboardingStepViewed: (step: string) =>
     trackEvent("onboarding_step_viewed", { step }),
+
+  // --- Getting Started ---
+  gettingStartedViewed: () =>
+    trackEvent("getting_started_viewed"),
+
+  gettingStartedProviderExpanded: (provider: string) =>
+    trackEvent("getting_started_provider_expanded", { provider }),
+
+  gettingStartedCtaClicked: () =>
+    trackEvent("getting_started_cta_clicked"),
 };

@@ -129,6 +129,9 @@ class LinkedInCollector:
         job_ids = re.findall(
             r'data-entity-urn="urn:li:jobPosting:(\d+)"', html
         )
+        dates = re.findall(
+            r'<time[^>]*datetime="([^"]+)"[^>]*>', html
+        )
 
         count = min(len(titles), len(companies), len(links))
         for i in range(count):
@@ -143,6 +146,7 @@ class LinkedInCollector:
             company = _clean_html(companies[i])
             location = locations[i].strip() if i < len(locations) else None
             url = links[i].split("?")[0]
+            posted_at = dates[i] if i < len(dates) else None
 
             description = ""
             if self.fetch_descriptions and job_id:
@@ -158,6 +162,7 @@ class LinkedInCollector:
                 description=description,
                 source="linkedin",
                 location=location,
+                posted_at=posted_at,
             ))
 
         return jobs

@@ -151,6 +151,38 @@ async def test_list_jobs_by_user_status(client, auth_headers, user_with_jobs):
 
 
 @pytest.mark.asyncio
+async def test_list_jobs_counts(client, auth_headers, user_with_jobs):
+    """Job list response includes status counts."""
+    listing = await client.get("/api/jobs", headers=auth_headers)
+    data = listing.json()
+    assert "counts" in data
+    counts = data["counts"]
+    # All jobs start with no status = "new"
+    assert counts["new"] >= 1
+    assert counts["saved"] == 0
+    assert counts["applied"] == 0
+
+    # Save one job
+    job_id = data["jobs"][0]["id"]
+    await client.put(f"/api/jobs/{job_id}/status", json={"status": "saved"}, headers=auth_headers)
+
+    listing2 = await client.get("/api/jobs", headers=auth_headers)
+    counts2 = listing2.json()["counts"]
+    assert counts2["saved"] == 1
+    assert counts2["new"] == counts["new"] - 1
+
+
+@pytest.mark.asyncio
+async def test_list_jobs_filter_new(client, auth_headers, user_with_jobs):
+    """user_status=new filters to jobs with NULL status."""
+    listing = await client.get("/api/jobs", headers=auth_headers)
+    total_new = listing.json()["counts"]["new"]
+
+    resp = await client.get("/api/jobs?user_status=new", headers=auth_headers)
+    assert len(resp.json()["jobs"]) == total_new
+
+
+@pytest.mark.asyncio
 async def test_job_has_tailored_pdf_field(client, auth_headers, user_with_jobs, session_factory):
     """Jobs response includes has_tailored_pdf, reflecting tailored_resume_pdf_key."""
     listing = await client.get("/api/jobs", headers=auth_headers)

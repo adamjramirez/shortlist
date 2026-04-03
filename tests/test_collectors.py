@@ -35,6 +35,14 @@ class TestRawJob:
         )
         assert job.location is None
         assert job.salary_text is None
+        assert job.posted_at is None
+
+    def test_posted_at_field(self):
+        job = RawJob(
+            title="EM", company="Acme", url="https://acme.com",
+            description="desc", source="hn", posted_at="2026-03-01T12:00:00+00:00",
+        )
+        assert job.posted_at == "2026-03-01T12:00:00+00:00"
 
     def test_description_hash_computed(self):
         job = RawJob(
@@ -190,3 +198,17 @@ class TestHNCollector:
         for job in jobs:
             assert job.description_hash is not None
             assert len(job.description_hash) == 64
+
+    def test_parse_hn_comment_extracts_posted_at(self, collector, mock_hn_response):
+        jobs = collector._parse_comments(mock_hn_response["hits"])
+        acme_job = next(j for j in jobs if j.company == "Acme Corp")
+        assert acme_job.posted_at is not None
+        assert "2026-03-01" in acme_job.posted_at
+
+    def test_parse_hn_comment_posted_at_is_iso(self, collector, mock_hn_response):
+        jobs = collector._parse_comments(mock_hn_response["hits"])
+        for job in jobs:
+            if job.posted_at:
+                # Should be parseable as ISO 8601
+                dt = datetime.fromisoformat(job.posted_at)
+                assert dt.tzinfo is not None  # timezone-aware

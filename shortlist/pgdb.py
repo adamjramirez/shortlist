@@ -34,25 +34,37 @@ def upsert_job(conn, user_id: int, job) -> None:
         )
         existing = cur.fetchone()
 
+        # Parse posted_at string to datetime if present
+        posted_at_dt = None
+        if getattr(job, "posted_at", None):
+            try:
+                posted_at_dt = datetime.fromisoformat(job.posted_at)
+            except (ValueError, TypeError):
+                pass
+
         if existing:
             raw = existing["sources_seen"] or []
             sources = json.loads(raw) if isinstance(raw, str) else list(raw)
             if job.source not in sources:
                 sources.append(job.source)
             cur.execute(
-                "UPDATE jobs SET last_seen = %s, sources_seen = %s WHERE id = %s",
-                (datetime.now(timezone.utc), json.dumps(sources), existing["id"]),
+                "UPDATE jobs SET last_seen = %s, sources_seen = %s, "
+                "posted_at = COALESCE(posted_at, %s) WHERE id = %s",
+                (datetime.now(timezone.utc), json.dumps(sources),
+                 posted_at_dt, existing["id"]),
             )
         else:
             sources = json.dumps([job.source])
             cur.execute(
                 "INSERT INTO jobs (user_id, title, company, location, url, description, "
-                "description_hash, salary_text, sources_seen, first_seen, last_seen, status) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'new')",
+                "description_hash, salary_text, sources_seen, first_seen, last_seen, "
+                "posted_at, status) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'new')",
                 (
                     user_id, job.title, job.company, job.location, job.url,
                     job.description, job.description_hash, job.salary_text,
                     sources, datetime.now(timezone.utc), datetime.now(timezone.utc),
+                    posted_at_dt,
                 ),
             )
     conn.commit()

@@ -24,21 +24,22 @@ def _is_job_board(company: str) -> bool:
 
 
 def _enrichment_summary(enrichment: dict | None) -> str | None:
-    """One-line company intel from enrichment dict."""
+    """One-line company intel from enrichment dict. Every field labeled."""
     if not enrichment:
         return None
     parts = []
-    if enrichment.get("stage") and enrichment["stage"] != "unknown":
-        parts.append(enrichment["stage"])
+    stage = enrichment.get("stage")
+    if stage and stage != "unknown":
+        parts.append(f"Stage: {stage}")
     hc = enrichment.get("headcount_estimate")
     if hc:
         parts.append(f"~{hc} people")
     gr = enrichment.get("glassdoor_rating")
     if gr:
-        parts.append(f"Glassdoor {gr}")
+        parts.append(f"Glassdoor {gr}/5")
     gs = enrichment.get("growth_signal")
     if gs and gs != "unknown":
-        parts.append(gs)
+        parts.append(f"Growth: {gs}")
     oss = enrichment.get("oss_presence")
     if oss and oss not in ("unknown", "weak"):
         parts.append(f"OSS: {oss}")
@@ -59,6 +60,7 @@ def _job_to_summary(job: Job) -> JobSummary:
         user_status=job.user_status,
         sources_seen=job.sources_seen or [],
         first_seen=job.first_seen.isoformat() if job.first_seen else None,
+        posted_at=job.posted_at.isoformat() if job.posted_at else None,
         has_tailored_resume=bool(job.tailored_resume_key),
         has_tailored_pdf=bool(job.tailored_resume_pdf_key),
         is_new=(job.brief_count or 0) == 0,
@@ -108,12 +110,29 @@ async def list_jobs(
     filters.append(Job.fit_score >= effective_min)
     if track:
         filters.append(Job.matched_track == track)
-    if user_status:
+    if user_status == "new":
+        filters.append(Job.user_status.is_(None))
+    elif user_status:
         filters.append(Job.user_status == user_status)
 
     total = (await session.execute(
         select(func.count()).select_from(Job).where(*filters)
     )).scalar() or 0
+
+    # Counts by status (unfiltered by user_status, but respecting score/track)
+    base_filters = [Job.user_id == user.id, Job.fit_score >= effective_min]
+    if track:
+        base_filters.append(Job.matched_track == track)
+    count_result = await session.execute(
+        select(
+            func.count().filter(Job.user_status.is_(None)).label("new"),
+            func.count().filter(Job.user_status == "saved").label("saved"),
+            func.count().filter(Job.user_status == "applied").label("applied"),
+            func.count().filter(Job.user_status == "skipped").label("skipped"),
+        ).select_from(Job).where(*base_filters)
+    )
+    row = count_result.one()
+    counts = {"new": row.new, "saved": row.saved, "applied": row.applied, "skipped": row.skipped}
 
     offset = (page - 1) * per_page
     result = await session.execute(
@@ -125,7 +144,7 @@ async def list_jobs(
     )
     jobs = [_job_to_summary(j) for j in result.scalars().all()]
 
-    return JobListResponse(jobs=jobs, total=total, page=page, per_page=per_page)
+    return JobListResponse(jobs=jobs, total=total, page=page, per_page=per_page, counts=counts)
 
 
 @router.get("/{job_id}", response_model=JobDetail)

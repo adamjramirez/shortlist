@@ -69,12 +69,14 @@ MOCK_GREENHOUSE_RESPONSE = {
             "location": {"name": "Remote"},
             "absolute_url": "https://boards.greenhouse.io/acme/jobs/123",
             "content": "<p>Lead our 50-person engineering team. $300k-$350k.</p>",
+            "updated_at": "2026-03-15T10:30:00-04:00",
         },
         {
             "title": "Software Engineer",
             "location": {"name": "San Francisco"},
             "absolute_url": "https://boards.greenhouse.io/acme/jobs/456",
             "content": "<p>Build great software.</p>",
+            "updated_at": "2026-03-20T08:00:00-04:00",
         },
     ]
 }
@@ -88,6 +90,7 @@ MOCK_LEVER_RESPONSE = [
         "lists": [
             {"text": "Requirements", "content": ["10+ years", "Management experience"]},
         ],
+        "createdAt": 1742428800000,
     },
 ]
 
@@ -155,6 +158,17 @@ class TestFetchGreenhouseJobs:
         mock_get.side_effect = Exception("timeout")
         assert fetch_greenhouse_jobs("acme") == []
 
+    @patch("shortlist.http.get")
+    def test_extracts_posted_at(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = MOCK_GREENHOUSE_RESPONSE
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        jobs = fetch_greenhouse_jobs("acme")
+        assert jobs[0].posted_at == "2026-03-15T10:30:00-04:00"
+        assert jobs[1].posted_at == "2026-03-20T08:00:00-04:00"
+
 
 class TestFetchLeverJobs:
     @patch("shortlist.http.get")
@@ -189,6 +203,17 @@ class TestFetchLeverJobs:
         assert jobs[0].title == "Head of Engineering"
         assert jobs[0].location == "Remote, US"
         assert jobs[0].source == "lever"
+
+    @patch("shortlist.http.get")
+    def test_extracts_posted_at(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = MOCK_LEVER_RESPONSE
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        jobs = fetch_lever_jobs("acme")
+        assert jobs[0].posted_at is not None
+        assert "2025-03-20" in jobs[0].posted_at  # 1742428800000 ms = 2025-03-20T00:00:00Z
 
 
 class TestFetchAshbyJobs:
