@@ -251,7 +251,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                   {(["saved", "applied", "skipped"] as const).map((s) => (
                     <button
                       key={s}
-                      onClick={(e) => { e.stopPropagation(); handleStatus(s); }}
+                      onClick={(e) => { e.stopPropagation(); handleStatus(job.user_status === s ? "clear" : s); }}
                       className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                         job.user_status === s
                           ? "border-emerald-300 bg-emerald-50 text-emerald-700"

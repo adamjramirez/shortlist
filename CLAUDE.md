@@ -175,7 +175,7 @@ Profile config stores:
 
 ## Testing
 
-- **542 tests**, ~23s, all unit tests
+- **547 tests**, ~23s, all unit tests
 - All tests mock `shortlist.http._wait` to disable rate limiting
 - Pipeline tests mock scoring/enrichment (not individual functions)
 - API tests use async SQLAlchemy with in-memory SQLite

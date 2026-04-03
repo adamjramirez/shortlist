@@ -235,8 +235,8 @@ export default function ProfilePage() {
         </p>
       </div>
 
-      {/* ── Phase A: Setup ── */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      {/* ── All sections ── */}
+      <div className="divide-y divide-gray-200/60">
         <SectionCard
           step={1}
           title="Upload your resume"
@@ -248,8 +248,6 @@ export default function ProfilePage() {
             onDelete={handleDeleteResume}
           />
         </SectionCard>
-
-        <div className="border-t border-gray-100 my-2" />
 
         <SectionCard
           step={2}
@@ -271,111 +269,92 @@ export default function ProfilePage() {
           />
         </SectionCard>
 
-        <AnalyzeButton
-          canAnalyze={canAnalyze}
-          analyzing={analyzing}
-          hasResume={resumeList.length > 0}
-          hasApiKey={hasApiKey || !!apiKey}
-          onAnalyze={handleAnalyze}
-        />
-      </div>
+        <div className="py-6">
+          <AnalyzeButton
+            canAnalyze={canAnalyze}
+            analyzing={analyzing}
+            hasResume={resumeList.length > 0}
+            hasApiKey={hasApiKey || !!apiKey}
+            onAnalyze={handleAnalyze}
+          />
+        </div>
 
-      {/* ── Phase B: Search profile ── */}
-      {(hasProfile || generated) && (
-        <>
-          <div className="flex items-center gap-3 mt-12 mb-6">
-            <div className="h-px flex-1 bg-gray-200" />
-            <span className="font-mono text-[10px] uppercase tracking-widest text-gray-400">
-              Search profile
-            </span>
-            <div className="h-px flex-1 bg-gray-200" />
-          </div>
-
+        {(hasProfile || generated) && <>
           {generated && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 mb-6">
-              <p className="text-sm text-emerald-700">
-                ✓ Profile generated from your resume. Review and edit below, then save.
-              </p>
+            <div className="py-4 px-1">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5">
+                <p className="text-sm text-emerald-700">
+                  ✓ Profile generated from your resume. Review and edit below, then save.
+                </p>
+              </div>
             </div>
           )}
 
-          <div className="divide-y divide-gray-200/60">
-            <SectionCard
-              step={3}
-              title="What you're looking for"
-              subtitle="This is the main input to the AI scorer. Edit freely — the more specific, the better your matches."
-            >
-              <textarea
-                value={fitContext}
-                onChange={(e) => {
-                  setFitContext(e.target.value);
-                  setDirty(true);
-                  setGenerated(false);
-                }}
-                rows={8}
-                placeholder={FIT_CONTEXT_PLACEHOLDER}
-                className={`${inputClass} placeholder:text-gray-300`}
+          <SectionCard
+            step={3}
+            title="What you're looking for"
+            subtitle="This is the main input to the AI scorer. Edit freely — the more specific, the better your matches."
+          >
+            <textarea
+              value={fitContext}
+              onChange={(e) => {
+                setFitContext(e.target.value);
+                setDirty(true);
+                setGenerated(false);
+              }}
+              rows={8}
+              placeholder={FIT_CONTEXT_PLACEHOLDER}
+              className={`${inputClass} placeholder:text-gray-300`}
+            />
+          </SectionCard>
+
+          <SectionCard
+            step={4}
+            title="Roles to search for"
+            subtitle="Each role gets its own search queries. Edit titles, add queries, or remove roles that don't fit."
+          >
+            <TrackEditor
+              tracks={tracks}
+              onChange={(t) => { setTracks(t); setDirty(true); setError(""); }}
+              resumes={resumeList}
+            />
+          </SectionCard>
+
+          <SectionCard
+            step={5}
+            title="Hard filters"
+            subtitle="Jobs that fail these are automatically rejected before scoring."
+          >
+            <FiltersEditor filters={filters} onChange={markDirty(setFilters)} />
+          </SectionCard>
+
+          <SectionCard
+            step={6}
+            title="Advanced"
+            subtitle="Optional settings for power users."
+          >
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                NextPlay Substack cookie{" "}
+                {substackSid && (
+                  <span className="font-normal text-green-600">✓ set</span>
+                )}
+              </label>
+              <input
+                type="password"
+                value={substackSid}
+                onChange={(e) => { setSubstackSid(e.target.value); setDirty(true); }}
+                placeholder="Paste your substack.sid cookie to include paid content"
+                className={inputClass}
               />
-            </SectionCard>
-
-            <SectionCard
-              step={4}
-              title="Roles to search for"
-              subtitle="Each role gets its own search queries. Edit titles, add queries, or remove roles that don't fit."
-            >
-              <TrackEditor
-                tracks={tracks}
-                onChange={(t) => { setTracks(t); setDirty(true); setError(""); }}
-                resumes={resumeList}
-              />
-            </SectionCard>
-
-            <SectionCard
-              step={5}
-              title="Hard filters"
-              subtitle="Jobs that fail these are automatically rejected before scoring."
-            >
-              <FiltersEditor filters={filters} onChange={markDirty(setFilters)} />
-            </SectionCard>
-
-            <SectionCard
-              step={6}
-              title="Advanced"
-              subtitle="Optional settings for power users."
-            >
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  NextPlay Substack cookie{" "}
-                  {substackSid && (
-                    <span className="font-normal text-green-600">✓ set</span>
-                  )}
-                </label>
-                <input
-                  type="password"
-                  value={substackSid}
-                  onChange={(e) => { setSubstackSid(e.target.value); setDirty(true); }}
-                  placeholder="Paste your substack.sid cookie to include paid content"
-                  className={inputClass}
-                />
-                <p className="mt-1.5 text-xs text-gray-400">
-                  Optional. Enables access to paid NextPlay newsletter content for
-                  additional job sources. Find it in your browser cookies for substack.com.
-                </p>
-              </div>
-            </SectionCard>
-          </div>
-
-          <div className="text-center mt-6">
-            <button
-              onClick={handleAnalyze}
-              disabled={!canAnalyze || analyzing}
-              className="text-sm text-gray-400 hover:text-emerald-600 disabled:opacity-40 transition-colors"
-            >
-              {analyzing ? "Analyzing..." : "Re-analyze from resume"}
-            </button>
-          </div>
-        </>
-      )}
+              <p className="mt-1.5 text-xs text-gray-400">
+                Optional. Enables access to paid NextPlay newsletter content for
+                additional job sources. Find it in your browser cookies for substack.com.
+              </p>
+            </div>
+          </SectionCard>
+        </>}
+      </div>
 
       {/* Sticky save bar */}
       {(hasProfile || generated) && (

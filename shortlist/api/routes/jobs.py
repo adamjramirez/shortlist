@@ -176,6 +176,6 @@ async def update_job_status(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    job.user_status = req.status
+    job.user_status = None if req.status == "clear" else req.status
     await session.flush()
     return _job_to_detail(job)
