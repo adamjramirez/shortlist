@@ -94,6 +94,7 @@ class JobSummary(BaseModel):
     has_tailored_resume: bool
     has_tailored_pdf: bool = False
     is_new: bool = False
+    is_closed: bool = False
     company_intel: str | None  # One-line summary from enrichment
     score_reasoning: str | None = None  # Short explanation for the score
 
@@ -124,7 +125,7 @@ class JobListResponse(BaseModel):
 
 
 class JobStatusUpdate(BaseModel):
-    status: Literal["applied", "skipped", "saved", "clear"]
+    status: Literal["applied", "skipped", "saved", "clear", "closed"]
 
 
 # --- Runs ---

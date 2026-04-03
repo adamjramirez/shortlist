@@ -55,6 +55,7 @@ export interface JobSummary {
   has_tailored_resume: boolean;
   has_tailored_pdf: boolean;
   is_new: boolean;
+  is_closed: boolean;
   company_intel: string | null;
   score_reasoning: string | null;
 }

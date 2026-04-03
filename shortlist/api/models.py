@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     Float,
@@ -108,6 +109,7 @@ class Job(Base):
     first_briefed = Column(DateTime(timezone=True))
     brief_count = Column(Integer, default=0)
     user_status = Column(String)  # applied, skipped, saved
+    is_closed = Column(Boolean, default=False, server_default="false")
 
     __table_args__ = (
         Index("idx_jobs_web_user_hash", "user_id", "description_hash", unique=True),

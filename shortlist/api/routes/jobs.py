@@ -64,6 +64,7 @@ def _job_to_summary(job: Job) -> JobSummary:
         has_tailored_resume=bool(job.tailored_resume_key),
         has_tailored_pdf=bool(job.tailored_resume_pdf_key),
         is_new=(job.brief_count or 0) == 0,
+        is_closed=bool(job.is_closed),
         company_intel=(f"⚠️ Posted by {job.company} (recruiter/job board). The actual hiring company isn't listed — no company intel available."
                        if _is_job_board(job.company)
                        else _enrichment_summary(job.enrichment)),
@@ -176,6 +177,11 @@ async def update_job_status(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    job.user_status = None if req.status == "clear" else req.status
+    if req.status == "closed":
+        job.is_closed = not job.is_closed  # toggle
+    elif req.status == "clear":
+        job.user_status = None
+    else:
+        job.user_status = req.status
     await session.flush()
     return _job_to_detail(job)

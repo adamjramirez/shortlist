@@ -119,6 +119,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
 
 
   const isSkipped = job.user_status === "skipped";
+  const isClosed = job.is_closed;
 
   const hasIntel = job.company_intel && !job.company_intel.toLowerCase().includes("no enrichment") && !job.company_intel.toLowerCase().includes("no company intel");
 
@@ -135,7 +136,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
   })();
 
   return (
-    <div className={`${isSkipped ? "opacity-40" : ""}`}>
+    <div className={`${isSkipped || isClosed ? "opacity-40" : ""}`}>
       {/* Collapsed row */}
       <div
         role="button"
@@ -178,6 +179,9 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
               )}
               {job.user_status === "skipped" && (
                 <span className="font-mono text-[10px] uppercase tracking-widest text-gray-400">Skipped</span>
+              )}
+              {isClosed && (
+                <span className="font-mono text-[10px] uppercase tracking-widest text-red-500 border border-red-300 bg-red-50 px-1.5 py-0.5 rounded">Closed</span>
               )}
             </div>
           </div>
@@ -261,6 +265,17 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                       {s === "saved" ? "Save" : s === "applied" ? "Applied" : "Skip"}
                     </button>
                   ))}
+                  <span className="w-px h-4 bg-gray-200 mx-1" />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleStatus("closed"); }}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      isClosed
+                        ? "border-red-300 bg-red-50 text-red-600 hover:bg-red-100 cursor-pointer"
+                        : "border-gray-300 text-gray-600 hover:bg-white cursor-pointer"
+                    }`}
+                  >
+                    Closed
+                  </button>
                   {sources && (
                     <span className="ml-auto font-mono text-[11px] text-gray-400">via {sources}</span>
                   )}
