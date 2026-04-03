@@ -22,7 +22,23 @@ Session-by-session progress log. Read this first when resuming work.
 - Email Mihai about the 429 fix + new design
 - PostHog dashboard setup (funnels, error rates)
 - Verify PostHog in production (network tab → /ingest requests)
-- Deploy latest (profile components + UX fixes + review fixes)
+
+## 2026-04-03 (session 3) — UX polish: unsave, history, profile continuity
+
+**What got done:**
+1. Unsave/unreact: added `clear` status to API, clicking active status button toggles it off
+2. Profile page continuity: single `divide-y` for all steps, AnalyzeButton inline, phase divider removed
+3. Save button disabled when profile is clean (dirty state controls enabled/disabled)
+4. History page rewrite: shows stats (collected → scored → matches), duration, per-source expansion, null handling, running state
+5. Design system docs updated with container/grouping rules
+
+**Key decisions:**
+- `clear` status mapped to `user_status = None` in DB (not a new column)
+- SaveBar stays mounted always (hiding causes layout shift from pb-28)
+- History page needs no backend changes — progress dict already has all data
+- Fragment children inside `divide-y` flatten correctly for CSS `* + *` selector
+
+**Test count:** 441 passed (+6 new schema tests), 1 pre-existing failure (test_aww_client)
 
 ---
 

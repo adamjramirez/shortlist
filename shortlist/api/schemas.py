@@ -124,7 +124,7 @@ class JobListResponse(BaseModel):
 
 
 class JobStatusUpdate(BaseModel):
-    status: Literal["applied", "skipped", "saved"]
+    status: Literal["applied", "skipped", "saved", "clear"]
 
 
 # --- Runs ---
