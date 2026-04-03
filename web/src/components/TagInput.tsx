@@ -54,18 +54,18 @@ export default function TagInput({
 
   return (
     <div
-      className={`flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 ${className}`}
+      className={`flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-sm focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 ${className}`}
     >
       {tags.map((tag, i) => (
         <span
           key={i}
-          className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700"
+          className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
         >
           {tag}
           <button
             type="button"
             onClick={() => remove(i)}
-            className="ml-0.5 rounded p-0.5 text-blue-400 hover:bg-blue-100 hover:text-blue-600"
+            className="ml-0.5 rounded p-0.5 text-emerald-400 hover:bg-emerald-100 hover:text-emerald-600"
             aria-label={`Remove ${tag}`}
           >
             ×

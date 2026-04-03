@@ -51,6 +51,7 @@ export interface JobSummary {
   user_status: string | null;
   sources_seen: string[];
   first_seen: string | null;
+  posted_at: string | null;
   has_tailored_resume: boolean;
   has_tailored_pdf: boolean;
   is_new: boolean;
@@ -68,11 +69,19 @@ export interface JobDetail extends JobSummary {
   notes: string | null;
 }
 
+export interface JobStatusCounts {
+  new: number;
+  saved: number;
+  applied: number;
+  skipped: number;
+}
+
 export interface JobListResponse {
   jobs: JobSummary[];
   total: number;
   page: number;
   per_page: number;
+  counts?: JobStatusCounts;
 }
 
 export interface Run {

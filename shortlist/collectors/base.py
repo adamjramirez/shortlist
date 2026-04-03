@@ -28,6 +28,7 @@ class RawJob:
     source: str
     location: str | None = None
     salary_text: str | None = None
+    posted_at: str | None = None
     description_hash: str = ""
 
     def __post_init__(self):

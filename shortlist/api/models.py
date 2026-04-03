@@ -88,6 +88,7 @@ class Job(Base):
     sources_seen = Column(JSON, default=list)
     first_seen = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     last_seen = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    posted_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(String, default="new")
     reject_reason = Column(String)
     fit_score = Column(Integer)

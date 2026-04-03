@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import {
   profile as profileApi,
@@ -24,7 +25,7 @@ import FiltersEditor from "@/components/FiltersEditor";
 import { ProfileSkeleton } from "@/components/Skeleton";
 
 const inputClass =
-  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 
 const FIT_CONTEXT_PLACEHOLDER = `e.g. I'm a senior backend engineer with 8 years of Python experience. Looking for Staff+ roles at Series B–D startups…`;
 
@@ -243,9 +244,10 @@ export default function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 pb-24">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Profile setup</h1>
-        <p className="mt-1 text-sm text-gray-500">
+      <div className="animate-fade-up">
+        <p className="font-mono text-xs tracking-widest uppercase text-emerald-600 mb-2">Profile</p>
+        <h1 className="text-2xl font-bold tracking-tighter text-gray-900">Profile setup</h1>
+        <p className="mt-1 text-sm text-gray-600">
           Upload your resume and we&apos;ll set up your job search
           automatically.
         </p>
@@ -268,12 +270,12 @@ export default function ProfilePage() {
                   className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-2.5"
                 >
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-gray-400">📄</span>
+                    <span className="font-mono text-xs text-gray-400">file</span>
                     <span className="font-medium text-gray-700">
                       {r.filename}
                     </span>
                     {r.track && (
-                      <span className="rounded-md bg-blue-50 px-2 py-0.5 text-xs text-blue-600">
+                      <span className="font-mono text-xs text-gray-400">
                         {r.track}
                       </span>
                     )}
@@ -304,7 +306,7 @@ export default function ProfilePage() {
           </label>
           <details className="text-xs text-gray-400 mt-1">
             <summary className="cursor-pointer hover:text-gray-600">
-              💡 LaTeX (.tex) recommended for best results
+              LaTeX (.tex) recommended for best results
             </summary>
             <p className="mt-1 pl-4 text-gray-500 leading-relaxed">
               With a .tex resume, Shortlist can surgically edit your actual resume — reordering
@@ -323,6 +325,15 @@ export default function ProfilePage() {
         subtitle="We use your API key to analyze your resume and score jobs. You pay the provider directly — typical cost is ~$0.01 per run."
       >
         <div className="space-y-4">
+          {!hasApiKey && (
+            <p className="text-sm text-gray-600">
+              Not sure which to pick?{" "}
+              <Link href="/getting-started" className="text-emerald-600 hover:text-emerald-700">
+                See our setup guide
+              </Link>
+              {" "} -- most users choose Gemini (free).
+            </p>
+          )}
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">
               Model
@@ -370,7 +381,7 @@ export default function ProfilePage() {
                   href={keyLink.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-500 hover:text-blue-600"
+                  className="text-emerald-600 hover:text-emerald-700"
                 >
                   {keyLink.label} →
                 </a>
@@ -429,7 +440,7 @@ export default function ProfilePage() {
                     />
                     <p className="mt-0.5 text-xs text-gray-400">
                       <a href={url} target="_blank" rel="noopener noreferrer"
-                         className="text-blue-500 hover:text-blue-600">
+                         className="text-emerald-600 hover:text-emerald-700">
                         Get a {label} key →
                       </a>
                     </p>
@@ -445,33 +456,15 @@ export default function ProfilePage() {
         <button
           onClick={handleAnalyze}
           disabled={!canAnalyze || analyzing}
-          className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-3.5 text-sm font-semibold text-white shadow-md transition hover:from-blue-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="w-full rounded-full bg-gray-900 px-6 py-3.5 text-sm font-semibold text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {analyzing ? (
             <span className="flex items-center justify-center gap-2">
-              <svg
-                className="h-4 w-4 animate-spin"
-                viewBox="0 0 24 24"
-                fill="none"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                />
-              </svg>
-              Analyzing your resume…
+              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              Analyzing your resume...
             </span>
           ) : (
-            "✨ Analyze my resume"
+            "Analyze my resume"
           )}
         </button>
         {!canAnalyze && (
@@ -489,11 +482,9 @@ export default function ProfilePage() {
       {(hasProfile || generated) && (
         <>
           {generated && (
-            <div className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-2.5">
-              <span className="text-sm">✨</span>
-              <p className="text-sm text-indigo-700">
-                Profile generated from your resume. Review and edit anything
-                below, then save.
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5">
+              <p className="text-sm text-emerald-700">
+                Profile generated from your resume. Review and edit below, then save.
               </p>
             </div>
           )}
@@ -579,9 +570,9 @@ export default function ProfilePage() {
             <button
               onClick={handleAnalyze}
               disabled={!canAnalyze || analyzing}
-              className="text-sm text-gray-400 hover:text-blue-600 disabled:opacity-40"
+              className="text-sm text-gray-400 hover:text-emerald-600 disabled:opacity-40 transition-colors"
             >
-              {analyzing ? "Analyzing…" : "✨ Re-analyze from resume"}
+              {analyzing ? "Analyzing..." : "Re-analyze from resume"}
             </button>
           </div>
         </>
@@ -612,9 +603,9 @@ export default function ProfilePage() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-full bg-gray-900 px-6 py-2 text-sm font-medium text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98] disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save profile"}
+              {saving ? "Saving..." : "Save profile"}
             </button>
           </div>
         </div>
