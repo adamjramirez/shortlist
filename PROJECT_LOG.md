@@ -38,7 +38,11 @@ Session-by-session progress log. Read this first when resuming work.
 - History page needs no backend changes — progress dict already has all data
 - Fragment children inside `divide-y` flatten correctly for CSS `* + *` selector
 
-**Test count:** 441 passed (+6 new schema tests), 1 pre-existing failure (test_aww_client)
+**Test count:** 444 passed (+9 new), 1 pre-existing failure (test_aww_client)
+
+**Additional commits (same session):**
+6. is_closed toggle: separate boolean from user_status, migration 007, toggle button in expanded action bar, red badge on collapsed row, dimmed treatment
+7. Hover feedback on active status buttons (hover:bg-emerald-100 + cursor-pointer)
 
 ---
 

@@ -86,7 +86,7 @@ User clicks "Run now"
 | Area | Files |
 |------|-------|
 | Pages | `app/{page,login,signup,profile,history,getting-started}/page.tsx` |
-| Components | `components/{JobCard,RunButton,OnboardingChecklist,Nav,...}.tsx` |
+| Components | `components/{JobCard,RunButton,OnboardingChecklist,Nav,SectionCard,ResumeUploader,AiProviderForm,AnalyzeButton,SaveBar,Combobox,FiltersEditor,TrackEditor,...}.tsx` |
 | API client | `lib/api.ts` (fetch wrapper with JWT) |
 | Types | `lib/types.ts`, `lib/profile-types.ts`, `lib/constants.ts` |
 | Analytics | `lib/analytics.ts` (26 PostHog events — actions + errors + onboarding) |
@@ -100,7 +100,7 @@ User clicks "Run now"
 | `profiles` | JSON config (fit_context, tracks, filters, llm keys) |
 | `resumes` | Metadata + S3 key to Tigris (`resume_type`: tex/pdf, `extracted_text_key` for PDFs) |
 | `runs` | Pipeline runs (status, progress JSON, timestamps) |
-| `jobs` | Scored jobs (fit_score, enrichment, interest_note, cover_letter, career_page_url, tailored_resume_key, tailored_resume_pdf_key, posted_at) |
+| `jobs` | Scored jobs (fit_score, enrichment, interest_note, cover_letter, career_page_url, tailored_resume_key, tailored_resume_pdf_key, posted_at, is_closed, user_status) |
 | `companies` | Enrichment cache (30-day TTL) |
 | `nextplay_cache` | System-level ATS discovery cache (24h TTL, shared across users) |
 
@@ -142,6 +142,9 @@ LaTeX user uploads .tex
 - **`score_reasoning` in JobSummary** — visible in expanded view (moved from collapsed to reduce density)
 - **`posted_at` on RawJob/DB/API** — actual posting date from source (HN, LinkedIn, Greenhouse, Lever). Normalized to ISO 8601 at collector level.
 - **Design system** — `web/DESIGN.md` is canonical. Zinc neutrals, emerald-600 accent, Outfit + JetBrains Mono. No blue, no stone, no emoji, no framer-motion.
+- **`is_closed` separate from `user_status`** — a job can be saved AND closed. `user_status` = user intent (saved/applied/skipped), `is_closed` = job availability. Toggle via `status="closed"` on the same PUT endpoint.
+- **Status toggle pattern** — PUT `/jobs/{id}/status` with `"clear"` resets `user_status` to null, `"closed"` toggles `is_closed`. Same endpoint, different fields.
+- **Profile page structure** — single `divide-y` for all steps (1-6). Steps 3-6 conditionally rendered inside fragment. AnalyzeButton inline with `py-6` wrapper. SaveBar fixed at bottom, disabled when `!dirty`.
 - **JobListResponse.counts** — `{new, saved, applied, skipped}` computed server-side for status filter pills
 - **Quick actions on hover** — save/skip icons fade in via `group-hover:opacity-100`, always rendered (opacity toggle, not conditional) to prevent grid layout shift
 - **PostHog person properties for activation** — `setPersonProperties()` on 5 milestones (has_resume, has_api_key, profile_complete, has_run, has_completed_run) for cohort analysis
@@ -175,7 +178,7 @@ Profile config stores:
 
 ## Testing
 
-- **547 tests**, ~23s, all unit tests
+- **550 tests**, ~23s, all unit tests
 - All tests mock `shortlist.http._wait` to disable rate limiting
 - Pipeline tests mock scoring/enrichment (not individual functions)
 - API tests use async SQLAlchemy with in-memory SQLite
@@ -233,3 +236,6 @@ fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB ac
 - ❌ Using defensive `getattr` chains in typed Python code — if the function only receives `Config` objects, use direct attribute access. `getattr` hides bugs and is inconsistent with the rest of the codebase.
 - ❌ Redirecting signup to an info page (`/getting-started`) instead of the action page (`/profile`) — users lose context and can't find the next step.
 - ❌ Building `LocalStorage`/`FileStorage` for local dev when `MemoryStorage` already exists — check what fakes are available before adding new classes.
+- ❌ Mixing job state with user intent in one field — `user_status` is user intent (saved/applied/skipped). Job availability (`is_closed`) is a separate boolean. A saved job can become closed.
+- ❌ Forgetting hover feedback on toggle buttons — if a button toggles state (e.g. unsave), the active state needs `hover:bg-*` color change AND `cursor-pointer` to signal clickability.
+- ❌ Breaking `divide-y` flow with elements between two separate containers — use one `divide-y` parent with conditional children inside, not two `divide-y` blocks with a standalone element between them. Tailwind's `* + *` selector handles conditionally rendered fragments.

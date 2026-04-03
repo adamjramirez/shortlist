@@ -158,7 +158,7 @@ These are the rules for when to use cards vs flat layouts. Getting this wrong is
 | Login/Signup (`/login`, `/signup`) | Auth form | Needs restyle |
 | Dashboard (`/` authenticated) | Job list with filters + run button | Needs restyle |
 | Profile (`/profile`) | Setup card (Phase A) + flat divide-y sections (Phase B) | Done |
-| History (`/history`) | Run history list | Needs restyle |
+| History (`/history`) | Run history with stats, duration, per-source expansion | Done |
 | Onboarding Checklist | Step-by-step setup | Needs restyle |
 | JobCard component | Expandable job result | Needs restyle |
 | RunButton component | Pipeline trigger | Needs restyle |
