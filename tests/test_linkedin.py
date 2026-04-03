@@ -4,7 +4,10 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from shortlist.collectors.linkedin import LinkedInCollector, _clean_html
+from shortlist.collectors.linkedin import (
+    LinkedInCollector, _clean_html, searches_from_config, _work_type_filter,
+    REGION_COUNTRIES,
+)
 
 
 MOCK_SEARCH_HTML = """
@@ -147,6 +150,205 @@ class TestLinkedInCollector:
         collector.fetch_new()
         assert mock_get.called
         assert "seeMoreJobPostings" in str(mock_get.call_args_list[0])
+
+
+class TestWorkTypeFilter:
+    """Test f_WT derivation from location preferences."""
+
+    def _make_config(self, remote=True, local_cities=None):
+        from shortlist.config import Config, Filters, LocationFilter
+        return Config(
+            filters=Filters(
+                location=LocationFilter(
+                    remote=remote,
+                    local_cities=local_cities or [],
+                ),
+            ),
+        )
+
+    def test_remote_no_cities(self):
+        assert _work_type_filter(self._make_config(remote=True, local_cities=[])) == "2"
+
+    def test_remote_with_cities(self):
+        assert _work_type_filter(self._make_config(remote=True, local_cities=["London"])) == "2,3"
+
+    def test_onsite_with_cities(self):
+        assert _work_type_filter(self._make_config(remote=False, local_cities=["London"])) == "1,3"
+
+    def test_onsite_no_cities(self):
+        assert _work_type_filter(self._make_config(remote=False, local_cities=[])) is None
+
+
+class TestSearchesFromConfig:
+    """Test search param generation from config."""
+
+    def _make_config(self, queries=None, remote=True, local_cities=None):
+        from shortlist.config import Config, Filters, LocationFilter, Track
+        tracks = {"em": Track(title="EM", search_queries=queries or ["Engineering Manager"])}
+        return Config(
+            tracks=tracks,
+            filters=Filters(
+                location=LocationFilter(
+                    remote=remote,
+                    local_cities=local_cities or [],
+                ),
+            ),
+        )
+
+    def test_remote_only_sets_f_wt_2(self):
+        searches = searches_from_config(self._make_config(remote=True))
+        assert searches[0]["f_WT"] == "2"
+
+    def test_remote_with_cities_sets_f_wt_2_3(self):
+        searches = searches_from_config(self._make_config(remote=True, local_cities=["London"]))
+        assert searches[0]["f_WT"] == "2,3"
+
+    def test_onsite_no_cities_omits_f_wt(self):
+        searches = searches_from_config(self._make_config(remote=False))
+        assert "f_WT" not in searches[0]
+
+    def test_fallback_respects_work_type(self):
+        """Empty tracks → fallback search still uses correct f_WT."""
+        from shortlist.config import Config, Filters, LocationFilter
+        config = Config(
+            tracks={},
+            filters=Filters(location=LocationFilter(remote=False, local_cities=["Berlin"])),
+        )
+        searches = searches_from_config(config)
+        assert searches[0]["f_WT"] == "1,3"
+
+
+class TestLinkedInCollectorLocation:
+    """Test that collector passes location to search API."""
+
+    @patch("shortlist.http.get")
+    def test_uses_custom_location(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = ""
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        collector = LinkedInCollector(
+            searches=[{"keywords": "EM"}],
+            location="United Kingdom",
+        )
+        collector.fetch_new()
+
+        call_params = mock_get.call_args_list[0]
+        assert call_params[1]["params"]["location"] == "United Kingdom"
+
+    @patch("shortlist.http.get")
+    def test_defaults_to_united_states(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = ""
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        collector = LinkedInCollector(searches=[{"keywords": "EM"}])
+        collector.fetch_new()
+
+        call_params = mock_get.call_args_list[0]
+        assert call_params[1]["params"]["location"] == "United States"
+
+
+class TestRegionExpansion:
+    """Test multi-country expansion for region searches."""
+
+    def test_single_country_not_expanded(self):
+        collector = LinkedInCollector(location="Germany")
+        assert collector._resolve_locations() == ["Germany"]
+
+    def test_dach_expands_to_three_countries(self):
+        collector = LinkedInCollector(location="DACH")
+        locations = collector._resolve_locations()
+        assert set(locations) == {"Germany", "Austria", "Switzerland"}
+
+    def test_all_regions_have_entries(self):
+        """Every region key maps to a non-empty country list."""
+        for region, countries in REGION_COUNTRIES.items():
+            assert len(countries) > 0, f"Region {region} has no countries"
+
+    @patch("shortlist.http.get")
+    def test_region_searches_each_country(self, mock_get):
+        """DACH with 1 query = 3 countries x 1 query = 3 search calls (1 page each)."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = ""
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        collector = LinkedInCollector(
+            searches=[{"keywords": "EM"}],
+            location="DACH",
+        )
+        collector.fetch_new()
+
+        # 3 countries x 1 query x 1 page = 3 calls
+        assert mock_get.call_count == 3
+        locations_searched = [
+            call[1]["params"]["location"]
+            for call in mock_get.call_args_list
+        ]
+        assert set(locations_searched) == {"Germany", "Austria", "Switzerland"}
+
+    @patch("shortlist.http.get")
+    def test_region_uses_one_page_per_country(self, mock_get):
+        """Multi-country search uses 1 page per country, not max_pages."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = MOCK_SEARCH_HTML  # returns results so it would try page 2
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        collector = LinkedInCollector(
+            searches=[{"keywords": "EM"}],
+            location="DACH",
+            max_pages=3,  # would be 3 pages for single country
+        )
+        collector.fetch_new()
+
+        # 3 countries x 1 page each = 3 calls (not 3 x 3 = 9)
+        assert mock_get.call_count == 3
+
+    @patch("shortlist.http.get")
+    def test_single_country_uses_max_pages(self, mock_get):
+        """Single country search uses full max_pages."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = MOCK_SEARCH_HTML
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        collector = LinkedInCollector(
+            searches=[{"keywords": "EM"}],
+            location="Germany",
+            max_pages=2,
+        )
+        collector.fetch_new()
+
+        # 1 country x 1 query x 2 pages = 2 calls
+        assert mock_get.call_count == 2
+
+    @patch("shortlist.http.get")
+    def test_region_deduplicates_across_countries(self, mock_get):
+        """Jobs with same ID from different countries are deduplicated."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = MOCK_SEARCH_HTML  # has IDs 1234567890 and 9876543210
+        mock_resp.raise_for_status = MagicMock()
+        mock_get.return_value = mock_resp
+
+        collector = LinkedInCollector(
+            searches=[{"keywords": "EM"}],
+            location="DACH",
+        )
+        jobs = collector.fetch_new()
+
+        # Same HTML for all 3 countries, but dedup by job ID
+        # MOCK_SEARCH_HTML has 2 unique job IDs
+        assert len(jobs) == 2
 
 
 class TestCleanHtml:

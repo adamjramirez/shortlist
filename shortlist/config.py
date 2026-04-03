@@ -92,6 +92,7 @@ class LocationFilter:
     local_zip: str = ""
     max_commute_minutes: int = 30
     local_cities: list[str] = field(default_factory=list)  # cities near you
+    country: str = ""  # LinkedIn location param (e.g. "United Kingdom", "Germany")
 
 
 @dataclass

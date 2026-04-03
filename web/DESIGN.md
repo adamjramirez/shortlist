@@ -86,7 +86,24 @@ Single accent: **Emerald**. The color of "this one's worth your time."
 - Skeleton shimmer matching layout dimensions (existing `Skeleton.tsx`)
 - No circular spinners
 
-## 5. Layout Principles
+## 5. Container & Grouping Rules
+
+These are the rules for when to use cards vs flat layouts. Getting this wrong is the #1 design mistake.
+
+| Situation | Treatment | Example |
+|-----------|-----------|--------|
+| List of items (jobs, runs, steps) | `divide-y divide-gray-200/60` on parent | Dashboard job list, onboarding checklist |
+| Editable sub-group within a form | `rounded-xl border border-gray-200 bg-white p-5 shadow-sm` | FiltersEditor Location/Compensation/Role cards, TrackEditor role cards |
+| A self-contained setup/wizard block | Same card treatment as sub-group | Profile page Phase A setup card |
+| Major page phases or sections | Centered divider label: `font-mono text-[10px] uppercase tracking-widest text-gray-400` between `h-px bg-gray-200` rules | Profile page "Search profile" divider |
+| Items within a card | `border-t border-gray-100` (lighter than page dividers) | Between steps inside the setup card |
+| Sections on a flat page | `pt-8 first:pt-0` with `divide-y divide-gray-200/60` on parent | Profile page Phase B sections |
+
+**Anti-pattern: cards wrapping cards.** If a `SectionCard` contains a `FiltersEditor` that has its own cards, the `SectionCard` must NOT also be a card. Use flat `SectionCard` + card children, or card `SectionCard` + flat children. Never both.
+
+**Step numbers** use `font-mono text-sm font-semibold text-gray-300` — visible but not dominant. Never filled circles, badges, or colored backgrounds on step indicators.
+
+## 6. Layout Principles
 
 - **Max width:** `max-w-[1200px] mx-auto` for full-width sections, `max-w-[900px]` for content
 - **Hero:** Asymmetric `grid md:grid-cols-[3fr_2fr]` — left text, right data/breathing space
@@ -103,7 +120,7 @@ Single accent: **Emerald**. The color of "this one's worth your time."
 - Between items in a list: `divide-y divide-gray-200/60`
 - No cards unless elevation is functionally required
 
-## 6. Motion & Interaction
+## 7. Motion & Interaction
 
 - **Entrance:** `animate-fade-up` — `translateY(12px)` to `0`, `opacity 0` to `1`, `0.5s cubic-bezier(0.16, 1, 0.3, 1)`
 - **Stagger:** `animationDelay` in increments of `0.05s` to `0.1s`
@@ -112,7 +129,7 @@ Single accent: **Emerald**. The color of "this one's worth your time."
 - **No framer-motion** — 512MB VM, CSS is sufficient at MOTION_INTENSITY 6
 - **Hardware only:** Animate `transform` and `opacity` exclusively
 
-## 7. Anti-Patterns (Banned)
+## 8. Anti-Patterns (Banned)
 
 - No emojis in UI — use Phosphor icons or plain text
 - No Inter font
@@ -122,6 +139,8 @@ Single accent: **Emerald**. The color of "this one's worth your time."
 - No 3-column equal card grids
 - No centered hero layouts
 - No cards where `divide-y` or negative space works
+- No cards wrapping cards (double nesting)
+- No filled-circle step indicators or colored step badges
 - No "Elevate", "Seamless", "Unleash", "Next-Gen" copy
 - No generic circular spinners
 - No `h-screen`
@@ -130,7 +149,7 @@ Single accent: **Emerald**. The color of "this one's worth your time."
 - No framer-motion (VM constraint)
 - No warm grays (stone palette) — zinc only
 
-## 8. Page Inventory
+## 9. Page Inventory
 
 | Page | Layout | Status |
 |------|--------|--------|
@@ -138,7 +157,7 @@ Single accent: **Emerald**. The color of "this one's worth your time."
 | Getting Started (`/getting-started`) | Content column, expandable providers | Done |
 | Login/Signup (`/login`, `/signup`) | Auth form | Needs restyle |
 | Dashboard (`/` authenticated) | Job list with filters + run button | Needs restyle |
-| Profile (`/profile`) | Multi-section form | Needs restyle |
+| Profile (`/profile`) | Setup card (Phase A) + flat divide-y sections (Phase B) | Done |
 | History (`/history`) | Run history list | Needs restyle |
 | Onboarding Checklist | Step-by-step setup | Needs restyle |
 | JobCard component | Expandable job result | Needs restyle |

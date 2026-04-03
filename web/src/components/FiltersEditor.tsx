@@ -1,6 +1,8 @@
 "use client";
 
 import { FiltersForm } from "@/lib/profile-types";
+import { COUNTRIES, CURRENCIES } from "@/lib/constants";
+import Combobox from "./Combobox";
 import TagInput from "./TagInput";
 
 const inputClass =
@@ -33,6 +35,29 @@ export default function FiltersEditor({
       <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
         <h3 className="mb-4 text-sm font-semibold text-gray-700">Location</h3>
         <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Country
+            </label>
+            <p className="mb-1.5 text-xs text-gray-400">
+              LinkedIn searches will target jobs in this country
+            </p>
+            <Combobox
+              options={COUNTRIES}
+              value={filters.location.country}
+              onChange={(val) => updateLocation({ country: val })}
+              placeholder="Search countries…"
+            />
+            {(() => {
+              const sel = COUNTRIES.find((c) => c.value === filters.location.country);
+              return sel?.description ? (
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Searches: {sel.description}
+                </p>
+              ) : null;
+            })()}
+          </div>
+
           <label className="flex items-center gap-2.5 text-sm text-gray-700">
             <input
               type="checkbox"
@@ -107,7 +132,7 @@ export default function FiltersEditor({
           <div className="flex gap-2">
             <div className="relative flex-1">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">
-                $
+                {CURRENCIES.find((c) => c.value === filters.salary.currency)?.symbol ?? "$"}
               </span>
               <input
                 type="number"
@@ -126,11 +151,11 @@ export default function FiltersEditor({
               onChange={(e) => updateSalary({ currency: e.target.value })}
               className="w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-              <option value="CAD">CAD</option>
-              <option value="INR">INR</option>
+              {CURRENCIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
             </select>
           </div>
           <p className="text-xs text-gray-400">

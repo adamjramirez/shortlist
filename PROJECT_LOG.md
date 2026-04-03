@@ -6,13 +6,48 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**Design overhaul + UX improvements deployed.** Full visual redesign (zinc/emerald), posting dates from sources, matches page UX (quick actions, status filters, action bar). DNS fixed for shortlist.addslift.com. Getting Started page for onboarding.
+**Profile page UX overhaul + international support review fixes shipped.**
+
+**What got done (2026-04-03, session 2):**
+1. Profile page componentized: ResumeUploader, AiProviderForm, AnalyzeButton, SaveBar extracted (623→392 lines)
+2. Profile page design: Phase A (setup) in white card, Phase B (search profile) flat with divide-y, centered divider label between phases
+3. Signup flow fix: redirects to /profile instead of /getting-started
+4. Getting-started page: auth-aware (logged-in users see "Go to profile" instead of "Sign up")
+5. Local dev: MemoryStorage fallback when TIGRIS_BUCKET not set
+6. Design system updated: container/grouping rules, card nesting anti-patterns, step number spec
+7. CLAUDE.md: design system reference added to top-level read list, 7 new mistake entries
+8. Review fixes: region expansion in scorer, getattr cleanup, sync test, constants extraction, request budget warning
 
 **Not yet done:**
 - Email Mihai about the 429 fix + new design
 - PostHog dashboard setup (funnels, error rates)
 - Verify PostHog in production (network tab → /ingest requests)
-- Test authenticated flow end-to-end with new design
+- Deploy latest (profile components + UX fixes + review fixes)
+
+---
+
+## 2026-04-03 — International support (country, region, currency)
+
+**What got done:**
+1. `country` field on `LocationFilter` — flows from frontend → profile JSON → worker → pipeline → LinkedIn collector + scorer prompt
+2. LinkedIn collector: `location` param configurable (was hardcoded "United States"), `f_WT` derived from user's remote/local_cities prefs (4-way matrix)
+3. Multi-country region expansion: DACH (3), Scandinavia (4), EU (10), Europe (10), APAC (7), LATAM (6) — 1 page per country to cap request count
+4. Currency-aware scorer prompt: salary requirement + estimate format use user's currency, cross-currency conversion instruction
+5. Location requirement respects `remote` flag: "Remote in Germany" vs "In Germany" vs "Near Berlin in Germany" (8 combinations)
+6. Searchable Combobox component: 55 countries + 6 regions, flag emojis, keyboard nav, type-to-filter (searches descriptions too)
+7. Region descriptions visible in dropdown + below combobox when selected ("Searches: Germany, Austria, Switzerland")
+8. 11 currencies with symbols (USD, GBP, EUR, CAD, AUD, INR, SGD, CHF, SEK, JPY, ILS)
+9. Deployed to Fly.io
+
+**Key decisions:**
+- Empty `country` = "United States" (backward compat in pipeline, not in config default)
+- Regions capped at ~10 countries each to keep LinkedIn requests ≤30 per run
+- 1 page per country for multi-country (vs 2 for single) — breadth over depth
+- Dedup by job ID across countries (existing `_seen_ids` mechanism)
+- NextPlay kept for all users (ATS pages are global, not US-only)
+- LinkedIn guest API verified for 9 countries + region strings (DACH, Europe, EU, APAC, LATAM all return results)
+
+**Test count:** 430 passed (+27 new), 1 pre-existing failure (test_aww_client)
 
 ---
 

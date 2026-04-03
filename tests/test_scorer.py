@@ -111,6 +111,114 @@ class TestBuildScoringPrompt:
         assert "75098" in prompt
         assert "Remote or near" in prompt
 
+    def test_scoring_prompt_country_in_location(self, sample_job):
+        """Country appears in location requirement."""
+        uk_config = Config(
+            name="Test",
+            filters=Filters(
+                location=LocationFilter(country="United Kingdom"),
+                salary=SalaryFilter(min_base=80000, currency="GBP"),
+            ),
+        )
+        prompt = build_scoring_prompt(sample_job, uk_config)
+        assert "Remote in United Kingdom" in prompt
+
+    def test_scoring_prompt_country_with_cities(self, sample_job):
+        """Country + cities both appear."""
+        config = Config(
+            name="Test",
+            filters=Filters(
+                location=LocationFilter(
+                    country="Germany",
+                    local_cities=["Berlin", "Munich"],
+                ),
+                salary=SalaryFilter(min_base=90000, currency="EUR"),
+            ),
+        )
+        prompt = build_scoring_prompt(sample_job, config)
+        assert "Berlin" in prompt
+        assert "Germany" in prompt
+
+    def test_scoring_prompt_currency_gbp(self, sample_job):
+        """GBP user sees GBP in salary requirement, not $."""
+        config = Config(
+            name="Test",
+            filters=Filters(
+                salary=SalaryFilter(min_base=80000, currency="GBP"),
+            ),
+        )
+        prompt = build_scoring_prompt(sample_job, config)
+        assert "80,000 GBP" in prompt
+        assert "$" not in prompt.split("Salary (if listed)")[0]  # no $ in requirements section
+
+    def test_scoring_prompt_currency_default_usd(self, sample_job, config):
+        """Default config uses USD."""
+        prompt = build_scoring_prompt(sample_job, config)
+        assert "250,000 USD" in prompt
+
+    def test_scoring_prompt_salary_estimate_format_uses_currency(self, sample_job):
+        """Salary estimate instruction uses user's currency."""
+        config = Config(
+            name="Test",
+            filters=Filters(
+                salary=SalaryFilter(min_base=80000, currency="EUR"),
+            ),
+        )
+        prompt = build_scoring_prompt(sample_job, config)
+        assert "XXXk-XXXk EUR" in prompt
+
+    def test_scoring_prompt_onsite_country_no_remote(self, sample_job):
+        """Non-remote user with country gets 'In Germany', not 'Remote in Germany'."""
+        config = Config(
+            name="Test",
+            filters=Filters(
+                location=LocationFilter(remote=False, country="Germany"),
+            ),
+        )
+        prompt = build_scoring_prompt(sample_job, config)
+        assert "- Location: In Germany" in prompt
+
+    def test_scoring_prompt_onsite_cities_country(self, sample_job):
+        """Non-remote + cities + country = 'Near Berlin in Germany'."""
+        config = Config(
+            name="Test",
+            filters=Filters(
+                location=LocationFilter(
+                    remote=False, country="Germany", local_cities=["Berlin"],
+                ),
+            ),
+        )
+        prompt = build_scoring_prompt(sample_job, config)
+        assert "Near Berlin in Germany" in prompt
+
+    def test_scoring_prompt_region_expanded(self, sample_job):
+        """Region names like 'DACH' are expanded to concrete country names."""
+        config = Config(
+            name="Test",
+            filters=Filters(
+                location=LocationFilter(country="DACH"),
+            ),
+        )
+        prompt = build_scoring_prompt(sample_job, config)
+        assert "Germany" in prompt
+        assert "Austria" in prompt
+        assert "Switzerland" in prompt
+        # The raw region name should NOT appear as-is in the location requirement
+        assert "- Location: Remote in DACH" not in prompt
+
+    def test_scoring_prompt_europe_region_expanded(self, sample_job):
+        """Large region 'Europe' expands to country list."""
+        config = Config(
+            name="Test",
+            filters=Filters(
+                location=LocationFilter(country="Europe"),
+            ),
+        )
+        prompt = build_scoring_prompt(sample_job, config)
+        assert "United Kingdom" in prompt
+        assert "Germany" in prompt
+        assert "France" in prompt
+
 
 class TestParseScoreResponse:
     def test_parses_valid_json(self):

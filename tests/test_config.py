@@ -85,6 +85,19 @@ class TestLoadConfig:
         assert config.filters.location.remote is True
         assert config.filters.location.local_zip == "75098"
         assert config.filters.location.max_commute_minutes == 30
+        assert config.filters.location.country == ""  # default: empty
+
+    def test_filters_location_with_country(self, config_dir):
+        """Country field round-trips through YAML config."""
+        yaml_path = config_dir / "profile.yaml"
+        content = yaml_path.read_text()
+        content = content.replace(
+            "  location:\n    remote: true\n    local_zip: \"75098\"",
+            "  location:\n    remote: true\n    local_zip: \"75098\"\n    country: \"United Kingdom\"",
+        )
+        yaml_path.write_text(content)
+        config = load_config(yaml_path)
+        assert config.filters.location.country == "United Kingdom"
 
     def test_filters_salary(self, config_dir):
         config = load_config(config_dir / "profile.yaml")

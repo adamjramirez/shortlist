@@ -18,6 +18,7 @@ export interface FiltersForm {
     local_zip: string;
     max_commute_minutes: number;
     local_cities: string[];
+    country: string;
   };
   salary: {
     min_base: number;
@@ -48,6 +49,7 @@ export function defaultFilters(): FiltersForm {
       local_zip: "",
       max_commute_minutes: 30,
       local_cities: [],
+      country: "",
     },
     salary: {
       min_base: 0,
@@ -120,6 +122,7 @@ export function jsonToFilters(
       local_cities: Array.isArray(loc.local_cities)
         ? (loc.local_cities as string[])
         : [],
+      country: (loc.country as string) || "",
     },
     salary: {
       min_base: (sal.min_base as number) || 0,
