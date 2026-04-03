@@ -254,8 +254,8 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                       onClick={(e) => { e.stopPropagation(); handleStatus(job.user_status === s ? "clear" : s); }}
                       className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                         job.user_status === s
-                          ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                          : "border-gray-300 text-gray-600 hover:bg-white"
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 cursor-pointer"
+                          : "border-gray-300 text-gray-600 hover:bg-white cursor-pointer"
                       }`}
                     >
                       {s === "saved" ? "Save" : s === "applied" ? "Applied" : "Skip"}
