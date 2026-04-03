@@ -6,8 +6,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from shortlist.config import Config, Filters, LocationFilter, SalaryFilter, RoleTypeFilter, BriefConfig
-from shortlist.pipeline import run_pipeline, run_collect_only, run_brief_only
+from shortlist.config import Config, Filters, LocationFilter, SalaryFilter, RoleTypeFilter, BriefConfig, Track
+from shortlist.pipeline import run_pipeline, run_collect_only, run_brief_only, _get_collectors
 from shortlist.processors.scorer import ScoreResult
 
 
@@ -249,6 +249,32 @@ class TestCollectOnly:
 
             count = run_collect_only(config, project_root)
             assert count == 3
+
+
+class TestGetCollectors:
+    """Test that _get_collectors wires config to LinkedIn collector."""
+
+    def test_linkedin_uses_country_from_config(self):
+        config = Config(
+            tracks={"em": Track(title="EM", search_queries=["Engineering Manager"])},
+            filters=Filters(
+                location=LocationFilter(country="United Kingdom"),
+            ),
+        )
+        collectors = _get_collectors(config=config)
+        assert collectors["linkedin"].location == "United Kingdom"
+
+    def test_linkedin_defaults_to_us_when_no_country(self):
+        config = Config(
+            tracks={"em": Track(title="EM", search_queries=["Engineering Manager"])},
+            filters=Filters(location=LocationFilter(country="")),
+        )
+        collectors = _get_collectors(config=config)
+        assert collectors["linkedin"].location == "United States"
+
+    def test_linkedin_defaults_to_us_when_no_config(self):
+        collectors = _get_collectors(config=None)
+        assert collectors["linkedin"].location == "United States"
 
 
 class TestBriefOnly:

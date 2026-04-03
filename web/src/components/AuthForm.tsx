@@ -31,7 +31,7 @@ export default function AuthForm({ mode }: Props) {
         await signup(email, password);
         track.signedUp();
       }
-      router.push(mode === "signup" ? "/getting-started" : "/");
+      router.push(mode === "signup" ? "/profile" : "/");
     } catch (err) {
       const msg = err instanceof ApiError ? err.detail : "Something went wrong";
       setError(msg);

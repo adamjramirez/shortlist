@@ -99,6 +99,7 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
                     local_zip=loc.get("local_zip", ""),
                     max_commute_minutes=loc.get("max_commute_minutes", 30),
                     local_cities=loc.get("local_cities", []),
+                    country=loc.get("country", ""),
                 ),
                 salary=SalaryFilter(
                     min_base=sal.get("min_base", 0),

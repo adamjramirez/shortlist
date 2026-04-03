@@ -933,13 +933,21 @@ def _get_collectors(config: Config | None = None, db: sqlite3.Connection | None 
         "hn": HNCollector(),
     }
 
-    # LinkedIn: build searches from config track queries
+    # LinkedIn: build searches from config track queries, use user's country
+    linkedin_location = "United States"
+    if config and config.filters.location.country:
+        linkedin_location = config.filters.location.country
+
     if config and config.tracks:
         from shortlist.collectors.linkedin import searches_from_config
         searches = searches_from_config(config)
-        collectors["linkedin"] = LinkedInCollector(searches=searches, time_filter="r604800")
+        collectors["linkedin"] = LinkedInCollector(
+            searches=searches, time_filter="r604800", location=linkedin_location,
+        )
     else:
-        collectors["linkedin"] = LinkedInCollector(time_filter="r604800")
+        collectors["linkedin"] = LinkedInCollector(
+            time_filter="r604800", location=linkedin_location,
+        )
 
     collectors["nextplay"] = NextPlayCollector(db=db, pg_db_url=pg_db_url)
 

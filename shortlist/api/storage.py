@@ -64,8 +64,11 @@ _storage_instance: Storage | None = None
 
 
 def get_storage() -> Storage:
-    """FastAPI dependency. Override in tests with MemoryStorage."""
+    """FastAPI dependency. Tigris in prod, in-memory in dev, override in tests."""
     global _storage_instance
     if _storage_instance is None:
-        _storage_instance = TigrisStorage()
+        if os.environ.get("TIGRIS_BUCKET"):
+            _storage_instance = TigrisStorage()
+        else:
+            _storage_instance = MemoryStorage()
     return _storage_instance

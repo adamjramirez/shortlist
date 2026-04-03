@@ -2,6 +2,7 @@
 
 **Read `PROJECT_LOG.md` first** — current state, session history, what's next.
 **Read `INTENT.md`** — what this project values, scoring philosophy, decided tradeoffs.
+**Read `web/DESIGN.md` before any frontend/design work** — palette, typography, container rules, anti-patterns. This is the design system.
 **Adam's profile:** `~/Code/profile/` — career context, health, identity. CVs live in `shortlist/cv-new/`.
 
 ---
@@ -226,3 +227,9 @@ fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB ac
 - ❌ Using conditional render for hover elements in CSS grid — column collapses when content is removed, causing layout shift. Use `opacity-0 pointer-events-none` instead.
 - ❌ NextPlay cache serialization using `j.salary` — RawJob has `salary_text`, not `salary`. Cache dict also needs `_raw_job_from_cache_dict()` for old/new format compat.
 - ❌ Showing `first_seen` (crawl time) as "posting date" — misleading. Use `posted_at` from source APIs (HN `created_at`, LinkedIn `<time>`, Greenhouse `updated_at`, Lever `createdAt`).
+- ❌ Making frontend design changes without reading `web/DESIGN.md` first — the design system defines container rules, step number styles, card nesting, and anti-patterns. Inventing new visual patterns (filled-circle badges, card-wrapping-card) breaks consistency.
+- ❌ Wrapping `SectionCard` in a card when its children already have cards (FiltersEditor, TrackEditor) — creates double-nested borders. Use flat parent + card children, or card parent + flat children. Never both.
+- ❌ Duplicating data between frontend and backend without a sync test — region/country lists, config constants. Add a test that parses both sources and compares.
+- ❌ Using defensive `getattr` chains in typed Python code — if the function only receives `Config` objects, use direct attribute access. `getattr` hides bugs and is inconsistent with the rest of the codebase.
+- ❌ Redirecting signup to an info page (`/getting-started`) instead of the action page (`/profile`) — users lose context and can't find the next step.
+- ❌ Building `LocalStorage`/`FileStorage` for local dev when `MemoryStorage` already exists — check what fakes are available before adding new classes.

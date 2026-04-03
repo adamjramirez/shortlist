@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useAuth } from "@/lib/auth-context";
 import { track } from "@/lib/analytics";
 
 interface ProviderInfo {
@@ -70,6 +71,7 @@ const PROVIDERS: ProviderInfo[] = [
 ];
 
 export default function GettingStartedPage() {
+  const { user } = useAuth();
   const [expanded, setExpanded] = useState<string | null>("gemini");
 
   useEffect(() => {
@@ -85,15 +87,26 @@ export default function GettingStartedPage() {
             Shortlist
           </Link>
           <div className="flex items-center gap-4">
-            <Link href="/login" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
-              Log in
-            </Link>
-            <Link
-              href="/signup"
-              className="rounded-full bg-gray-900 px-4 py-1.5 text-sm font-medium text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98]"
-            >
-              Sign up
-            </Link>
+            {user ? (
+              <Link
+                href="/profile"
+                className="rounded-full bg-gray-900 px-4 py-1.5 text-sm font-medium text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98]"
+              >
+                Go to profile
+              </Link>
+            ) : (
+              <>
+                <Link href="/login" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
+                  Log in
+                </Link>
+                <Link
+                  href="/signup"
+                  className="rounded-full bg-gray-900 px-4 py-1.5 text-sm font-medium text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98]"
+                >
+                  Sign up
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </nav>
@@ -214,24 +227,41 @@ export default function GettingStartedPage() {
 
         {/* CTA */}
         <div className="mt-20 animate-fade-up" style={{ animationDelay: "0.3s" }}>
-          <p className="text-gray-500 mb-6">
-            Got your key? Create an account, then paste it on your profile page.
-          </p>
-          <div className="flex gap-3">
-            <Link
-              href="/signup"
-              onClick={() => track.gettingStartedCtaClicked()}
-              className="rounded-full bg-gray-900 px-7 py-3 text-sm font-medium text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98]"
-            >
-              Create account
-            </Link>
-            <Link
-              href="/login"
-              className="rounded-full border border-gray-300 px-7 py-3 text-sm font-medium text-gray-600 hover:bg-white transition-colors"
-            >
-              Log in
-            </Link>
-          </div>
+          {user ? (
+            <>
+              <p className="text-gray-500 mb-6">
+                Got your key? Paste it on your profile page to get started.
+              </p>
+              <Link
+                href="/profile"
+                onClick={() => track.gettingStartedCtaClicked()}
+                className="rounded-full bg-gray-900 px-7 py-3 text-sm font-medium text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98]"
+              >
+                Go to profile
+              </Link>
+            </>
+          ) : (
+            <>
+              <p className="text-gray-500 mb-6">
+                Got your key? Create an account, then paste it on your profile page.
+              </p>
+              <div className="flex gap-3">
+                <Link
+                  href="/signup"
+                  onClick={() => track.gettingStartedCtaClicked()}
+                  className="rounded-full bg-gray-900 px-7 py-3 text-sm font-medium text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98]"
+                >
+                  Create account
+                </Link>
+                <Link
+                  href="/login"
+                  className="rounded-full border border-gray-300 px-7 py-3 text-sm font-medium text-gray-600 hover:bg-white transition-colors"
+                >
+                  Log in
+                </Link>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

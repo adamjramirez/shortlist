@@ -22,14 +22,14 @@ export default function SectionCard({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <section className="border-t border-gray-200/60 pt-6">
+    <section className="pt-8 first:pt-0">
       <div
         className={`flex items-start gap-3 ${collapsible ? "cursor-pointer select-none" : ""} ${open ? "mb-4" : ""}`}
         onClick={collapsible ? () => setOpen(!open) : undefined}
       >
         {step !== undefined && (
-          <span className="font-mono text-xs text-gray-300 w-5 text-right shrink-0 pt-1">
-            {String(step).padStart(2, "0")}
+          <span className="font-mono text-sm font-semibold text-gray-300 w-5 text-right shrink-0 pt-0.5">
+            {step}
           </span>
         )}
         <div className="flex-1">

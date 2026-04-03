@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import Link from "next/link";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import {
   profile as profileApi,
@@ -20,33 +19,18 @@ import {
 } from "@/lib/profile-types";
 import { track } from "@/lib/analytics";
 import SectionCard from "@/components/SectionCard";
+import ResumeUploader from "@/components/ResumeUploader";
+import AiProviderForm from "@/components/AiProviderForm";
+import AnalyzeButton from "@/components/AnalyzeButton";
 import TrackEditor from "@/components/TrackEditor";
 import FiltersEditor from "@/components/FiltersEditor";
+import SaveBar from "@/components/SaveBar";
 import { ProfileSkeleton } from "@/components/Skeleton";
 
 const inputClass =
   "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 
 const FIT_CONTEXT_PLACEHOLDER = `e.g. I'm a senior backend engineer with 8 years of Python experience. Looking for Staff+ roles at Series B–D startups…`;
-
-const API_KEY_LINKS: Record<string, { label: string; url: string }> = {
-  "gemini-2.0-flash": {
-    label: "Get a Gemini key",
-    url: "https://aistudio.google.com/apikey",
-  },
-  "gemini-2.5-flash": {
-    label: "Get a Gemini key",
-    url: "https://aistudio.google.com/apikey",
-  },
-  "gpt-4o-mini": {
-    label: "Get an OpenAI key",
-    url: "https://platform.openai.com/api-keys",
-  },
-  "claude-3-5-haiku-latest": {
-    label: "Get an Anthropic key",
-    url: "https://console.anthropic.com/settings/keys",
-  },
-};
 
 export default function ProfilePage() {
   const { user, loading: authLoading } = useRequireAuth();
@@ -68,12 +52,13 @@ export default function ProfilePage() {
   const [apiKey, setApiKey] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [substackSid, setSubstackSid] = useState("");
-  // Per-provider extra keys (for cover letters with different models)
   const [extraKeys, setExtraKeys] = useState<Record<string, string>>({});
   const [providersWithKeys, setProvidersWithKeys] = useState<string[]>([]);
 
   const hasProfile =
     !!fitContext || tracks.length > 0 || Object.keys(profile?.tracks || {}).length > 0;
+
+  // ── Data loading ──
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -89,6 +74,8 @@ export default function ProfilePage() {
       setSubstackSid(p.substack_sid || "");
     });
   }, [user, authLoading]);
+
+  // ── Helpers ──
 
   const markDirty = useCallback(
     <T,>(setter: React.Dispatch<React.SetStateAction<T>>) =>
@@ -106,12 +93,12 @@ export default function ProfilePage() {
     toastTimer.current = setTimeout(() => setToast(""), 3000);
   };
 
-  // Save API key immediately so it's available for generation
+  // ── Handlers ──
+
   const saveApiKey = async () => {
     if (!apiKey && !llmModel && Object.keys(extraKeys).length === 0) return;
     const llm: Record<string, unknown> = { model: llmModel };
     if (apiKey) llm.api_key = apiKey;
-    // Include any extra provider keys
     const nonEmpty = Object.fromEntries(
       Object.entries(extraKeys).filter(([, v]) => v.trim())
     );
@@ -124,7 +111,6 @@ export default function ProfilePage() {
       setApiKey("");
       setExtraKeys({});
       showToast("API key saved ✓");
-      // Track which providers got keys
       const mainProvider = llmModel.startsWith("gemini") ? "gemini"
         : llmModel.startsWith("gpt-") || llmModel.startsWith("o1-") ? "openai"
         : llmModel.startsWith("claude-") ? "anthropic" : "unknown";
@@ -139,10 +125,7 @@ export default function ProfilePage() {
     if (resumeList.length === 0) return;
     setAnalyzing(true);
     setError("");
-
-    // Save API key first if provided
     if (apiKey) await saveApiKey();
-
     try {
       const result = await profileApi.generate(resumeList[0].id);
       setFitContext(result.fit_context);
@@ -235,338 +218,154 @@ export default function ProfilePage() {
     setResumes((prev) => prev.filter((r) => r.id !== id));
   };
 
-  if (!profile) {
-    return <ProfileSkeleton />;
-  }
+  // ── Render ──
 
-  const keyLink = API_KEY_LINKS[llmModel];
+  if (!profile) return <ProfileSkeleton />;
+
   const canAnalyze = resumeList.length > 0 && (hasApiKey || !!apiKey);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 pb-24">
-      <div className="animate-fade-up">
+    <div className="mx-auto max-w-2xl pb-28">
+      {/* Page header */}
+      <div className="mb-8 animate-fade-up">
         <p className="font-mono text-xs tracking-widest uppercase text-emerald-600 mb-2">Profile</p>
         <h1 className="text-2xl font-bold tracking-tighter text-gray-900">Profile setup</h1>
-        <p className="mt-1 text-sm text-gray-600">
-          Upload your resume and we&apos;ll set up your job search
-          automatically.
+        <p className="mt-1 text-sm text-gray-500">
+          Upload your resume and we&apos;ll set up your job search automatically.
         </p>
       </div>
 
-      {/* ── Phase A: The two manual inputs ── */}
-
-      {/* 1. Resume */}
-      <SectionCard
-        step={1}
-        title="Upload your resume"
-        subtitle="We'll analyze this to understand your background and generate your search profile."
-      >
-        <div className="space-y-3">
-          {resumeList.length > 0 && (
-            <div className="space-y-2">
-              {resumeList.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-2.5"
-                >
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="font-mono text-xs text-gray-400">file</span>
-                    <span className="font-medium text-gray-700">
-                      {r.filename}
-                    </span>
-                    {r.track && (
-                      <span className="font-mono text-xs text-gray-400">
-                        {r.track}
-                      </span>
-                    )}
-                    {r.resume_type === "pdf" && (
-                      <span className="text-xs text-gray-400">
-                        PDF — tailored resumes use a standard template
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => handleDeleteResume(r.id)}
-                    className="rounded-md px-2 py-1 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600"
-                  >
-                    Delete
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-2.5 text-sm text-gray-500 hover:border-gray-400 hover:text-gray-700">
-            <span>+</span> Upload resume (.tex or .pdf)
-            <input
-              type="file"
-              accept=".tex,.pdf"
-              onChange={handleUpload}
-              className="hidden"
-            />
-          </label>
-          <details className="text-xs text-gray-400 mt-1">
-            <summary className="cursor-pointer hover:text-gray-600">
-              LaTeX (.tex) recommended for best results
-            </summary>
-            <p className="mt-1 pl-4 text-gray-500 leading-relaxed">
-              With a .tex resume, Shortlist can surgically edit your actual resume — reordering
-              bullets and adjusting emphasis while preserving your exact formatting. With a PDF,
-              we generate a new tailored resume using a standard template, which won&apos;t match your
-              original design.
-            </p>
-          </details>
-        </div>
-      </SectionCard>
-
-      {/* 2. AI Provider */}
-      <SectionCard
-        step={2}
-        title="Connect your AI provider"
-        subtitle="We use your API key to analyze your resume and score jobs. You pay the provider directly — typical cost is ~$0.01 per run."
-      >
-        <div className="space-y-4">
-          {!hasApiKey && (
-            <p className="text-sm text-gray-600">
-              Not sure which to pick?{" "}
-              <Link href="/getting-started" className="text-emerald-600 hover:text-emerald-700">
-                See our setup guide
-              </Link>
-              {" "} -- most users choose Gemini (free).
-            </p>
-          )}
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              Model
-            </label>
-            <select
-              value={llmModel}
-              onChange={(e) => {
-                setLlmModel(e.target.value);
-                setDirty(true);
-              }}
-              className={inputClass}
-            >
-              <option value="gemini-2.0-flash">
-                Gemini 2.0 Flash (recommended — fast &amp; cheap)
-              </option>
-              <option value="gemini-2.5-flash">
-                Gemini 2.5 Flash (smarter, slower)
-              </option>
-              <option value="gpt-4o-mini">GPT-4o Mini</option>
-              <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              API key{" "}
-              {hasApiKey && (
-                <span className="font-normal text-green-600">✓ saved</span>
-              )}
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={
-                hasApiKey
-                  ? "••••••• (leave blank to keep current)"
-                  : "Paste your API key"
-              }
-              className={inputClass}
-            />
-            {keyLink && (
-              <p className="mt-1.5 text-xs text-gray-400">
-                Don&apos;t have one?{" "}
-                <a
-                  href={keyLink.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-emerald-600 hover:text-emerald-700"
-                >
-                  {keyLink.label} →
-                </a>
-              </p>
-            )}
-          </div>
-
-          {/* Extra provider keys for cover letters */}
-          <details className="group">
-            <summary className="cursor-pointer text-sm text-gray-500 hover:text-gray-700">
-              Add keys for other providers (for cover letters)
-              {providersWithKeys.length > 1 && (
-                <span className="ml-2 text-xs text-green-600">
-                  {providersWithKeys.length} providers configured
-                </span>
-              )}
-            </summary>
-            <div className="mt-3 space-y-3 pl-1">
-              <p className="text-xs text-gray-400">
-                Different AI models write differently. Add keys for other
-                providers to choose which model generates your cover letters.
-              </p>
-              {[
-                { provider: "gemini", label: "Gemini", url: "https://aistudio.google.com/apikey" },
-                { provider: "openai", label: "OpenAI", url: "https://platform.openai.com/api-keys" },
-                { provider: "anthropic", label: "Anthropic (Claude)", url: "https://console.anthropic.com/settings/keys" },
-              ]
-                .filter(({ provider }) => {
-                  // Don't show the field for the provider that matches the main model
-                  const mainProvider = llmModel.startsWith("gemini") ? "gemini"
-                    : llmModel.startsWith("gpt-") || llmModel.startsWith("o1-") ? "openai"
-                    : llmModel.startsWith("claude-") ? "anthropic" : "";
-                  return provider !== mainProvider;
-                })
-                .map(({ provider, label, url }) => (
-                  <div key={provider}>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">
-                      {label} API key{" "}
-                      {providersWithKeys.includes(provider) && (
-                        <span className="font-normal text-green-600">✓ saved</span>
-                      )}
-                    </label>
-                    <input
-                      type="password"
-                      value={extraKeys[provider] || ""}
-                      onChange={(e) => {
-                        setExtraKeys((prev) => ({ ...prev, [provider]: e.target.value }));
-                        setDirty(true);
-                      }}
-                      placeholder={
-                        providersWithKeys.includes(provider)
-                          ? "••••••• (leave blank to keep current)"
-                          : `Paste ${label} key`
-                      }
-                      className={inputClass + " text-xs"}
-                    />
-                    <p className="mt-0.5 text-xs text-gray-400">
-                      <a href={url} target="_blank" rel="noopener noreferrer"
-                         className="text-emerald-600 hover:text-emerald-700">
-                        Get a {label} key →
-                      </a>
-                    </p>
-                  </div>
-                ))}
-            </div>
-          </details>
-        </div>
-      </SectionCard>
-
-      {/* ── Analyze button ── */}
-      <div className="flex flex-col items-center gap-3 py-2">
-        <button
-          onClick={handleAnalyze}
-          disabled={!canAnalyze || analyzing}
-          className="w-full rounded-full bg-gray-900 px-6 py-3.5 text-sm font-semibold text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+      {/* ── Phase A: Setup ── */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <SectionCard
+          step={1}
+          title="Upload your resume"
+          subtitle="We'll analyze this to understand your background and generate your search profile."
         >
-          {analyzing ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-              Analyzing your resume...
-            </span>
-          ) : (
-            "Analyze my resume"
-          )}
-        </button>
-        {!canAnalyze && (
-          <p className="text-xs text-gray-400">
-            {resumeList.length === 0 && !hasApiKey
-              ? "Upload a resume and add your API key to get started"
-              : resumeList.length === 0
-                ? "Upload a resume first"
-                : "Add your API key first"}
-          </p>
-        )}
+          <ResumeUploader
+            resumes={resumeList}
+            onUpload={handleUpload}
+            onDelete={handleDeleteResume}
+          />
+        </SectionCard>
+
+        <div className="border-t border-gray-100 my-2" />
+
+        <SectionCard
+          step={2}
+          title="Connect your AI provider"
+          subtitle="We use your API key to analyze your resume and score jobs. You pay the provider directly — typical cost is ~$0.01 per run."
+        >
+          <AiProviderForm
+            llmModel={llmModel}
+            onModelChange={(m) => { setLlmModel(m); setDirty(true); }}
+            apiKey={apiKey}
+            onApiKeyChange={setApiKey}
+            hasApiKey={hasApiKey}
+            extraKeys={extraKeys}
+            onExtraKeyChange={(provider, key) => {
+              setExtraKeys((prev) => ({ ...prev, [provider]: key }));
+              setDirty(true);
+            }}
+            providersWithKeys={providersWithKeys}
+          />
+        </SectionCard>
+
+        <AnalyzeButton
+          canAnalyze={canAnalyze}
+          analyzing={analyzing}
+          hasResume={resumeList.length > 0}
+          hasApiKey={hasApiKey || !!apiKey}
+          onAnalyze={handleAnalyze}
+        />
       </div>
 
-      {/* ── Phase B: AI-generated (or existing) profile ── */}
+      {/* ── Phase B: Search profile ── */}
       {(hasProfile || generated) && (
         <>
+          <div className="flex items-center gap-3 mt-12 mb-6">
+            <div className="h-px flex-1 bg-gray-200" />
+            <span className="font-mono text-[10px] uppercase tracking-widest text-gray-400">
+              Search profile
+            </span>
+            <div className="h-px flex-1 bg-gray-200" />
+          </div>
+
           {generated && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 mb-6">
               <p className="text-sm text-emerald-700">
-                Profile generated from your resume. Review and edit below, then save.
+                ✓ Profile generated from your resume. Review and edit below, then save.
               </p>
             </div>
           )}
 
-          {/* 3. Fit context */}
-          <SectionCard
-            step={3}
-            title="What you're looking for"
-            subtitle="This is the main input to the AI scorer. Edit freely — the more specific, the better your matches."
-          >
-            <textarea
-              value={fitContext}
-              onChange={(e) => {
-                setFitContext(e.target.value);
-                setDirty(true);
-                setGenerated(false);
-              }}
-              rows={8}
-              placeholder={FIT_CONTEXT_PLACEHOLDER}
-              className={`${inputClass} placeholder:text-gray-300`}
-            />
-          </SectionCard>
-
-          {/* 4. Tracks */}
-          <SectionCard
-            step={4}
-            title="Roles to search for"
-            subtitle="Each role gets its own search queries. Edit titles, add queries, or remove roles that don't fit."
-          >
-            <TrackEditor
-              tracks={tracks}
-              onChange={(t) => {
-                setTracks(t);
-                setDirty(true);
-                setError("");
-              }}
-              resumes={resumeList}
-            />
-          </SectionCard>
-
-          {/* 5. Filters */}
-          <SectionCard
-            step={5}
-            title="Hard filters"
-            subtitle="Jobs that fail these are automatically rejected before scoring."
-          >
-            <FiltersEditor filters={filters} onChange={markDirty(setFilters)} />
-          </SectionCard>
-
-          {/* 6. Advanced */}
-          <SectionCard
-            step={6}
-            title="Advanced"
-            subtitle="Optional settings for power users."
-          >
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                NextPlay Substack cookie{" "}
-                {substackSid && (
-                  <span className="font-normal text-green-600">✓ set</span>
-                )}
-              </label>
-              <input
-                type="password"
-                value={substackSid}
+          <div className="divide-y divide-gray-200/60">
+            <SectionCard
+              step={3}
+              title="What you're looking for"
+              subtitle="This is the main input to the AI scorer. Edit freely — the more specific, the better your matches."
+            >
+              <textarea
+                value={fitContext}
                 onChange={(e) => {
-                  setSubstackSid(e.target.value);
+                  setFitContext(e.target.value);
                   setDirty(true);
+                  setGenerated(false);
                 }}
-                placeholder="Paste your substack.sid cookie to include paid content"
-                className={inputClass}
+                rows={8}
+                placeholder={FIT_CONTEXT_PLACEHOLDER}
+                className={`${inputClass} placeholder:text-gray-300`}
               />
-              <p className="mt-1.5 text-xs text-gray-400">
-                Optional. Enables access to paid NextPlay newsletter content for
-                additional job sources. Find it in your browser cookies for
-                substack.com.
-              </p>
-            </div>
-          </SectionCard>
+            </SectionCard>
 
-          {/* Re-analyze option */}
-          <div className="text-center">
+            <SectionCard
+              step={4}
+              title="Roles to search for"
+              subtitle="Each role gets its own search queries. Edit titles, add queries, or remove roles that don't fit."
+            >
+              <TrackEditor
+                tracks={tracks}
+                onChange={(t) => { setTracks(t); setDirty(true); setError(""); }}
+                resumes={resumeList}
+              />
+            </SectionCard>
+
+            <SectionCard
+              step={5}
+              title="Hard filters"
+              subtitle="Jobs that fail these are automatically rejected before scoring."
+            >
+              <FiltersEditor filters={filters} onChange={markDirty(setFilters)} />
+            </SectionCard>
+
+            <SectionCard
+              step={6}
+              title="Advanced"
+              subtitle="Optional settings for power users."
+            >
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  NextPlay Substack cookie{" "}
+                  {substackSid && (
+                    <span className="font-normal text-green-600">✓ set</span>
+                  )}
+                </label>
+                <input
+                  type="password"
+                  value={substackSid}
+                  onChange={(e) => { setSubstackSid(e.target.value); setDirty(true); }}
+                  placeholder="Paste your substack.sid cookie to include paid content"
+                  className={inputClass}
+                />
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Optional. Enables access to paid NextPlay newsletter content for
+                  additional job sources. Find it in your browser cookies for substack.com.
+                </p>
+              </div>
+            </SectionCard>
+          </div>
+
+          <div className="text-center mt-6">
             <button
               onClick={handleAnalyze}
               disabled={!canAnalyze || analyzing}
@@ -580,35 +379,13 @@ export default function ProfilePage() {
 
       {/* Sticky save bar */}
       {(hasProfile || generated) && (
-        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
-            <div className="flex items-center gap-2">
-              {dirty && (
-                <>
-                  <span className="h-2 w-2 rounded-full bg-amber-400" />
-                  <span className="text-sm text-gray-500">
-                    Unsaved changes
-                  </span>
-                </>
-              )}
-              {toast && (
-                <span className="text-sm font-medium text-green-600">
-                  {toast}
-                </span>
-              )}
-              {error && (
-                <span className={`text-sm ${error.toLowerCase().includes("rate limit") ? "text-amber-600" : "text-red-600"}`}>{error}</span>
-              )}
-            </div>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="rounded-full bg-gray-900 px-6 py-2 text-sm font-medium text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98] disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save profile"}
-            </button>
-          </div>
-        </div>
+        <SaveBar
+          dirty={dirty}
+          saving={saving}
+          toast={toast}
+          error={error}
+          onSave={handleSave}
+        />
       )}
     </div>
   );

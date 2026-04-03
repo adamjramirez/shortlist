@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from shortlist.collectors.base import RawJob
+from shortlist.collectors.linkedin import REGION_COUNTRIES
 from shortlist.config import Config
 from shortlist import llm
 
@@ -40,7 +41,7 @@ Name: {name}
 ### Hard Requirements
 - Location: {location_requirement}
 - If a role says "Remote" but restricts to a specific country/region the candidate is NOT in, score below 60.
-- Salary: Minimum ${min_salary:,} base
+- Salary: Minimum {min_salary:,} {currency} base. If the job lists salary in a different currency, convert approximately.
 - Must be a management/leadership role with direct reports
 - Prefer ~20+ reports (adjusted for company size/stage)
 
@@ -74,7 +75,7 @@ Score this job for fit with the candidate profile. Return a JSON object with exa
     "matched_track": "<one of: {track_keys}>",
     "reasoning": "<2-3 sentences explaining the score>",
     "yellow_flags": ["<list of concerns, empty if none>"],
-    "salary_estimate": "<format as $XXXk-$XXXk, e.g. $200k-$300k>",
+    "salary_estimate": "<format as XXXk-XXXk {currency}, e.g. 200k-300k {currency}>",
     "salary_confidence": "<low|medium|high>",
     "corrected_title": "<the actual job title, e.g. 'VP of Engineering'>",
     "corrected_company": "<the actual company name>",
@@ -103,14 +104,45 @@ Return ONLY the JSON object, no other text."""
 
 def _build_location_requirement(config: Config) -> str:
     """Build a clean location requirement string from user config."""
-    local_cities = config.filters.location.local_cities
-    local_zip = config.filters.location.local_zip
+    loc = config.filters.location
+    local_cities = loc.local_cities
+    local_zip = loc.local_zip
+    # Expand region names (e.g. "DACH") to concrete country list for the LLM
+    country = loc.country
+    if country in REGION_COUNTRIES:
+        names = REGION_COUNTRIES[country]
+        if len(names) == 1:
+            country = names[0]
+        elif len(names) == 2:
+            country = f"{names[0]} or {names[1]}"
+        else:
+            country = ", ".join(names[:-1]) + f", or {names[-1]}"
+    remote = loc.remote
+
     parts = []
     if local_cities:
         parts.append(", ".join(local_cities))
     if local_zip:
         parts.append(local_zip)
-    return f"Remote or near {' / '.join(parts)}" if parts else "Remote"
+
+    near = " / ".join(parts) if parts else ""
+
+    if remote and near and country:
+        return f"Remote or near {near} in {country}"
+    elif remote and near:
+        return f"Remote or near {near}"
+    elif remote and country:
+        return f"Remote in {country}"
+    elif remote:
+        return "Remote"
+    elif near and country:
+        return f"Near {near} in {country}"
+    elif near:
+        return f"Near {near}"
+    elif country:
+        return f"In {country}"
+    else:
+        return "Any location"
 
 
 def build_scoring_prompt(job: RawJob, config: Config) -> str:
@@ -124,6 +156,8 @@ def build_scoring_prompt(job: RawJob, config: Config) -> str:
 
     track_keys = ", ".join(config.tracks.keys()) or "default"
 
+    currency = config.filters.salary.currency or "USD"
+
     return SCORING_PROMPT_TEMPLATE.format(
         name=config.name or "Candidate",
         fit_context=config.fit_context or "No additional context provided.",
@@ -131,6 +165,7 @@ def build_scoring_prompt(job: RawJob, config: Config) -> str:
         track_keys=track_keys,
         location_requirement=_build_location_requirement(config),
         min_salary=config.filters.salary.min_base or 250000,
+        currency=currency,
         title=job.title,
         company=job.company,
         location=job.location or "Not specified",
