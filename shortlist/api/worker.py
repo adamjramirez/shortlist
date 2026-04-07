@@ -98,7 +98,6 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
         role = filters_raw.get("role_type", {})
 
         # AWW integration: pull networking slice and supplement fit_context.
-        fit_context = config.get("fit_context", "")
         aww_node_id = config.get("aww_node_id", "")
         aww_context = None
         if aww_node_id and config.get("use_aww_slice", True):
