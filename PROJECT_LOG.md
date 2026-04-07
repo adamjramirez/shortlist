@@ -6,7 +6,53 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**Profile page UX overhaul + international support review fixes shipped.**
+**AWW toggle shipped. Updating fit_context from ~/Code/profile/ next.**
+
+## 2026-04-07 — AWW toggle + use_aww_slice
+
+**What got done:**
+1. Discovered AWW slice was silently replacing `fit_context` on every run with no user visibility
+2. `resolve_fit_context(config, aww_content)` extracted from worker — supplement-not-replace, `use_aww_slice` toggle
+3. `use_aww_slice: bool` added to `ProfileUpdate`/`ProfileResponse` schemas and profile defaults
+4. Frontend: AWW node ID field + toggle in Advanced section, shows "Scorer sees: fit context + AWW slice" vs "fit context only"
+5. Fixed pre-existing `test_aww_client.py` failure (`FakeResponse` missing `headers`)
+6. 13 new tests (644 total). Deployed. AWW slice disabled for Adam's account.
+
+**Key decisions:**
+- Supplement not replace — user fit_context always first, AWW appended with `## Additional Context (from AWW)` separator
+- `use_aww_slice` defaults `True` (backward compat) but explicitly set `False` for Adam via DB
+- `profiles.config` is `json` type (not `jsonb`) — `||` operator doesn't work; use Python read-modify-write
+
+**What's next:**
+- Update fit_context for Adam's account from `~/Code/profile/` — synthesize goals.md, profile.md, guardrails.md into rich job-search context
+- Re-score existing stored jobs against new fit_context
+
+---
+
+## 2026-04-02 — Scheduled auto-run
+
+**What got done:**
+1. Migration 009: `auto_run_enabled`, `auto_run_interval_h`, `next_run_at`, `consecutive_failures` on profiles; `trigger` on runs
+2. `shortlist/scheduler.py`: `trigger_due_users` (single NOT EXISTS query, no N+1), `_fire_and_update` (callback pattern — restart-safe), `_update_profile_after_run`, `run_scheduler` loop
+3. Commit-before-fire: run rows committed before `asyncio.create_task` to avoid race condition
+4. Profile route: `AutoRunConfig`/`AutoRunUpdate` schemas, dedicated column handling, `_to_response` signature update
+5. Runs route: `trigger='manual'` on creation, resets `next_run_at` after manual run
+6. supervisord.conf: scheduler as third process (priority 15)
+7. Frontend: `AutoRunSettings` component (toggle/interval/countdown/warnings), profile page, history 'scheduled' badge
+8. 32 new tests (630 total). Deployed to Fly.io — migration ran clean, scheduler live.
+
+**Key decisions:**
+- Callback pattern (`_fire_and_update`) over `since=last_tick` — survives restarts
+- `autoRunDirty` flag in frontend — avoids resetting `next_run_at` on every profile save
+- Separate `AutoRunUpdate` schema with `enabled: bool | None` — interval-only changes don't touch enabled state
+- Backoff: `min(2^failures, 24)h`, auto-disable at 5 consecutive failures
+
+**What's next:**
+- Email Mihai about the 429 fix + new design
+- PostHog dashboard setup
+- Run a pipeline to verify `run_id` gets set on scored jobs in production
+
+---
 
 **What got done (2026-04-03, session 2):**
 1. Profile page componentized: ResumeUploader, AiProviderForm, AnalyzeButton, SaveBar extracted (623→392 lines)
@@ -22,6 +68,31 @@ Session-by-session progress log. Read this first when resuming work.
 - Email Mihai about the 429 fix + new design
 - PostHog dashboard setup (funnels, error rates)
 - Verify PostHog in production (network tab → /ingest requests)
+
+## 2026-04-04 — New + Viewed states, design system enforcement
+
+**What got done:**
+1. **New + Viewed job states**: `run_id` column on jobs (set during scoring), `viewed_at` column (set on card expand via PATCH endpoint). `is_new` = job's run_id matches latest non-failed run. Replaces broken `brief_count` logic. `brief_count` deprecated.
+2. **Read/unread visual treatment**: Unread = bold title + darker text. Read = normal weight + slightly muted. Email inbox pattern. Read ≠ Closed (different axes).
+3. **Tab rename**: "New" → "Inbox" (display only, wire format unchanged).
+4. **Optimistic status updates**: Save/skip/applied update UI immediately, API fires in background. Reverts on failure. Counts update optimistically too.
+5. **Clearable badges**: All user-set status badges (Saved/Applied/Skipped/Closed) show × on hover. Uses `invisible` + absolute overlay to prevent layout jump.
+6. **Design system §8 Interaction Patterns**: Added to `web/DESIGN.md` — optimistic updates, state axes, read/unread treatment, clearable badges, hover content swap technique.
+7. **Design system audit**: All pages/components audited against spec. Fixed 10 deviations (selects, dividers, cursor-pointer, header alignment, empty states, pagination arrows, RunButton sizing, skeleton baseline).
+8. **Generic design system skill**: Created `~/.pi/agent/skills/design-system/SKILL.md` — 7-step process for creating and enforcing design systems across any project.
+9. **Migration 008**: `viewed_at` + `run_id` columns, index on `(user_id, run_id)`.
+10. **10 new tests** in `tests/api/test_viewed_and_new.py` (598 total).
+
+**Decisions made:**
+- Wire format stays `new`/`counts.new` — "Inbox" is display-only rename
+- Re-scored jobs reset `viewed_at` to NULL (new content = unread)
+- Read styling: `font-normal text-gray-700` (not gray-600, which was too close to closed)
+- `brief_count` deprecated but not dropped (no migration needed)
+
+**What's next:**
+- Email Mihai about the 429 fix + new design
+- PostHog dashboard setup
+- Run a pipeline to verify `run_id` gets set on scored jobs in production
 
 ## 2026-04-03 (session 3) — UX polish: unsave, history, profile continuity
 

@@ -23,7 +23,7 @@ cd web && npm run dev      # Frontend dev server (port 3000)
 uvicorn shortlist.api.app:create_app --factory --port 8001  # Backend
 
 # Tests
-pytest tests/ -q           # 527 tests, ~22s
+pytest tests/ -q           # 644 tests, ~31s
 cd web && npm run build    # Frontend type check + build
 
 # Deploy
@@ -100,7 +100,7 @@ User clicks "Run now"
 | `profiles` | JSON config (fit_context, tracks, filters, llm keys) |
 | `resumes` | Metadata + S3 key to Tigris (`resume_type`: tex/pdf, `extracted_text_key` for PDFs) |
 | `runs` | Pipeline runs (status, progress JSON, timestamps) |
-| `jobs` | Scored jobs (fit_score, enrichment, interest_note, cover_letter, career_page_url, tailored_resume_key, tailored_resume_pdf_key, posted_at, is_closed, user_status) |
+| `jobs` | Scored jobs (fit_score, enrichment, interest_note, cover_letter, career_page_url, tailored_resume_key, tailored_resume_pdf_key, posted_at, is_closed, user_status, viewed_at, run_id) |
 | `companies` | Enrichment cache (30-day TTL) |
 | `nextplay_cache` | System-level ATS discovery cache (24h TTL, shared across users) |
 
@@ -140,8 +140,13 @@ LaTeX user uploads .tex
 - **Per-source scoring budget** — `remaining // sources_left`, minimum 20 per source
 - **Score threshold 75 for visibility** — SCORE_SAVED=60 (DB), SCORE_VISIBLE=75 (API), SCORE_STRONG=85
 - **`score_reasoning` in JobSummary** — visible in expanded view (moved from collapsed to reduce density)
+- **`is_new` based on `run_id`** — job's `run_id` matches user's latest non-failed/cancelled run. Replaces old `brief_count == 0` logic. `brief_count` deprecated (still in schema, no longer incremented).
+- **`viewed_at` for read/unread** — set via `PATCH /api/jobs/{id}/view` (fire-and-forget from frontend). Reset to NULL when job is re-scored in a new run. Read = `font-normal text-gray-700`, Unread = `font-semibold text-gray-900`.
+- **Optimistic status updates** — `handleStatus` updates local state immediately, fires API in background. On failure, sends `__refresh` to parent to refetch. Parent does optimistic count updates too.
+- **Clearable badges** — user-set badges (Saved/Applied/Skipped/Closed) are `<button>` with hover-to-× behavior using `invisible` + absolute overlay. System badges (New/Recruiter) are inert `<span>`.
+- **Tab rename: New → Inbox** — display-only. Wire format still `?user_status=new` and `counts.new`. "Inbox" = untriaged (user_status IS NULL), "New" pill = from latest run.
 - **`posted_at` on RawJob/DB/API** — actual posting date from source (HN, LinkedIn, Greenhouse, Lever). Normalized to ISO 8601 at collector level.
-- **Design system** — `web/DESIGN.md` is canonical. Zinc neutrals, emerald-600 accent, Outfit + JetBrains Mono. No blue, no stone, no emoji, no framer-motion.
+- **Design system** — `web/DESIGN.md` is canonical. Zinc neutrals, emerald-600 accent, Outfit + JetBrains Mono. No blue, no stone, no emoji, no framer-motion. Includes interaction patterns (§8): optimistic updates, read/unread treatment, clearable badges, state axes.
 - **`is_closed` separate from `user_status`** — a job can be saved AND closed. `user_status` = user intent (saved/applied/skipped), `is_closed` = job availability. Toggle via `status="closed"` on the same PUT endpoint.
 - **Status toggle pattern** — PUT `/jobs/{id}/status` with `"clear"` resets `user_status` to null, `"closed"` toggles `is_closed`. Same endpoint, different fields.
 - **Profile page structure** — single `divide-y` for all steps (1-6). Steps 3-6 conditionally rendered inside fragment. AnalyzeButton inline with `py-6` wrapper. SaveBar fixed at bottom, disabled when `!dirty`.
@@ -150,6 +155,8 @@ LaTeX user uploads .tex
 - **PostHog person properties for activation** — `setPersonProperties()` on 5 milestones (has_resume, has_api_key, profile_complete, has_run, has_completed_run) for cohort analysis
 - **LLM retry with `_retry_on_transient()`** — coro_factory pattern, 2 retries + exponential backoff, only 429/5xx
 - **Per-item try/except in pipeline loops** — enrichment + interest note loops catch per-job errors so one failure doesn't kill the run
+- **`resolve_*(config, ...)` pattern** — extract business logic from async workers into pure named functions (`resolve_fit_context`, etc.) so they can be unit-tested without any async/DB setup. The worker calls them; the tests import them directly.
+- **Supplement-not-replace for external context** — when an external source (AWW, future integrations) can enrich `fit_context`, append with a labelled separator (`## Additional Context (from AWW)\n`) rather than replacing. User's data is always first and always preserved. Toggle via a dedicated boolean (`use_aww_slice`).
 
 ### Cover Letter Pipeline (3 layers)
 
@@ -178,7 +185,7 @@ Profile config stores:
 
 ## Testing
 
-- **550 tests**, ~23s, all unit tests
+- **644 tests**, ~31s, all unit tests
 - All tests mock `shortlist.http._wait` to disable rate limiting
 - Pipeline tests mock scoring/enrichment (not individual functions)
 - API tests use async SQLAlchemy with in-memory SQLite
@@ -238,4 +245,12 @@ fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB ac
 - ❌ Building `LocalStorage`/`FileStorage` for local dev when `MemoryStorage` already exists — check what fakes are available before adding new classes.
 - ❌ Mixing job state with user intent in one field — `user_status` is user intent (saved/applied/skipped). Job availability (`is_closed`) is a separate boolean. A saved job can become closed.
 - ❌ Forgetting hover feedback on toggle buttons — if a button toggles state (e.g. unsave), the active state needs `hover:bg-*` color change AND `cursor-pointer` to signal clickability.
+- ❌ Using `hidden`/`inline` swap for hover content — causes layout shift as element width changes. Use `invisible` (keeps layout) + absolute overlay with `opacity-0 → opacity-100`.
+- ❌ Making read/viewed state look like closed/disabled — read items reduce weight (`font-normal`) but stay dark (`text-gray-700`). Only closed/skipped get `opacity-40`. These are different axes.
+- ❌ Forgetting `cursor-pointer` on `<button>` elements — Tailwind v4 reset removes default pointer cursor. Every clickable button needs explicit `cursor-pointer` (with `disabled:cursor-not-allowed`).
+- ❌ Making UX decisions without recording them — if you decide "save should be optimistic" or "badges should be clearable on hover", add it to the design system (`web/DESIGN.md` §8) immediately. Decisions not recorded get made differently next time.
+- ❌ Designing hover states without considering parent opacity — a badge at `opacity-40` (skipped card) needs a background fill on hover for the × to be visible. Bare text-color changes are invisible at low opacity.
 - ❌ Breaking `divide-y` flow with elements between two separate containers — use one `divide-y` parent with conditional children inside, not two `divide-y` blocks with a standalone element between them. Tailwind's `* + *` selector handles conditionally rendered fragments.
+- ❌ Using `json || jsonb_build_object` on PostgreSQL `json` columns — the `||` merge operator only works on `jsonb`. The `profiles.config` column is `json`. Use Python read-modify-write (`SELECT config`, mutate dict, `UPDATE profiles SET config = %s`) instead of trying to merge in SQL.
+- ❌ Leaving dead local variables after extracting logic to a helper — if `resolve_fit_context(config, aww_content)` reads `fit_context` from config internally, remove any `fit_context = config.get(...)` the caller computed before calling it. Extract means the helper owns the logic.
+- ❌ Assuming external context sources (AWW slice) supplement user data — AWW slice was silently replacing `fit_context` with no user visibility. Any external data source that modifies user config needs: (a) an explicit enable/disable toggle, (b) supplement-not-replace semantics, (c) visible indication of what the scorer actually receives.
