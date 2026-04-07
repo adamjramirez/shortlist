@@ -39,6 +39,10 @@ class Profile(Base):
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     config = Column(JSON, nullable=False, default=dict)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    auto_run_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    auto_run_interval_h = Column(Integer, nullable=False, default=12, server_default="12")
+    next_run_at = Column(DateTime(timezone=True), nullable=True)
+    consecutive_failures = Column(Integer, nullable=False, default=0, server_default="0")
 
     user = relationship("User", back_populates="profile")
 
@@ -52,6 +56,7 @@ class Run(Base):
     progress = Column(JSON, default=dict)
     error = Column(Text)
     machine_id = Column(String)  # Fly Machine ID
+    trigger = Column(String, nullable=False, default="manual", server_default="manual")
     started_at = Column(DateTime(timezone=True))
     finished_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -110,11 +115,14 @@ class Job(Base):
     brief_count = Column(Integer, default=0)
     user_status = Column(String)  # applied, skipped, saved
     is_closed = Column(Boolean, default=False, server_default="false")
+    viewed_at = Column(DateTime(timezone=True), nullable=True)
+    run_id = Column(Integer, ForeignKey("runs.id"), nullable=True)
 
     __table_args__ = (
         Index("idx_jobs_web_user_hash", "user_id", "description_hash", unique=True),
         Index("idx_jobs_web_user_status", "user_id", "status"),
         Index("idx_jobs_web_user_score", "user_id", "fit_score"),
+        Index("idx_jobs_web_user_run", "user_id", "run_id"),
     )
 
 

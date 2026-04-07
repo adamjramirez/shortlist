@@ -7,7 +7,7 @@ import {
   resumes as resumesApi,
   ApiError,
 } from "@/lib/api";
-import type { Profile, Resume } from "@/lib/types";
+import type { AutoRunConfig, Profile, Resume } from "@/lib/types";
 import {
   TrackForm,
   FiltersForm,
@@ -25,6 +25,7 @@ import AnalyzeButton from "@/components/AnalyzeButton";
 import TrackEditor from "@/components/TrackEditor";
 import FiltersEditor from "@/components/FiltersEditor";
 import SaveBar from "@/components/SaveBar";
+import AutoRunSettings from "@/components/AutoRunSettings";
 import { ProfileSkeleton } from "@/components/Skeleton";
 
 const inputClass =
@@ -54,6 +55,13 @@ export default function ProfilePage() {
   const [substackSid, setSubstackSid] = useState("");
   const [extraKeys, setExtraKeys] = useState<Record<string, string>>({});
   const [providersWithKeys, setProvidersWithKeys] = useState<string[]>([]);
+  const [autoRun, setAutoRun] = useState<AutoRunConfig>({
+    enabled: false,
+    interval_h: 12,
+    next_run_at: null,
+    consecutive_failures: 0,
+  });
+  const [autoRunDirty, setAutoRunDirty] = useState(false);
 
   const hasProfile =
     !!fitContext || tracks.length > 0 || Object.keys(profile?.tracks || {}).length > 0;
@@ -72,6 +80,7 @@ export default function ProfilePage() {
       setHasApiKey(!!p.llm?.has_api_key);
       setProvidersWithKeys(p.llm?.providers_with_keys || []);
       setSubstackSid(p.substack_sid || "");
+      if (p.auto_run) setAutoRun(p.auto_run);
     });
   }, [user, authLoading]);
 
@@ -175,6 +184,10 @@ export default function ProfilePage() {
         llm,
       };
       if (substackSid) payload.substack_sid = substackSid;
+      // Only send auto_run when the user changed it — avoids resetting next_run_at on every save
+      if (autoRunDirty) {
+        payload.auto_run = { enabled: autoRun.enabled, interval_h: autoRun.interval_h };
+      }
 
       const updated = await profileApi.update(payload);
       setProfile(updated);
@@ -184,7 +197,9 @@ export default function ProfilePage() {
       setProvidersWithKeys(updated.llm?.providers_with_keys || []);
       setApiKey("");
       setExtraKeys({});
+      if (updated.auto_run) setAutoRun(updated.auto_run);
       setDirty(false);
+      setAutoRunDirty(false);
       setGenerated(false);
       showToast("Profile saved ✓");
       track.profileSaved();
@@ -330,6 +345,21 @@ export default function ProfilePage() {
 
           <SectionCard
             step={6}
+            title="Auto-run"
+            subtitle="Run automatically on a schedule so new jobs appear in your inbox."
+          >
+            <AutoRunSettings
+              autoRun={autoRun}
+              onChange={(update) => {
+                setAutoRun((prev) => ({ ...prev, ...update }));
+                setDirty(true);
+                setAutoRunDirty(true);
+              }}
+            />
+          </SectionCard>
+
+          <SectionCard
+            step={7}
             title="Advanced"
             subtitle="Optional settings for power users."
           >

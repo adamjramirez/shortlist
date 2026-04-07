@@ -188,3 +188,34 @@ async def test_runs_require_auth(client):
     assert (await client.post("/api/runs")).status_code == 401
     assert (await client.get("/api/runs")).status_code == 401
     assert (await client.get("/api/runs/1")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_manual_run_has_trigger_manual(client, auth_headers, mock_worker):
+    await _setup_profile(client, auth_headers)
+    resp = await client.post("/api/runs", headers=auth_headers)
+    assert resp.status_code == 201
+    assert resp.json()["trigger"] == "manual"
+
+
+@pytest.mark.asyncio
+async def test_manual_run_resets_next_run_at_when_auto_run_enabled(client, auth_headers, mock_worker):
+    """Manual run pushes next_run_at forward so scheduler doesn't fire immediately after."""
+    await _setup_profile(client, auth_headers)
+    await client.put("/api/profile", json={"auto_run": {"enabled": True, "interval_h": 6}},
+                     headers=auth_headers)
+
+    before_str = (await client.get("/api/profile", headers=auth_headers)).json()["auto_run"]["next_run_at"]
+    await client.post("/api/runs", headers=auth_headers)
+    after_str = (await client.get("/api/profile", headers=auth_headers)).json()["auto_run"]["next_run_at"]
+
+    assert after_str > before_str
+
+
+@pytest.mark.asyncio
+async def test_manual_run_no_error_when_auto_run_disabled(client, auth_headers, mock_worker):
+    """Manual run with auto-run disabled works fine."""
+    await _setup_profile(client, auth_headers)
+    resp = await client.post("/api/runs", headers=auth_headers)
+    assert resp.status_code == 201
+    assert resp.json()["trigger"] == "manual"

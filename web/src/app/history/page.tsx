@@ -136,9 +136,9 @@ export default function HistoryPage() {
       <h1 className="text-2xl font-bold tracking-tighter text-gray-900 mb-8">Run history</h1>
 
       {runList.length === 0 ? (
-        <div className="py-12 text-center">
-          <p className="text-gray-600">No runs yet.</p>
-          <p className="text-sm text-gray-400 mt-1">Start your first search from the dashboard.</p>
+        <div className="py-12">
+          <p className="font-mono text-xs tracking-widest uppercase text-emerald-600 mb-2">Empty</p>
+          <p className="text-gray-600">No runs yet. Start your first search from the dashboard.</p>
           <Link href="/" className="inline-block mt-4 font-mono text-sm text-emerald-600 hover:text-emerald-700 transition-colors">
             Dashboard &rarr;
           </Link>
@@ -172,8 +172,11 @@ export default function HistoryPage() {
 
                   {/* Main content */}
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900">
+                    <p className="text-sm font-medium text-gray-900 flex items-center gap-2">
                       {formatDate(run.created_at)}
+                      {run.trigger === "auto" && (
+                        <span className="font-mono text-xs text-gray-400">scheduled</span>
+                      )}
                     </p>
                     <p className="font-mono text-xs text-gray-400 mt-1">
                       {isRunning && detail ? detail : statsLine(run.progress || {})}
