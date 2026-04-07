@@ -207,6 +207,145 @@ def _build_ats_url(ats: str, slug: str) -> str:
     return ""
 
 
+# ---------------------------------------------------------------------------
+# Curated career page sources
+# ---------------------------------------------------------------------------
+
+def ensure_career_page_sources_table(conn) -> None:
+    """Create the career_page_sources table if it doesn't exist."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS career_page_sources (
+                id SERIAL PRIMARY KEY,
+                company_name TEXT NOT NULL,
+                career_url TEXT NOT NULL UNIQUE,
+                ats TEXT,
+                slug TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                consecutive_empty INT NOT NULL DEFAULT 0,
+                last_jobs_count INT NOT NULL DEFAULT 0,
+                last_checked_at TIMESTAMPTZ,
+                added_at TIMESTAMPTZ DEFAULT NOW(),
+                source TEXT,
+                notes TEXT
+            )
+        """)
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_career_page_sources_status "
+            "ON career_page_sources(status)"
+        )
+    conn.commit()
+
+
+def add_career_page_source(
+    conn,
+    company_name: str,
+    career_url: str,
+    ats: str | None,
+    slug: str | None,
+    source: str | None = None,
+    notes: str | None = None,
+) -> None:
+    """Add a single curated career page source. Silently ignores duplicate URLs."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO career_page_sources
+                (company_name, career_url, ats, slug, source, notes)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (career_url) DO NOTHING
+            """,
+            (company_name, career_url, ats, slug, source, notes),
+        )
+    conn.commit()
+
+
+def bulk_add_career_page_sources(
+    conn,
+    entries: list[dict],
+    source: str | None = None,
+) -> int:
+    """Bulk-insert curated career page sources. Returns count of rows inserted.
+
+    Each entry: {company_name, career_url, ats, slug, notes (optional)}
+    Duplicate career_urls are silently skipped.
+    """
+    inserted = 0
+    with conn.cursor() as cur:
+        for entry in entries:
+            cur.execute(
+                """
+                INSERT INTO career_page_sources
+                    (company_name, career_url, ats, slug, source, notes)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (career_url) DO NOTHING
+                """,
+                (
+                    entry["company_name"],
+                    entry["career_url"],
+                    entry.get("ats"),
+                    entry.get("slug"),
+                    entry.get("source", source),
+                    entry.get("notes"),
+                ),
+            )
+            inserted += cur.rowcount
+    conn.commit()
+    return inserted
+
+
+def get_active_career_page_sources(conn) -> list[dict]:
+    """Return all active curated career page sources."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id, company_name, career_url, ats, slug, status, "
+            "consecutive_empty, last_jobs_count, last_checked_at, source "
+            "FROM career_page_sources WHERE status = 'active' ORDER BY added_at"
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def update_career_page_source_after_fetch(
+    conn,
+    career_url: str,
+    jobs_found: int,
+    fetch_error: str | None,
+) -> None:
+    """Update state after a fetch attempt.
+
+    - fetch_error set → mark invalid
+    - jobs_found > 0  → reset consecutive_empty, stay active
+    - jobs_found == 0 → increment consecutive_empty; close at 3
+    """
+    if fetch_error:
+        new_status = "invalid"
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE career_page_sources SET status = %s, last_checked_at = NOW() "
+                "WHERE career_url = %s",
+                (new_status, career_url),
+            )
+    elif jobs_found > 0:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE career_page_sources SET consecutive_empty = 0, "
+                "last_jobs_count = %s, status = 'active', last_checked_at = NOW() "
+                "WHERE career_url = %s",
+                (jobs_found, career_url),
+            )
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE career_page_sources "
+                "SET consecutive_empty = consecutive_empty + 1, "
+                "last_jobs_count = 0, last_checked_at = NOW(), "
+                "status = CASE WHEN consecutive_empty + 1 >= 3 THEN 'closed' ELSE status END "
+                "WHERE career_url = %s",
+                (career_url,),
+            )
+    conn.commit()
+
+
 def count_jobs(conn, user_id: int, status: str) -> int:
     """Count jobs for a user by status."""
     with conn.cursor() as cur:

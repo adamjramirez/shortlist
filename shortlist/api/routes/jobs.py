@@ -1,11 +1,13 @@
-"""Jobs routes — list, detail, status update."""
+"""Jobs routes — list, detail, status update, view tracking."""
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shortlist.api.db import get_session
 from shortlist.api.deps import get_current_user
-from shortlist.api.models import Job, User
+from shortlist.api.models import Job, Run, User
 from shortlist.api.schemas import (
     JobDetail,
     JobListResponse,
@@ -46,7 +48,18 @@ def _enrichment_summary(enrichment: dict | None) -> str | None:
     return " · ".join(parts) if parts else None
 
 
-def _job_to_summary(job: Job) -> JobSummary:
+async def _get_latest_run_id(session: AsyncSession, user_id: int) -> int | None:
+    """Get the latest non-failed/cancelled run ID for a user."""
+    result = await session.execute(
+        select(func.max(Run.id)).where(
+            Run.user_id == user_id,
+            Run.status.not_in(["failed", "cancelled"]),
+        )
+    )
+    return result.scalar()
+
+
+def _job_to_summary(job: Job, latest_run_id: int | None = None) -> JobSummary:
     return JobSummary(
         id=job.id,
         title=job.title,
@@ -63,8 +76,9 @@ def _job_to_summary(job: Job) -> JobSummary:
         posted_at=job.posted_at.isoformat() if job.posted_at else None,
         has_tailored_resume=bool(job.tailored_resume_key),
         has_tailored_pdf=bool(job.tailored_resume_pdf_key),
-        is_new=(job.brief_count or 0) == 0,
+        is_new=(latest_run_id is not None and job.run_id == latest_run_id),
         is_closed=bool(job.is_closed),
+        viewed_at=job.viewed_at.isoformat() if job.viewed_at else None,
         company_intel=(f"⚠️ Posted by {job.company} (recruiter/job board). The actual hiring company isn't listed — no company intel available."
                        if _is_job_board(job.company)
                        else _enrichment_summary(job.enrichment)),
@@ -80,8 +94,8 @@ def _clean_reasoning(text: str | None) -> str | None:
     return re.sub(r"\s*\[Re-scored:.*?\]", "", text).strip()
 
 
-def _job_to_detail(job: Job) -> JobDetail:
-    summary = _job_to_summary(job).model_dump()
+def _job_to_detail(job: Job, latest_run_id: int | None = None) -> JobDetail:
+    summary = _job_to_summary(job, latest_run_id).model_dump()
     return JobDetail(
         **summary,
         description=job.description,
@@ -143,7 +157,8 @@ async def list_jobs(
         .offset(offset)
         .limit(per_page)
     )
-    jobs = [_job_to_summary(j) for j in result.scalars().all()]
+    latest_run_id = await _get_latest_run_id(session, user.id)
+    jobs = [_job_to_summary(j, latest_run_id) for j in result.scalars().all()]
 
     return JobListResponse(jobs=jobs, total=total, page=page, per_page=per_page, counts=counts)
 
@@ -160,7 +175,8 @@ async def get_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return _job_to_detail(job)
+    latest_run_id = await _get_latest_run_id(session, user.id)
+    return _job_to_detail(job, latest_run_id)
 
 
 @router.put("/{job_id}/status", response_model=JobDetail)
@@ -184,4 +200,23 @@ async def update_job_status(
     else:
         job.user_status = req.status
     await session.flush()
-    return _job_to_detail(job)
+    latest_run_id = await _get_latest_run_id(session, user.id)
+    return _job_to_detail(job, latest_run_id)
+
+
+@router.patch("/{job_id}/view", status_code=204)
+async def mark_job_viewed(
+    job_id: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Mark a job as viewed. Idempotent — only sets viewed_at on first call."""
+    result = await session.execute(
+        select(Job).where(Job.id == job_id, Job.user_id == user.id)
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.viewed_at:
+        job.viewed_at = datetime.now(timezone.utc)
+        await session.flush()

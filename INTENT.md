@@ -26,7 +26,7 @@ Not a job board. A personal chief of staff for your job search. Open source at h
 - **Enrichment adjusts scores.** Company intel (stage, headcount, Glassdoor, growth) can move a score ±20. A great role at a dying company is not a great role.
 - **Score threshold 75 for visibility.** Below 75 = stored but hidden. Users only see matches worth their time.
 - **Recruiter listings are valid.** They represent real jobs. Flag them transparently ("Posted by recruiter — actual company not listed") but don't filter them out.
-- **Per-source fair budget.** Don't let one source eat the whole scoring budget. ~50 jobs scored per source.
+- **Per-source fair budget.** Don't let one source eat the whole scoring budget. Budget is 500/run, split across active sources (`remaining // sources_left`, min 20). Scores newest jobs first (`first_seen DESC`) — old backlog clears over multiple runs.
 
 ## Cover letter philosophy
 
@@ -45,7 +45,8 @@ Not a job board. A personal chief of staff for your job search. Open source at h
 - **Per-provider API keys** over single key. Enables model selection for cover letters.
 - **LaTeX-only resumes.** Users generate with AI tools, upload .tex. We tailor and store.
 - **NextPlay is system-level cache.** Articles, companies, ATS providers are identical for all users. Only scoring is user-specific.
-- **3 scorer workers** on shared-cpu-2x. Less pressure on the VM. 50 jobs in ~28s is fine.
+- **Curated sources are system-level too.** `career_page_sources` table stores manually-added career pages (e.g. Ben Lang startup lists) shared across all users. State machine: active → closed (3 empty fetches) / invalid (HTTP error). Add via `pgdb.bulk_add_career_page_sources()` with source attribution.
+- **4 scorer workers** on shared-cpu-1x / 1024MB. Each job gets its own isolated LLM call. 500 jobs in ~4 min is fine.
 
 ## Dead ends (tried and killed)
 

@@ -45,7 +45,8 @@ Single accent: **Emerald**. The color of "this one's worth your time."
 | **Mono label** | JetBrains Mono | `font-mono text-[10px] uppercase tracking-widest text-gray-400` |
 | **Mono data** | JetBrains Mono | `font-mono text-xs text-gray-500` |
 | **Mono accent label** | JetBrains Mono | `font-mono text-xs tracking-widest uppercase text-emerald-600` |
-| **Score** | JetBrains Mono | `font-mono text-sm font-semibold` |
+| **Score (inline)** | JetBrains Mono | `font-mono text-sm font-semibold` |
+| **Score (dashboard)** | JetBrains Mono | `font-mono text-lg font-semibold` (needs prominence in job list) |
 
 ### Banned
 - Inter font
@@ -61,6 +62,8 @@ Single accent: **Emerald**. The color of "this one's worth your time."
   - Active: `active:translate-y-0 active:scale-[0.98]` (tactile push)
 - **Secondary:** `rounded-full border border-gray-300 px-7 py-3 text-sm font-medium text-gray-600 hover:bg-white`
 - **Accent:** `rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white`
+- **Card-level actions:** `rounded-full px-4 py-1.5 text-xs font-medium` — smaller than page CTAs. Used inside expanded cards for tools (tailor, download, cover letter).
+- All `<button>` elements: explicit `cursor-pointer` (Tailwind v4 reset removes it). Disabled buttons: `disabled:cursor-not-allowed`.
 - No outer glows, no neon shadows, no custom cursors
 
 ### Navigation
@@ -129,8 +132,75 @@ These are the rules for when to use cards vs flat layouts. Getting this wrong is
 - **No framer-motion** — 512MB VM, CSS is sufficient at MOTION_INTENSITY 6
 - **Hardware only:** Animate `transform` and `opacity` exclusively
 
-## 8. Anti-Patterns (Banned)
+## 8. Interaction Patterns
 
+### Optimistic by default
+All user actions update the UI immediately. API calls fire in the background. On failure, revert and refetch.
+
+A job search tool is used in rapid triage mode — save, skip, save, skip. Any latency between click and response breaks flow.
+
+| Pattern | When | Example |
+|---------|------|--------|
+| Optimistic update | User actions on existing data | Save/skip/applied → local state → API → revert on error |
+| Fire-and-forget | Low-stakes tracking | Mark viewed → no await, silent failure OK |
+| Blocking + spinner | Slow generation (10-15s) | Tailor resume, generate cover letter |
+| Skeleton shimmer | Initial page load | Job list, profile sections |
+
+### Job card state axes
+Jobs have independent axes of state. Each must be visually distinct and never confused with another.
+
+| Axis | States | Signal |
+|------|--------|--------|
+| **Freshness** | New (latest run) / Old | `New` pill badge |
+| **Read status** | Unread / Read | Font weight + text darkness |
+| **Triage** | Inbox / Saved / Applied / Skipped | Status badge |
+| **Availability** | Open / Closed | `opacity-40` wash |
+
+**Read/unread treatment:**
+
+| Element | Unread | Read |
+|---------|--------|------|
+| Title | `font-semibold text-gray-900` | `font-normal text-gray-700` |
+| Company/location | `text-gray-600` | `text-gray-500` |
+| Score number | `font-bold` | `font-semibold` |
+| Condensed intel | `text-gray-400` | `text-gray-400` |
+
+**Key rule:** Read ≠ Closed. Read items stay fully visible with reduced weight. Only closed/skipped get `opacity-40`.
+
+### Badge progression
+Visual weight matches commitment level:
+
+`New` (info fill) → `Saved` (outlined) → `Applied` (solid fill) → `Skipped` (ghost text only)
+
+### Clearable badges
+Two kinds of badges: **system** (informational) and **user-set** (actionable).
+
+| Badge | Type | On hover |
+|-------|------|----------|
+| New | System | Nothing — not interactive |
+| Recruiter | System | Nothing — not interactive |
+| Saved | User-set | Shows × , click clears status |
+| Applied | User-set | Shows × , click clears status |
+| Skipped | User-set | Shows × , click clears status |
+| Closed | User-set | Shows × , click toggles |
+
+**Pattern:** User-set badges are `<button>` not `<span>`. On hover, label fades to `×` and colors shift to red. Click clears/toggles. Uses `group/badge` with:
+- Label: `group-hover/badge:invisible` (keeps layout width, prevents jump)
+- ×: `absolute inset-0 flex items-center justify-center opacity-0 group-hover/badge:opacity-100 transition-opacity`
+
+**Never use `hidden`/`inline` swap for hover content** — it causes layout shift. Always `invisible` + absolute overlay.
+
+**Why:** Users need to undo triage decisions without opening the card. The × appears only on hover — zero visual clutter at rest.
+
+## 9. Anti-Patterns (Banned)
+
+### Interaction
+- No blocking UI on status changes (save/skip) — always optimistic
+- No refetching entire list after single-item action — update local state
+- No using opacity for "read" state — reserved for closed/skipped
+- No color as the only differentiator — always pair with weight, border, or icon
+
+### Visual
 - No emojis in UI — use Phosphor icons or plain text
 - No Inter font
 - No pure black (#000000)
@@ -149,7 +219,7 @@ These are the rules for when to use cards vs flat layouts. Getting this wrong is
 - No framer-motion (VM constraint)
 - No warm grays (stone palette) — zinc only
 
-## 9. Page Inventory
+## 10. Page Inventory
 
 | Page | Layout | Status |
 |------|--------|--------|

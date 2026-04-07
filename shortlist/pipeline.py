@@ -491,6 +491,25 @@ def run_pipeline_pg(
     _ensure_llm(config)
     conn = pgdb.get_pg_connection(db_url)
     pgdb.ensure_nextplay_cache_table(conn)
+    pgdb.ensure_career_page_sources_table(conn)
+
+    # Drain any jobs stuck in 'new' from previous failed/cancelled runs
+    _orphan_new = pgdb.fetch_jobs(conn, user_id, "new")
+    if _orphan_new:
+        logger.info(f"Draining {len(_orphan_new)} orphaned 'new' jobs from prior runs")
+        _orphan_passed = 0
+        _orphan_rejected = 0
+        for _row in _orphan_new:
+            from shortlist.processors.filter import apply_hard_filters
+            _result = apply_hard_filters(_row_to_raw_job(_row), config)
+            if _result.passed:
+                pgdb.update_job(conn, _row["id"], status="filtered")
+                _orphan_passed += 1
+            else:
+                pgdb.update_job(conn, _row["id"], status="rejected", reject_reason=_result.reason)
+                _orphan_rejected += 1
+        conn.commit()
+        logger.info(f"Orphan drain: {_orphan_passed} filtered, {_orphan_rejected} rejected")
 
     # Surface HTTP 429s / backoff to the UI via on_progress
     from shortlist import http as _http
@@ -558,10 +577,11 @@ def run_pipeline_pg(
 
     _sources_scored = 0
 
-    def _score_filtered():
+    def _score_filtered(budget_override: int | None = None):
         """Score filtered jobs. Returns (scored, matches, visible).
-        
-        Reserves budget for remaining sources so no single source hogs all scoring.
+
+        When called from a source: reserves budget across remaining sources.
+        When called with budget_override (backlog pass): uses that budget directly.
         """
         _check_cancel()
         nonlocal llm_calls, jobs_scored_so_far, _sources_scored
@@ -569,10 +589,13 @@ def run_pipeline_pg(
         if remaining <= 0:
             return 0, 0, 0
 
-        # Reserve budget for sources that haven't scored yet
-        sources_left = max(len(collectors) - _sources_scored, 1)
-        per_source_budget = max(remaining // sources_left, 20)
-        _sources_scored += 1
+        if budget_override is not None:
+            per_source_budget = min(budget_override, remaining)
+        else:
+            # Reserve budget for sources that haven't scored yet
+            sources_left = max(len(collectors) - _sources_scored, 1)
+            per_source_budget = max(remaining // sources_left, 20)
+            _sources_scored += 1
 
         filtered_jobs = pgdb.fetch_jobs(
             conn, user_id, "filtered",
@@ -594,7 +617,7 @@ def run_pipeline_pg(
                   total=jobs_scored_so_far + total)
 
         score_results = score_jobs_parallel(
-            score_inputs, config, max_workers=2,
+            score_inputs, config, max_workers=4,
             on_scored=_on_scored, cancel_event=cancel_event,
         )
         _check_cancel()
@@ -841,6 +864,49 @@ def run_pipeline_pg(
         else:
             _process_collected(name, result, source_start, needs_desc)
 
+    # === Curated career page sources ===
+    from shortlist.collectors.curated import CuratedSourcesCollector
+    curated_sources = pgdb.get_active_career_page_sources(conn)
+    if curated_sources:
+        _emit(on_progress, f"Fetching {len(curated_sources)} curated sources…",
+              phase="searching", detail=f"Fetching curated sources…")
+
+        def _on_curated_fetched(career_url, jobs, error):
+            pgdb.update_career_page_source_after_fetch(
+                conn, career_url=career_url, jobs_found=len(jobs), fetch_error=error
+            )
+            for job in jobs:
+                pgdb.upsert_job(conn, user_id, job)
+
+        curated_collector = CuratedSourcesCollector(
+            curated_sources, on_fetched=_on_curated_fetched
+        )
+        curated_jobs = curated_collector.fetch_new()
+        if curated_jobs:
+            jobs_collected += len(curated_jobs)
+            logger.info(f"Curated sources: {len(curated_jobs)} jobs collected")
+            passed, rejected = _filter_new_jobs()
+            logger.info(f"Curated sources: {passed} passed filters, {rejected} rejected")
+        conn.commit()
+
+    # === Score remaining filtered backlog ===
+    # Sources only score when they produce new filtered jobs (passed > 0).
+    # Jobs filtered by the orphan drain or prior runs stay in 'filtered' forever
+    # unless we explicitly score them here.
+    _backlog = pgdb.fetch_jobs(conn, user_id, "filtered", limit=1)
+    if _backlog and jobs_scored_so_far < max_jobs:
+        _remaining = max_jobs - jobs_scored_so_far
+        logger.info(f"Scoring backlog: {_remaining} budget remaining, fetching filtered jobs")
+        _emit(on_progress, f"Scoring backlog…", phase="scoring", detail=f"Scoring backlog…")
+        scored, matches, vis = _score_filtered(budget_override=_remaining)
+        total_scored += scored
+        total_matches += matches
+        visible_matches += vis
+        if vis > 0:
+            _emit(on_progress, f"Backlog: {vis} new matches",
+                  phase="scoring", detail=f"Backlog: {vis} new matches")
+        logger.info(f"Backlog scoring: {scored} scored, {vis} new matches")
+
     # === Discover career pages ===
     companies_to_probe = pgdb.fetch_companies(
         conn, user_id,
@@ -959,7 +1025,11 @@ def _get_collectors(config: Config | None = None, db: sqlite3.Connection | None 
             time_filter="r604800", location=linkedin_location,
         )
 
-    collectors["nextplay"] = NextPlayCollector(db=db, pg_db_url=pg_db_url)
+    from shortlist.collectors.nextplay import _is_leadership_role
+    collectors["nextplay"] = NextPlayCollector(
+        db=db, pg_db_url=pg_db_url,
+        title_filter=_is_leadership_role,
+    )
 
     return collectors
 

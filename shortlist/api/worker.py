@@ -126,7 +126,7 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
             ),
             llm=LLMConfig(
                 model=config.get("llm", {}).get("model", "gemini-2.0-flash"),
-                max_jobs_per_run=150,
+                max_jobs_per_run=500,
             ),
         )
 

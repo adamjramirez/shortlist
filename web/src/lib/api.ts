@@ -149,6 +149,15 @@ export const jobs = {
 
   get: (id: number) => request<JobDetail>(`/jobs/${id}`),
 
+  markViewed: (id: number) => {
+    // Fire-and-forget — don't await, don't block UI
+    const token = getToken();
+    fetch(`${API_BASE}/jobs/${id}/view`, {
+      method: "PATCH",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }).catch(() => {}); // silently ignore errors
+  },
+
   updateStatus: (id: number, status: string) =>
     request<JobDetail>(`/jobs/${id}/status`, {
       method: "PUT",

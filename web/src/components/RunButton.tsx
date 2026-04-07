@@ -270,7 +270,7 @@ export default function RunButton({ onComplete, onProgress, onActiveChange }: Pr
         <div className="flex items-center gap-3">
           <button
             onClick={handleRun}
-            className="rounded-full bg-gray-900 px-6 py-2.5 text-sm font-medium text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98]"
+            className="rounded-full bg-gray-900 px-7 py-3 text-sm font-medium text-white transition-all hover:-translate-y-[1px] active:translate-y-0 active:scale-[0.98]"
           >
             Run now
           </button>

@@ -29,6 +29,19 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# NextPlay probes entire ATS boards (all open roles at a company).
+# Filter to leadership roles only — IC/sales/marketing roles are noise.
+_LEADERSHIP_RE = re.compile(
+    r'\b(vp|svp|evp|cto|cpo|coo|ciso|chief|head\s+of|director|'
+    r'general\s+manager|president|partner)\b',
+    re.IGNORECASE
+)
+
+
+def _is_leadership_role(title: str) -> bool:
+    """True if the job title suggests a leadership/executive role."""
+    return bool(_LEADERSHIP_RE.search(title))
+
 
 def _raw_job_from_cache_dict(d: dict) -> RawJob:
     """Reconstruct a RawJob from a cached dict, handling old/new formats."""
@@ -107,10 +120,12 @@ class NextPlayCollector:
 
     def __init__(self, substack_sid: str | None = None, max_articles: int = 10,
                  probe_ats: bool = True, db: sqlite3.Connection | None = None,
-                 on_progress: callable = None, pg_db_url: str | None = None):
+                 on_progress: callable = None, pg_db_url: str | None = None,
+                 title_filter=None):
         self.substack_sid = substack_sid or os.getenv("SUBSTACK_SID", "")
         self.max_articles = max_articles
         self.probe_ats = probe_ats
+        self.title_filter = title_filter  # Optional per-user filter applied after caching
         self.db = db
         self.on_progress = on_progress
         self.pg_db_url = pg_db_url  # For system-level ATS cache
@@ -191,6 +206,11 @@ class NextPlayCollector:
             _progress(f"Fetching career page {i}/{len(ats_urls)}")
             try:
                 jobs = fetch_career_page(url)
+                if self.title_filter:
+                    before = len(jobs)
+                    jobs = [j for j in jobs if self.title_filter(j.title)]
+                    if before != len(jobs):
+                        logger.debug(f"NextPlay ATS: {url} filtered {before} \u2192 {len(jobs)} jobs")
                 all_jobs.extend(jobs)
             except Exception as e:
                 logger.warning(f"NextPlay: failed to fetch {url}: {e}")
@@ -424,7 +444,9 @@ class NextPlayCollector:
                     return domain, []
                 self._seen_slugs.add(key)
 
-                # Fetch jobs from discovered ATS
+                # Fetch jobs from discovered ATS.
+                # Cache stores ALL jobs (system-wide, unfiltered).
+                # Per-user filtering happens in _probe_homepages after this returns.
                 fetcher = FETCHERS.get(ats)
                 jobs = []
                 if fetcher:
@@ -460,6 +482,13 @@ class NextPlayCollector:
                 try:
                     domain, jobs = future.result()
                     if jobs:
+                        # Cache is already populated inside _probe_one (unfiltered, system-wide).
+                        # Apply per-user title filter here, on the in-memory objects only.
+                        if self.title_filter:
+                            before = len(jobs)
+                            jobs = [j for j in jobs if self.title_filter(j.title)]
+                            if before != len(jobs):
+                                logger.debug(f"NextPlay: {domain} filtered {before} → {len(jobs)} jobs")
                         all_jobs.extend(jobs)
                 except Exception as e:
                     logger.warning(f"NextPlay probe failed: {e}")

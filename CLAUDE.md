@@ -72,13 +72,13 @@ User clicks "Run now"
 |------|-------|
 | API core | `api/{app,auth,schemas,models,db,deps,crypto}.py` |
 | Routes | `api/routes/{auth,profile,resumes,runs,jobs,tailor}.py` |
-| Worker | `api/worker.py` (in-process, max_jobs_per_run=150) |
+| Worker | `api/worker.py` (in-process, max_jobs_per_run=500) |
 | Storage | `api/storage.py` (Tigris prod, InMemory test) |
 | LLM client | `api/llm_client.py` (profile generation — 7 models registered) |
 | Pipeline | `pipeline.py` (`run_pipeline_pg()` — PG-native) |
 | PG layer | `pgdb.py` (sync psycopg2, nextplay_cache CRUD) |
 | LLM | `llm.py` (subprocess+curl for Gemini, `json_schema` optional param) |
-| Collectors | `collectors/{hn,linkedin,nextplay,career_page}.py` |
+| Collectors | `collectors/{hn,linkedin,nextplay,career_page,curated}.py` |
 | Processors | `processors/{filter,scorer,enricher,resume,cover_letter,latex_compiler}.py` |
 
 ### Frontend Structure
@@ -103,6 +103,7 @@ User clicks "Run now"
 | `jobs` | Scored jobs (fit_score, enrichment, interest_note, cover_letter, career_page_url, tailored_resume_key, tailored_resume_pdf_key, posted_at, is_closed, user_status, viewed_at, run_id) |
 | `companies` | Enrichment cache (30-day TTL) |
 | `nextplay_cache` | System-level ATS discovery cache (24h TTL, shared across users) |
+| `career_page_sources` | System-wide curated career page URLs with state machine (active/closed/invalid). Shared across all users. Auto-closes after 3 consecutive empty fetches. |
 
 ### PDF Resume + LaTeX Compilation
 
@@ -137,7 +138,11 @@ LaTeX user uploads .tex
 - **subprocess+curl for Gemini** — httpx sync crashes in asyncio.to_thread on Fly.io
 - **Cancel via threading.Event + DB polling** — flush loop checks DB every 2s
 - **Rate limiter slot reservation** — lock held microseconds, not during sleep
-- **Per-source scoring budget** — `remaining // sources_left`, minimum 20 per source
+- **Per-source scoring budget** — `remaining // sources_left`, minimum 20 per source. Scores newest jobs first (`ORDER BY first_seen DESC`). Old jobs with low `first_seen` get deprioritized — cleared over multiple runs.
+- **Orphan drain at pipeline start** — `run_pipeline_pg` drains all jobs stuck in `status='new'` from prior failed/cancelled runs before collection begins. Filters and moves them to `filtered` or `rejected`. Prevents silent backlog buildup.
+- **Backlog scoring pass after collection** — `_score_filtered()` is only triggered per-source when that source produces new filtered jobs (`passed > 0`). Jobs from orphan drain or prior runs stay in `filtered` forever without an explicit backlog pass. Pipeline runs a final `_score_filtered(budget_override=remaining)` after all sources complete.
+- **Zombie run reaping** — `reap_zombie_runs()` in the scheduler tick marks any run stuck in `running` for >45 min as `failed`. OOM kills prevent `finally` blocks from running, leaving runs in `running` permanently, blocking the scheduler's `NOT EXISTS` check. Reaper runs at the start of every tick.
+- **Per-user title filter on NextPlay collector** — `NextPlayCollector(title_filter=_is_leadership_role)` filters jobs from ALL NextPlay paths (step 1 ATS URLs + steps 2/3 `_probe_homepages`) AFTER caching. Cache stores all jobs unfiltered (system-wide). Filter is applied on in-memory objects only before extending `all_jobs`.
 - **Score threshold 75 for visibility** — SCORE_SAVED=60 (DB), SCORE_VISIBLE=75 (API), SCORE_STRONG=85
 - **`score_reasoning` in JobSummary** — visible in expanded view (moved from collapsed to reduce density)
 - **`is_new` based on `run_id`** — job's `run_id` matches user's latest non-failed/cancelled run. Replaces old `brief_count == 0` logic. `brief_count` deprecated (still in schema, no longer incremented).
@@ -157,6 +162,8 @@ LaTeX user uploads .tex
 - **Per-item try/except in pipeline loops** — enrichment + interest note loops catch per-job errors so one failure doesn't kill the run
 - **`resolve_*(config, ...)` pattern** — extract business logic from async workers into pure named functions (`resolve_fit_context`, etc.) so they can be unit-tested without any async/DB setup. The worker calls them; the tests import them directly.
 - **Supplement-not-replace for external context** — when an external source (AWW, future integrations) can enrich `fit_context`, append with a labelled separator (`## Additional Context (from AWW)\n`) rather than replacing. User's data is always first and always preserved. Toggle via a dedicated boolean (`use_aww_slice`).
+- **Curated sources state machine** — `career_page_sources` table stores manually-added career pages with `status: active | closed | invalid`. Auto-closes at `consecutive_empty >= 3`. Pipeline feeds from active entries via `CuratedSourcesCollector`. Seed new lists via `pgdb.bulk_add_career_page_sources()` with a `source` attribution string (e.g. `'ben_lang_2026-04-07'`).
+- **Scoring parallelism** — PG pipeline uses `max_workers=4` for LLM scoring (was 2 before 1GB VM upgrade). Each job gets its own isolated LLM call — no batching, no cross-contamination. Increasing workers beyond 4–6 risks Gemini rate limits on free tier.
 
 ### Cover Letter Pipeline (3 layers)
 
@@ -185,7 +192,7 @@ Profile config stores:
 
 ## Testing
 
-- **644 tests**, ~31s, all unit tests
+- **532 tests** (non-API), ~22s — API tests require extra deps not available locally
 - All tests mock `shortlist.http._wait` to disable rate limiting
 - Pipeline tests mock scoring/enrichment (not individual functions)
 - API tests use async SQLAlchemy with in-memory SQLite
@@ -203,7 +210,8 @@ fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB ac
 
 **Fly secrets:** DATABASE_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL_S3, AWS_REGION, BUCKET_NAME, TIGRIS_BUCKET, ENCRYPTION_KEY, JWT_SECRET, FLY_WORKER_TOKEN, PROXY_URL, PROXY_URLS, GEMINI_API_KEY
 
-**VM:** shared-cpu-1x / 512MB  
+**App VM:** shared-cpu-1x / 1024MB (scaled from 512MB 2026-04-07)  
+**DB VM:** shared-cpu-1x / 1024MB (scaled from 512MB 2026-04-07 after OOM)  
 **Memory tuning:** Node.js capped at 192MB (`--max-old-space-size=192`), uvicorn recycles after 10k requests (`--limit-max-requests 10000`)  
 **Domain:** shortlist.addslift.com (CNAME → fly.dev)
 
@@ -212,6 +220,10 @@ fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB ac
 ## Common Mistakes to Avoid
 
 - ❌ Making HTTP calls without going through `shortlist.http` — breaks rate limiting
+- ❌ Using `callable` (built-in function) as a type annotation — `callable | None` raises `TypeError` at class definition time. Use bare `= None` with no annotation, or `from typing import Callable` and use `Callable | None`.
+- ❌ Applying a collector-level filter before caching system-wide data — the `nextplay_cache` is shared across all users. Filtering before caching poisons it for other users with different role targets. Filter AFTER caching, on the in-memory objects only.
+- ❌ Assuming one OOM fix covers all code paths — NextPlay has two job-fetching paths (step 1: sequential ATS URL loop; steps 2/3: parallel `_probe_homepages`). A filter in one path doesn't protect the other.
+- ❌ Assuming the process can update DB state on OOM kill — when the OS kills the process, `finally` blocks never run. Any state that must survive a kill needs an external watchdog (e.g., scheduler zombie reaper).
 - ❌ Using `source` column (doesn't exist) — it's `sources_seen` (JSON array)
 - ❌ Calling httpx/urllib sync from threads inside asyncio.to_thread on Fly.io — use subprocess+curl
 - ❌ Using gemini-2.5-flash for scoring — extended thinking makes it hang 60s+. Use 2.0-flash.
@@ -254,3 +266,8 @@ fly postgres connect --app shortlist-db --database shortlist_web  # Direct DB ac
 - ❌ Using `json || jsonb_build_object` on PostgreSQL `json` columns — the `||` merge operator only works on `jsonb`. The `profiles.config` column is `json`. Use Python read-modify-write (`SELECT config`, mutate dict, `UPDATE profiles SET config = %s`) instead of trying to merge in SQL.
 - ❌ Leaving dead local variables after extracting logic to a helper — if `resolve_fit_context(config, aww_content)` reads `fit_context` from config internally, remove any `fit_context = config.get(...)` the caller computed before calling it. Extract means the helper owns the logic.
 - ❌ Assuming external context sources (AWW slice) supplement user data — AWW slice was silently replacing `fit_context` with no user visibility. Any external data source that modifies user config needs: (a) an explicit enable/disable toggle, (b) supplement-not-replace semantics, (c) visible indication of what the scorer actually receives.
+- ❌ Running multi-line Python scripts via `fly ssh console -C` with shell string escaping — quote nesting always breaks. Always base64-encode: `python3 -c "import base64,os; exec(base64.b64decode('...').decode())"`. Generate the encoded string locally first.
+- ❌ Assuming `scripts/` directory is available inside the container — Dockerfile only copies `shortlist/`, `alembic/`. Scripts must be run inline (base64-encoded) or added to Dockerfile COPY.
+- ❌ Treating a DB OOM error as data corruption — a `"Bad control character in JSON"` error after a Postgres OOM is almost certainly a transient failure during the crash, not bad data. Verify DB health first, check actual stored data before investigating encoding.
+- ❌ Assuming `upsert_job` resets status on existing rows — it only updates `last_seen`, `sources_seen`, `posted_at`. Jobs stuck in `new` from cancelled runs stay `new` forever unless explicitly drained. The pipeline now has an orphan drain at startup to prevent backlog buildup.
+- ❌ Treating the DB VM and app VM as one unit — they are separate Fly machines that must be scaled independently. `fly machine update [machineID] --vm-memory [mb] --app shortlist-db` for the DB.

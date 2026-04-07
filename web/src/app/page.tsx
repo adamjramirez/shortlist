@@ -362,7 +362,7 @@ function Dashboard() {
 
   const statusPills: { key: string | undefined; label: string; count?: number }[] = [
     { key: undefined, label: "All", count: counts ? counts.new + counts.saved + counts.applied + counts.skipped : undefined },
-    { key: "new", label: "New", count: counts?.new },
+    { key: "new", label: "Inbox", count: counts?.new },
     { key: "saved", label: "Saved", count: counts?.saved },
     { key: "applied", label: "Applied", count: counts?.applied },
     { key: "skipped", label: "Skipped", count: counts?.skipped },
@@ -372,12 +372,12 @@ function Dashboard() {
     <div>
       {/* Header — data-led */}
       <div className="mb-6 animate-fade-up">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tighter text-gray-900">{total} matches</h1>
             {counts && (
               <p className="font-mono text-xs text-gray-400 mt-1">
-                {counts.new > 0 && <span className="text-emerald-600">{counts.new} new</span>}
+                {counts.new > 0 && <span className="text-emerald-600">{counts.new} to review</span>}
                 {counts.new > 0 && counts.saved > 0 && <span> &middot; </span>}
                 {counts.saved > 0 && <span>{counts.saved} saved</span>}
                 {(counts.new > 0 || counts.saved > 0) && counts.applied > 0 && <span> &middot; </span>}
@@ -391,7 +391,7 @@ function Dashboard() {
               onChange={(e) =>
                 { const v = e.target.value ? Number(e.target.value) : undefined; setMinScore(v); setPage(1); analytics.filterChanged("min_score", v); }
               }
-              className="rounded-full border border-gray-300 px-3 py-1.5 text-xs bg-white"
+              className="rounded-full border border-gray-300 px-3 py-1.5 text-sm text-gray-600 bg-white"
             >
               <option value={SCORE_VISIBLE}>{SCORE_VISIBLE}+</option>
               <option value={SCORE_STRONG}>{SCORE_STRONG}+ strong</option>
@@ -400,7 +400,7 @@ function Dashboard() {
               <select
                 value={track ?? ""}
                 onChange={(e) => { setTrack(e.target.value || undefined); setPage(1); analytics.filterChanged("track", e.target.value || "all"); }}
-                className="rounded-full border border-gray-300 px-3 py-1.5 text-xs bg-white"
+                className="rounded-full border border-gray-300 px-3 py-1.5 text-sm text-gray-600 bg-white"
               >
                 <option value="">All roles</option>
                 {tracks.map((t) => (
@@ -420,7 +420,7 @@ function Dashboard() {
             <button
               key={pill.key ?? "all"}
               onClick={() => { setStatusFilter(pill.key); setPage(1); analytics.filterChanged("status", pill.key || "all"); }}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
                 statusFilter === pill.key
                   ? "bg-gray-900 text-white"
                   : "border border-gray-300 text-gray-600 hover:bg-white"
@@ -440,15 +440,50 @@ function Dashboard() {
               ? "Searching \u2014 matches will appear here as they\u2019re found\u2026"
               : "No jobs yet. Click \u201cRun now\u201d to start your first search."}
           </p>
+          {!runActive && (
+            <Link href="/profile" className="inline-block mt-3 font-mono text-sm text-emerald-600 hover:text-emerald-700 transition-colors">
+              Check your profile &rarr;
+            </Link>
+          )}
         </div>
       ) : (
         <>
-          <div>
+          <div className="divide-y divide-gray-200/60">
             {jobList.map((job) => (
-              <div key={job.id} className="border-b border-gray-200">
+              <div key={job.id}>
               <JobCard
                 job={job}
-                onStatusChange={() => loadData()}
+                onStatusChange={(id, status) => {
+                  if (status === "__refresh") { loadData(); return; }
+                  // Optimistic update
+                  setJobs(prev => prev.map(j => {
+                    if (j.id !== id) return j;
+                    if (status === "closed") return { ...j, is_closed: !j.is_closed };
+                    if (status === "clear") return { ...j, user_status: null };
+                    return { ...j, user_status: status };
+                  }));
+                  // Update counts optimistically
+                  setCounts(prev => {
+                    if (!prev) return prev;
+                    const job = jobList.find(j => j.id === id);
+                    if (!job) return prev;
+                    const oldStatus = job.user_status; // null = "new" bucket
+                    const next = { ...prev };
+                    if (status === "closed" || status === "clear" || status === "__refresh") {
+                      // For clear: move back to new
+                      if (status === "clear" && oldStatus) {
+                        next[oldStatus as keyof JobStatusCounts] = Math.max(0, (next[oldStatus as keyof JobStatusCounts] || 0) - 1);
+                        next.new += 1;
+                      }
+                      return next;
+                    }
+                    // Moving from old bucket to new bucket
+                    const oldKey = oldStatus || "new";
+                    if (oldKey in next) next[oldKey as keyof JobStatusCounts] = Math.max(0, (next[oldKey as keyof JobStatusCounts] || 0) - 1);
+                    if (status in next) next[status as keyof JobStatusCounts] = (next[status as keyof JobStatusCounts] || 0) + 1;
+                    return next;
+                  });
+                }}
                 availableProviders={(() => {
                   const providers = new Set(profileData?.llm?.providers_with_keys || []);
                   if (profileData?.llm?.has_api_key) {
@@ -476,9 +511,9 @@ function Dashboard() {
                   <button
                     onClick={() => { setPage((p) => Math.max(1, p - 1)); window.scrollTo(0, 0); }}
                     disabled={page <= 1}
-                    className="rounded-full border border-gray-300 px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="rounded-full border border-gray-300 w-9 h-9 flex items-center justify-center text-gray-600 hover:bg-gray-50 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
-                    Prev
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
                   </button>
                   <span className="text-sm text-gray-500 font-mono">
                     {page} / {totalPages}
@@ -486,9 +521,9 @@ function Dashboard() {
                   <button
                     onClick={() => { setPage((p) => Math.min(totalPages, p + 1)); window.scrollTo(0, 0); }}
                     disabled={page >= totalPages}
-                    className="rounded-full border border-gray-300 px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="rounded-full border border-gray-300 w-9 h-9 flex items-center justify-center text-gray-600 hover:bg-gray-50 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
-                    Next
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
                   </button>
                 </div>
               </div>

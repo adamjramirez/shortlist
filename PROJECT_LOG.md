@@ -6,7 +6,50 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**AWW toggle shipped. Updating fit_context from ~/Code/profile/ next.**
+**Pipeline stable and self-healing. Backlog cleared (14 filtered remaining). 187 scored matches in inbox. CV title update still pending.**
+
+## 2026-04-07 — Pipeline stability: backlog scoring, NextPlay OOM, zombie runs
+
+**What got done:**
+1. **Backlog scoring bug fixed** — `_score_filtered()` only fired when a source produced new filtered jobs. Orphan drain output (and all prior-run filtered jobs) never triggered scoring. Added explicit backlog pass after all sources complete: `_score_filtered(budget_override=remaining)`.
+2. **NextPlay OOM fixed (properly)** — NextPlay fetches ALL roles from ATS boards (1,595 jobs from 26 boards). Root cause: no role-level filtering. Fixed via `title_filter` callback on `NextPlayCollector` — applied AFTER caching (cache stays unfiltered/system-wide), on in-memory objects in both code paths (step 1 sequential ATS loop + steps 2/3 parallel `_probe_homepages`). 27 tests.
+3. **Zombie run detection** — OOM kills prevent `finally` blocks, leaving runs in `running` forever, blocking all future auto-runs. `reap_zombie_runs()` in scheduler tick marks any run `running` for >45min as `failed`. 5 tests.
+4. **Backlog cleared** — ran 6 manual triggers to clear 1,964 filtered backlog. Final state: 14 filtered, 187 scored (visible), pipeline stable.
+
+**Key decisions:**
+- Filter after cache, not before — system-wide cache must stay complete for future users
+- `title_filter` as callback (not hardcoded) — future users with different role targets pass their own filter or None
+- 45-min zombie timeout — longest normal run is ~10 min; 45 gives headroom without leaving real zombies
+- Zombie reaper in same transaction as `trigger_due_users` — atomic: reap then schedule
+
+**What's next:**
+- CV title update — brief at `cv-new/BRIEF-title-update.md`
+- Re-upload corrected CV after CV agent
+- Pipeline now self-healing; auto-run handles everything from here
+
+## 2026-04-07 — fit_context, curated sources, orphan drain, scoring upgrades
+
+**What got done:**
+1. **fit_context rewritten** — 7,474 chars synthesized from goals.md, guardrails.md, ai-skills-mapping.md, profile.md. Includes: Senior Director title, VP/CTO target, AI-native 5-criteria definition, 7 AI skills with evidence, Panora 3/3 outcome agent score, Howdy BBQ founder credibility, German/global operator context, hard nos, comp targets ($350K–$600K).
+2. **Tracks updated** — replaced stale queries with `vp_engineering` (VP of Engineering, Head of Engineering, VP Engineering, SVP Engineering, VP of Technology) and `cto_ai_leadership` (CTO, Chief Technology Officer, Head of AI Engineering, VP AI Engineering, VP of AI).
+3. **DB OOM fixed** — postgres VM OOM killed, scaled 512MB→1024MB (`fly machine update e827d10fe59778 --vm-memory 1024 --app shortlist-db`).
+4. **Curated career page sources** — new `career_page_sources` table (migration 010), `CuratedSourcesCollector`, pipeline integration. State machine: active/closed/invalid, auto-close at 3 consecutive empty fetches. 20 new tests.
+5. **Ben Lang's 35 companies seeded** — from April 7 2026 LinkedIn post (ben_lang_2026-04-07). 5 Ashby slugs (Momentic, Grotto AI, Foundry Robotics, ATG, Baba) + 30 direct pages.
+6. **Orphan drain** — added at pipeline startup. Drains jobs stuck in `status='new'` from cancelled runs before collection. First run drained 673 stuck jobs (480 filtered, 193 rejected).
+7. **Scoring budget** — increased from 150→500 jobs/run. Workers 2→4 (safe with 1GB VM).
+
+**Key decisions:**
+- App VM already 1024MB; DB VM was still 512MB — both now 1024MB
+- `career_page_sources` is system-wide (no user_id) — curated lists benefit all users
+- Orphan drain runs at start of every PG pipeline run — prevents silent backlog from cancelled runs
+- `max_workers=4` for LLM scoring — each job gets its own isolated call, no batching
+- Scoring fetches `ORDER BY first_seen DESC` — newest jobs scored first; old backlog clears over multiple runs
+
+**What's next:**
+- CV title update — brief at `cv-new/BRIEF-title-update.md`, all 4 .tex files need title correction
+- Re-upload corrected CV to Shortlist after CV agent completes
+- Monitor next auto-run (12h) for quality of matches against new fit_context + tracks
+- Consider adding Harmonic.ai as a data source for curated company lists
 
 ## 2026-04-07 — AWW toggle + use_aww_slice
 

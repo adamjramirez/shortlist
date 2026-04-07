@@ -84,6 +84,9 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
   const [copied, setCopied] = useState(false);
   const [clModel, setClModel] = useState("");
   const [compilingPdf, setCompilingPdf] = useState(false);
+  const [localViewed, setLocalViewed] = useState(false);
+
+  const isUnread = !job.viewed_at && !localViewed;
 
   const handleExpand = async () => {
     if (expanded) { setExpanded(false); return; }
@@ -93,6 +96,10 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
       finally { setLoading(false); }
     }
     setExpanded(true);
+    if (isUnread) {
+      setLocalViewed(true);
+      jobsApi.markViewed(job.id);
+    }
     analytics.jobExpanded(job.id, job.fit_score, job.company);
   };
 
@@ -103,10 +110,14 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
     }
   };
 
-  const handleStatus = async (status: string) => {
-    await jobsApi.updateStatus(job.id, status);
-    analytics.jobStatusChanged(job.id, status, job.company);
+  const handleStatus = (status: string) => {
+    // Optimistic — notify parent immediately, fire API in background
     onStatusChange?.(job.id, status);
+    analytics.jobStatusChanged(job.id, status, job.company);
+    jobsApi.updateStatus(job.id, status).catch(() => {
+      // Revert on failure — refetch
+      onStatusChange?.(job.id, "__refresh");
+    });
   };
 
   const salary = formatSalary(job.salary_estimate);
@@ -145,13 +156,13 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
         onKeyDown={handleKeyDown}
         className="w-full text-left py-5 grid grid-cols-[3rem_1fr_auto] gap-x-4 items-start hover:bg-gray-100 -mx-3 px-3 rounded-lg transition-colors cursor-pointer group"
       >
-        <span className={`font-mono text-lg font-semibold text-right leading-tight ${scoreColor(job.fit_score)}`}>
+        <span className={`font-mono text-lg text-right leading-tight ${isUnread ? "font-bold" : "font-semibold"} ${scoreColor(job.fit_score)}`}>
           {job.fit_score ?? "--"}
         </span>
         <div className="min-w-0">
           {/* Line 1: Title left, salary right */}
           <div className="flex items-baseline justify-between gap-x-4">
-            <span className="font-semibold text-gray-900 truncate">{job.title}</span>
+            <span className={`truncate ${isUnread ? "font-semibold text-gray-900" : "font-normal text-gray-700"}`}>{job.title}</span>
             {salary && (
               <span className="font-mono text-sm font-medium text-gray-700 shrink-0">{salary}</span>
             )}
@@ -159,7 +170,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
 
           {/* Line 2: Company + location + age left, badges right */}
           <div className="flex items-center justify-between gap-x-3 mt-1">
-            <div className="flex flex-wrap items-center gap-x-2 text-sm text-gray-500 min-w-0">
+            <div className={`flex flex-wrap items-center gap-x-2 text-sm min-w-0 ${isUnread ? "text-gray-600" : "text-gray-500"}`}>
               <span>{job.company}</span>
               {job.location && <><span className="text-gray-300">&middot;</span><span>{job.location}</span></>}
               {age && <><span className="text-gray-300">&middot;</span><span className="text-gray-400 text-xs">{age}</span></>}
@@ -172,23 +183,47 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                 <span className="font-mono text-[10px] uppercase tracking-widest text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">New</span>
               )}
               {job.user_status === "saved" && (
-                <span className="font-mono text-[10px] uppercase tracking-widest text-emerald-600 border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 rounded">Saved</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleStatus("clear"); }}
+                  className="group/badge relative font-mono text-[10px] uppercase tracking-widest text-emerald-600 border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 rounded hover:border-red-300 hover:bg-red-50 transition-colors cursor-pointer"
+                >
+                  <span className="group-hover/badge:invisible">Saved</span>
+                  <span className="absolute inset-0 flex items-center justify-center text-red-500 opacity-0 group-hover/badge:opacity-100 transition-opacity">×</span>
+                </button>
               )}
               {job.user_status === "applied" && (
-                <span className="font-mono text-[10px] uppercase tracking-widest text-white bg-emerald-600 px-1.5 py-0.5 rounded">Applied</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleStatus("clear"); }}
+                  className="group/badge relative font-mono text-[10px] uppercase tracking-widest text-white bg-emerald-600 px-1.5 py-0.5 rounded hover:bg-red-500 transition-colors cursor-pointer"
+                >
+                  <span className="group-hover/badge:invisible">Applied</span>
+                  <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/badge:opacity-100 transition-opacity">×</span>
+                </button>
               )}
               {job.user_status === "skipped" && (
-                <span className="font-mono text-[10px] uppercase tracking-widest text-gray-400">Skipped</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleStatus("clear"); }}
+                  className="group/badge relative font-mono text-[10px] uppercase tracking-widest text-gray-400 px-1.5 py-0.5 rounded hover:bg-red-50 hover:border hover:border-red-300 transition-colors cursor-pointer"
+                >
+                  <span className="group-hover/badge:invisible">Skipped</span>
+                  <span className="absolute inset-0 flex items-center justify-center text-red-500 opacity-0 group-hover/badge:opacity-100 transition-opacity">×</span>
+                </button>
               )}
               {isClosed && (
-                <span className="font-mono text-[10px] uppercase tracking-widest text-red-500 border border-red-300 bg-red-50 px-1.5 py-0.5 rounded">Closed</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleStatus("closed"); }}
+                  className="group/badge relative font-mono text-[10px] uppercase tracking-widest text-red-500 border border-red-300 bg-red-50 px-1.5 py-0.5 rounded hover:bg-red-100 transition-colors cursor-pointer"
+                >
+                  <span className="group-hover/badge:invisible">Closed</span>
+                  <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/badge:opacity-100 transition-opacity">×</span>
+                </button>
               )}
             </div>
           </div>
 
           {/* Line 3: Condensed company intel */}
           {condensedIntel && (
-            <p className="text-xs text-gray-400 mt-1.5">{condensedIntel}</p>
+            <p className="text-xs mt-1.5 text-gray-400">{condensedIntel}</p>
           )}
         </div>
 

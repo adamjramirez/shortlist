@@ -522,3 +522,92 @@ class TestFireAndUpdate:
             session_factory=session_factory,
             execute_run_fn=exploding_execute,
         )
+
+
+class TestReapZombieRuns:
+    """reap_zombie_runs marks stuck 'running' runs as 'failed'."""
+
+    @pytest.mark.asyncio
+    async def test_reaps_old_running_run(self, session, session_factory):
+        """A run stuck in 'running' beyond the timeout is marked failed."""
+        from shortlist.scheduler import reap_zombie_runs, ZOMBIE_RUN_TIMEOUT_MINUTES
+        async with session.begin():
+            user = await _make_user(session)
+            run = await _make_run(session, user, status="running")
+            # Backdate created_at beyond the timeout
+            run.created_at = _now() - timedelta(minutes=ZOMBIE_RUN_TIMEOUT_MINUTES + 1)
+
+        reaped = await reap_zombie_runs(session)
+        await session.commit()
+
+        assert reaped == 1
+        await session.refresh(run)
+        assert run.status == "failed"
+
+    @pytest.mark.asyncio
+    async def test_ignores_recent_running_run(self, session, session_factory):
+        """A run that just started is not reaped."""
+        from shortlist.scheduler import reap_zombie_runs
+        async with session.begin():
+            user = await _make_user(session)
+            run = await _make_run(session, user, status="running")
+            run.created_at = _now() - timedelta(minutes=5)
+
+        reaped = await reap_zombie_runs(session)
+        await session.commit()
+
+        assert reaped == 0
+        await session.refresh(run)
+        assert run.status == "running"
+
+    @pytest.mark.asyncio
+    async def test_ignores_completed_and_failed_runs(self, session, session_factory):
+        """Only 'running' status runs are touched."""
+        from shortlist.scheduler import reap_zombie_runs, ZOMBIE_RUN_TIMEOUT_MINUTES
+        async with session.begin():
+            user = await _make_user(session)
+            completed = await _make_run(session, user, status="completed")
+            failed = await _make_run(session, user, status="failed")
+            for r in (completed, failed):
+                r.created_at = _now() - timedelta(minutes=ZOMBIE_RUN_TIMEOUT_MINUTES + 1)
+
+        reaped = await reap_zombie_runs(session)
+        await session.commit()
+
+        assert reaped == 0
+
+    @pytest.mark.asyncio
+    async def test_reaps_multiple_zombies(self, session, session_factory):
+        """Multiple zombie runs across users are all reaped."""
+        from shortlist.scheduler import reap_zombie_runs, ZOMBIE_RUN_TIMEOUT_MINUTES
+        async with session.begin():
+            u1 = await _make_user(session, "u1@x.com")
+            u2 = await _make_user(session, "u2@x.com")
+            r1 = await _make_run(session, u1, status="running")
+            r2 = await _make_run(session, u2, status="running")
+            for r in (r1, r2):
+                r.created_at = _now() - timedelta(minutes=ZOMBIE_RUN_TIMEOUT_MINUTES + 1)
+
+        reaped = await reap_zombie_runs(session)
+        await session.commit()
+
+        assert reaped == 2
+        for r in (r1, r2):
+            await session.refresh(r)
+            assert r.status == "failed"
+
+    @pytest.mark.asyncio
+    async def test_zombie_reaped_before_trigger_due_users(self, session, session_factory):
+        """After reaping a zombie, trigger_due_users can fire for the same user."""
+        from shortlist.scheduler import reap_zombie_runs, trigger_due_users, ZOMBIE_RUN_TIMEOUT_MINUTES
+        async with session.begin():
+            user = await _make_user(session)
+            await _make_profile(session, user)
+            zombie = await _make_run(session, user, status="running")
+            zombie.created_at = _now() - timedelta(minutes=ZOMBIE_RUN_TIMEOUT_MINUTES + 1)
+
+        async with session.begin():
+            await reap_zombie_runs(session)
+            pending = await trigger_due_users(session)
+
+        assert len(pending) == 1

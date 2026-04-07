@@ -53,7 +53,7 @@ export function HistorySkeleton() {
   return (
     <div className="divide-y divide-gray-200/60 animate-fade-up">
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="py-4 flex items-baseline gap-4">
+        <div key={i} className="py-4 flex items-center gap-4">
           <Shimmer className="h-4 w-20" />
           <Shimmer className="h-4 w-32" />
           <Shimmer className="h-4 w-24" />

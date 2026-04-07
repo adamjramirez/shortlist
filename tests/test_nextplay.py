@@ -330,7 +330,7 @@ class TestProbeHomepages:
     def test_discovers_and_fetches(self, mock_gh, mock_discover):
         mock_discover.return_value = ("greenhouse", "coolstartup")
         mock_gh.return_value = [
-            RawJob(title="EM", company="coolstartup", url="u",
+            RawJob(title="VP of Engineering", company="coolstartup", url="u",
                    description="d", source="greenhouse")
         ]
         # Patch FETCHERS to use the mock
@@ -370,7 +370,7 @@ class TestCacheDeserialization:
         """New cache format uses salary_text and posted_at."""
         from shortlist.collectors.nextplay import _raw_job_from_cache_dict
         d = {
-            "title": "EM", "company": "Acme", "url": "https://acme.com",
+            "title": "VP of Engineering", "company": "Acme", "url": "https://acme.com",
             "description": "desc", "source": "greenhouse",
             "location": "Remote", "salary_text": "$200k",
             "posted_at": "2026-03-15T10:00:00+00:00",
@@ -383,7 +383,7 @@ class TestCacheDeserialization:
         """Old cache format used 'salary' instead of 'salary_text'."""
         from shortlist.collectors.nextplay import _raw_job_from_cache_dict
         d = {
-            "title": "EM", "company": "Acme", "url": "https://acme.com",
+            "title": "VP of Engineering", "company": "Acme", "url": "https://acme.com",
             "description": "desc", "source": "greenhouse",
             "location": "Remote", "salary": "$200k",
             "posted_at": "",
@@ -396,7 +396,7 @@ class TestCacheDeserialization:
         """Oldest cache format might not have posted_at at all."""
         from shortlist.collectors.nextplay import _raw_job_from_cache_dict
         d = {
-            "title": "EM", "company": "Acme", "url": "https://acme.com",
+            "title": "VP of Engineering", "company": "Acme", "url": "https://acme.com",
             "description": "desc", "source": "greenhouse",
             "location": "Remote", "salary": "$200k",
         }

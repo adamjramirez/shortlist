@@ -23,6 +23,36 @@ from shortlist.api.models import Profile, Run, User
 
 logger = logging.getLogger(__name__)
 TICK_INTERVAL = 60  # seconds
+ZOMBIE_RUN_TIMEOUT_MINUTES = 45  # runs stuck in 'running' longer than this are dead
+
+
+async def reap_zombie_runs(session: AsyncSession) -> int:
+    """Mark runs stuck in 'running' for too long as 'failed'.
+
+    Zombies occur when the process is OOM-killed mid-run — the finally block
+    in _fire_and_update never executes, leaving the run row in 'running' forever.
+    The scheduler's NOT EXISTS check then blocks all future runs for that user.
+
+    Returns the number of runs reaped.
+    """
+    from sqlalchemy import update, and_
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=ZOMBIE_RUN_TIMEOUT_MINUTES)
+    result = await session.execute(
+        update(Run)
+        .where(
+            and_(
+                Run.status == "running",
+                Run.created_at <= cutoff,
+            )
+        )
+        .values(status="failed")
+        .returning(Run.id)
+    )
+    reaped = result.fetchall()
+    if reaped:
+        ids = [r[0] for r in reaped]
+        logger.warning("Reaped %d zombie run(s): %s", len(ids), ids)
+    return len(reaped)
 
 
 async def trigger_due_users(session: AsyncSession) -> list[dict]:
@@ -180,9 +210,10 @@ async def run_scheduler() -> None:
     while True:
         await asyncio.sleep(TICK_INTERVAL)
         try:
-            # Step 1: Create run rows inside transaction
+            # Step 1: Reap zombies + create new run rows (same transaction)
             async with async_session() as session:
                 async with session.begin():
+                    await reap_zombie_runs(session)
                     pending = await trigger_due_users(session)
             # Step 2: Transaction committed — fire tasks (run rows now exist in DB)
             for meta in pending:
