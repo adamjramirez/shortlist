@@ -20,6 +20,23 @@ from shortlist.config import SCORE_VISIBLE
 logger = logging.getLogger(__name__)
 
 
+def resolve_fit_context(config: dict, aww_content: str | None) -> str:
+    """Compute the effective fit_context for a pipeline run.
+
+    AWW slice supplements (appends to) the stored fit_context rather than
+    replacing it.  Toggle with config key ``use_aww_slice`` (default True).
+    """
+    base = config.get("fit_context", "")
+    use_aww = config.get("use_aww_slice", True)
+    aww_node_id = config.get("aww_node_id", "")
+
+    if not aww_content or not use_aww or not aww_node_id:
+        return base
+
+    separator = "\n\n## Additional Context (from AWW)\n"
+    return f"{base}{separator}{aww_content}" if base else aww_content
+
+
 def _pg_sync_url(async_url: str) -> str:
     """Convert async SQLAlchemy URL to sync psycopg2 URL.
 
@@ -80,15 +97,14 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
         sal = filters_raw.get("salary", {})
         role = filters_raw.get("role_type", {})
 
-        # AWW integration: if user has an aww_node_id, pull their networking
-        # slice from the AWW server as fit_context. Falls back to stored fit_context.
+        # AWW integration: pull networking slice and supplement fit_context.
         fit_context = config.get("fit_context", "")
         aww_node_id = config.get("aww_node_id", "")
-        if aww_node_id:
+        aww_context = None
+        if aww_node_id and config.get("use_aww_slice", True):
             from shortlist.aww_client import pull_networking_slice
             aww_context = pull_networking_slice(aww_node_id)
-            if aww_context:
-                fit_context = aww_context
+        fit_context = resolve_fit_context(config, aww_context)
 
         pipeline_config = Config(
             fit_context=fit_context,
@@ -178,6 +194,7 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
                     user_id=user_id,
                     on_progress=on_progress,
                     cancel_event=cancel_event,
+                    run_id=run_id,
                 )
 
             result = await asyncio.to_thread(_run_pipeline)
@@ -202,18 +219,6 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
                 "jobs_collected": result.get("jobs_collected", 0),
             },
         )
-
-        # Mark displayed jobs as "briefed" so next run shows them as seen
-        from shortlist.api.models import Job
-        async with async_session() as session:
-            await session.execute(
-                update(Job).where(
-                    Job.user_id == user_id,
-                    Job.status == "scored",
-                    Job.fit_score >= SCORE_VISIBLE,
-                ).values(brief_count=Job.brief_count + 1)
-            )
-            await session.commit()
 
     except Exception as e:
         from shortlist.pipeline import CancelledError

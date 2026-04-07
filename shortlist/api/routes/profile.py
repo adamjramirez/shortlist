@@ -38,6 +38,7 @@ EMPTY_CONFIG = {
     "brief": {},
     "substack_sid": "",
     "aww_node_id": "",
+    "use_aww_slice": True,
 }
 
 

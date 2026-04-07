@@ -69,6 +69,7 @@ class ProfileUpdate(BaseModel):
     brief: dict | None = None
     substack_sid: str | None = None
     aww_node_id: str | None = None  # AWW node ID for pulling networking slice
+    use_aww_slice: bool | None = None  # Whether to supplement fit_context with AWW slice
     auto_run: AutoRunUpdate | None = None
 
 
@@ -81,6 +82,7 @@ class ProfileResponse(BaseModel):
     brief: dict
     substack_sid: str = ""
     aww_node_id: str = ""
+    use_aww_slice: bool = True
     auto_run: AutoRunConfig = AutoRunConfig()
 
 
