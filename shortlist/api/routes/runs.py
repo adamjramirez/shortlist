@@ -27,6 +27,7 @@ def _run_to_response(run: Run) -> RunResponse:
         started_at=run.started_at.isoformat() if run.started_at else None,
         finished_at=run.finished_at.isoformat() if run.finished_at else None,
         created_at=run.created_at.isoformat(),
+        trigger=run.trigger,
     )
 
 
@@ -76,9 +77,16 @@ async def create_run(
     if daily.scalar() >= 10:
         raise HTTPException(status_code=429, detail="Maximum 10 runs per day. Try again tomorrow.")
 
-    run = Run(user_id=user.id, status="pending")
+    run = Run(user_id=user.id, status="pending", trigger="manual")
     session.add(run)
     await session.flush()
+
+    # Push next_run_at forward so the scheduler doesn't fire immediately
+    # after a manual run when auto-run is enabled
+    if user.profile and user.profile.auto_run_enabled:
+        user.profile.next_run_at = datetime.now(timezone.utc) + timedelta(
+            hours=user.profile.auto_run_interval_h
+        )
 
     # Launch background worker
     db_url = os.environ.get("DATABASE_URL", "")

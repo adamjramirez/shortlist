@@ -39,6 +39,23 @@ class GenerateProfileResponse(BaseModel):
     filters: dict
 
 
+class AutoRunConfig(BaseModel):
+    """Auto-run state returned in profile responses."""
+    enabled: bool = False
+    interval_h: int = 12
+    next_run_at: str | None = None   # ISO string for client-side countdown
+    consecutive_failures: int = 0
+
+
+class AutoRunUpdate(BaseModel):
+    """Auto-run fields accepted in profile PUT requests.
+
+    All fields optional so callers can toggle enabled independently of interval.
+    """
+    enabled: bool | None = None
+    interval_h: int | None = None
+
+
 class ProfileUpdate(BaseModel):
     """Profile config — same shape as profile.yaml.
 
@@ -52,6 +69,7 @@ class ProfileUpdate(BaseModel):
     brief: dict | None = None
     substack_sid: str | None = None
     aww_node_id: str | None = None  # AWW node ID for pulling networking slice
+    auto_run: AutoRunUpdate | None = None
 
 
 class ProfileResponse(BaseModel):
@@ -63,6 +81,7 @@ class ProfileResponse(BaseModel):
     brief: dict
     substack_sid: str = ""
     aww_node_id: str = ""
+    auto_run: AutoRunConfig = AutoRunConfig()
 
 
 # --- Resume ---
@@ -95,6 +114,7 @@ class JobSummary(BaseModel):
     has_tailored_pdf: bool = False
     is_new: bool = False
     is_closed: bool = False
+    viewed_at: str | None = None
     company_intel: str | None  # One-line summary from enrichment
     score_reasoning: str | None = None  # Short explanation for the score
 
@@ -139,3 +159,4 @@ class RunResponse(BaseModel):
     started_at: str | None
     finished_at: str | None
     created_at: str
+    trigger: str = "manual"

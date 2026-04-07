@@ -1,5 +1,5 @@
 """Profile routes — get/update user profile config."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +13,8 @@ from shortlist.api.deps import get_current_user
 from shortlist.api.llm_client import LLMProfileGenerator, ProfileGenerator
 from shortlist.api.models import Profile, Resume, User
 from shortlist.api.schemas import (
+    AutoRunConfig,
+    AutoRunUpdate,
     GenerateProfileRequest,
     GenerateProfileResponse,
     ProfileResponse,
@@ -39,6 +41,18 @@ EMPTY_CONFIG = {
 }
 
 
+def _to_auto_run(profile: "Profile | None") -> AutoRunConfig:
+    """Build AutoRunConfig from dedicated profile columns."""
+    if profile is None:
+        return AutoRunConfig()
+    return AutoRunConfig(
+        enabled=profile.auto_run_enabled,
+        interval_h=profile.auto_run_interval_h,
+        next_run_at=profile.next_run_at.isoformat() if profile.next_run_at else None,
+        consecutive_failures=profile.consecutive_failures,
+    )
+
+
 def _redact_config(config: dict) -> dict:
     """Return config with API keys redacted."""
     out = dict(config)
@@ -55,10 +69,10 @@ def _redact_config(config: dict) -> dict:
     return out
 
 
-def _to_response(config: dict) -> ProfileResponse:
+def _to_response(config: dict, profile: "Profile | None" = None) -> ProfileResponse:
     """Ensure all expected keys exist, redact secrets."""
     merged = {**EMPTY_CONFIG, **config}
-    return ProfileResponse(**_redact_config(merged))
+    return ProfileResponse(**_redact_config(merged), auto_run=_to_auto_run(profile))
 
 
 @router.get("", response_model=ProfileResponse)
@@ -68,7 +82,7 @@ async def get_profile(
 ):
     if user.profile is None:
         return _to_response({})
-    return _to_response(user.profile.config)
+    return _to_response(user.profile.config, user.profile)
 
 
 @router.put("", response_model=ProfileResponse)
@@ -80,6 +94,9 @@ async def update_profile(
     # Start from existing config or empty
     existing = user.profile.config if user.profile else dict(EMPTY_CONFIG)
     updates = req.model_dump(exclude_none=True)
+
+    # Extract auto_run before merging into config JSON (it lives in dedicated columns)
+    auto_run_update = updates.pop("auto_run", None)
 
     # Handle API keys: encrypt if provided, preserve existing if not
     llm_updates = updates.pop("llm", None)
@@ -114,12 +131,32 @@ async def update_profile(
         profile = Profile(user_id=user.id, config=existing)
         session.add(profile)
     else:
+        profile = user.profile
         user.profile.config = dict(existing)
         flag_modified(user.profile, "config")
         user.profile.updated_at = datetime.now(timezone.utc)
 
+    # Handle auto_run — stored in dedicated columns, not config JSON
+    if auto_run_update is not None:
+        enabled = auto_run_update.get("enabled")
+        # Fall back to existing column value, then model default (12)
+        interval_h = auto_run_update.get("interval_h") or profile.auto_run_interval_h or 12
+
+        if enabled is not None:
+            profile.auto_run_enabled = enabled
+            profile.auto_run_interval_h = interval_h
+            if enabled:
+                profile.next_run_at = datetime.now(timezone.utc) + timedelta(hours=interval_h)
+            else:
+                profile.next_run_at = None
+                profile.consecutive_failures = 0
+        elif "interval_h" in auto_run_update and profile.auto_run_enabled:
+            # Interval change only while enabled — recalculate from now
+            profile.auto_run_interval_h = interval_h
+            profile.next_run_at = datetime.now(timezone.utc) + timedelta(hours=interval_h)
+
     await session.flush()
-    return _to_response(existing)
+    return _to_response(existing, profile)
 
 
 @router.post("/generate", response_model=GenerateProfileResponse)

@@ -11,6 +11,13 @@ export interface User {
   email: string;
 }
 
+export interface AutoRunConfig {
+  enabled: boolean;
+  interval_h: number;
+  next_run_at: string | null;
+  consecutive_failures: number;
+}
+
 export interface Profile {
   fit_context: string;
   tracks: Record<string, unknown>;
@@ -19,6 +26,7 @@ export interface Profile {
   llm: LlmConfig;
   brief: Record<string, unknown>;
   substack_sid?: string;
+  auto_run?: AutoRunConfig;
 }
 
 export interface LlmConfig {
@@ -56,6 +64,7 @@ export interface JobSummary {
   has_tailored_pdf: boolean;
   is_new: boolean;
   is_closed: boolean;
+  viewed_at: string | null;
   company_intel: string | null;
   score_reasoning: string | null;
 }
@@ -94,4 +103,5 @@ export interface Run {
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
+  trigger: string;
 }
