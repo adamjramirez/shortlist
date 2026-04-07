@@ -26,6 +26,8 @@ export interface Profile {
   llm: LlmConfig;
   brief: Record<string, unknown>;
   substack_sid?: string;
+  aww_node_id?: string;
+  use_aww_slice?: boolean;
   auto_run?: AutoRunConfig;
 }
 

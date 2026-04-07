@@ -53,6 +53,8 @@ export default function ProfilePage() {
   const [apiKey, setApiKey] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [substackSid, setSubstackSid] = useState("");
+  const [awwNodeId, setAwwNodeId] = useState("");
+  const [useAwwSlice, setUseAwwSlice] = useState(true);
   const [extraKeys, setExtraKeys] = useState<Record<string, string>>({});
   const [providersWithKeys, setProvidersWithKeys] = useState<string[]>([]);
   const [autoRun, setAutoRun] = useState<AutoRunConfig>({
@@ -80,6 +82,8 @@ export default function ProfilePage() {
       setHasApiKey(!!p.llm?.has_api_key);
       setProvidersWithKeys(p.llm?.providers_with_keys || []);
       setSubstackSid(p.substack_sid || "");
+      setAwwNodeId(p.aww_node_id || "");
+      setUseAwwSlice(p.use_aww_slice ?? true);
       if (p.auto_run) setAutoRun(p.auto_run);
     });
   }, [user, authLoading]);
@@ -184,6 +188,8 @@ export default function ProfilePage() {
         llm,
       };
       if (substackSid) payload.substack_sid = substackSid;
+      payload.aww_node_id = awwNodeId;
+      payload.use_aww_slice = useAwwSlice;
       // Only send auto_run when the user changed it — avoids resetting next_run_at on every save
       if (autoRunDirty) {
         payload.auto_run = { enabled: autoRun.enabled, interval_h: autoRun.interval_h };
@@ -198,6 +204,8 @@ export default function ProfilePage() {
       setApiKey("");
       setExtraKeys({});
       if (updated.auto_run) setAutoRun(updated.auto_run);
+      setAwwNodeId(updated.aww_node_id || "");
+      setUseAwwSlice(updated.use_aww_slice ?? true);
       setDirty(false);
       setAutoRunDirty(false);
       setGenerated(false);
@@ -363,24 +371,76 @@ export default function ProfilePage() {
             title="Advanced"
             subtitle="Optional settings for power users."
           >
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                NextPlay Substack cookie{" "}
-                {substackSid && (
-                  <span className="font-normal text-green-600">✓ set</span>
+            <div className="space-y-6">
+              {/* Substack */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  NextPlay Substack cookie{" "}
+                  {substackSid && (
+                    <span className="font-normal text-green-600">✓ set</span>
+                  )}
+                </label>
+                <input
+                  type="password"
+                  value={substackSid}
+                  onChange={(e) => { setSubstackSid(e.target.value); setDirty(true); }}
+                  placeholder="Paste your substack.sid cookie to include paid content"
+                  className={inputClass}
+                />
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Optional. Enables access to paid NextPlay newsletter content for
+                  additional job sources. Find it in your browser cookies for substack.com.
+                </p>
+              </div>
+
+              {/* AWW */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  AWW node ID{" "}
+                  {awwNodeId && <span className="font-normal text-green-600">✓ set</span>}
+                </label>
+                <input
+                  type="text"
+                  value={awwNodeId}
+                  onChange={(e) => { setAwwNodeId(e.target.value); setDirty(true); }}
+                  placeholder="e.g. 107f0a25c6fd"
+                  className={inputClass}
+                />
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Optional. If set, your AWW networking profile can be appended to your
+                  scoring context.
+                </p>
+
+                {awwNodeId && (
+                  <div className="mt-3 flex items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={useAwwSlice}
+                      onClick={() => { setUseAwwSlice((v) => !v); setDirty(true); }}
+                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
+                        useAwwSlice ? "bg-emerald-600" : "bg-gray-200"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          useAwwSlice ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">
+                        {useAwwSlice ? "Appending AWW slice to scoring context" : "AWW slice disabled"}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {useAwwSlice
+                          ? "Scorer sees: your fit context + AWW networking profile"
+                          : "Scorer sees: your fit context only"}
+                      </p>
+                    </div>
+                  </div>
                 )}
-              </label>
-              <input
-                type="password"
-                value={substackSid}
-                onChange={(e) => { setSubstackSid(e.target.value); setDirty(true); }}
-                placeholder="Paste your substack.sid cookie to include paid content"
-                className={inputClass}
-              />
-              <p className="mt-1.5 text-xs text-gray-400">
-                Optional. Enables access to paid NextPlay newsletter content for
-                additional job sources. Find it in your browser cookies for substack.com.
-              </p>
+              </div>
             </div>
           </SectionCard>
         </>}
