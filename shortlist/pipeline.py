@@ -25,6 +25,11 @@ from shortlist.brief import generate_brief
 
 logger = logging.getLogger(__name__)
 
+# Max companies to probe for ATS career pages per pipeline run.
+# Probed companies are marked ats_platform='none' so they're never re-probed.
+# Capped to prevent a large first-run from spiking RAM.
+PROBE_LIMIT_PER_RUN = 20
+
 
 def _progress(msg: str):
     """Print progress to stderr so user sees it. Also log."""
@@ -163,7 +168,7 @@ def run_pipeline(
                   scored=jobs_scored_so_far + done,
                   total=jobs_scored_so_far + total)
 
-        score_results = score_jobs_parallel(score_inputs, config, max_workers=3, on_scored=_on_scored, cancel_event=cancel_event)
+        score_results = score_jobs_parallel(score_inputs, config, max_workers=2, on_scored=_on_scored, cancel_event=cancel_event)
         _check_cancel()
 
         matches = 0
@@ -369,7 +374,8 @@ def run_pipeline(
     # Step 4b: Discover career pages for enriched companies
     companies_to_probe = db.execute(
         "SELECT id, name, domain FROM companies "
-        "WHERE domain IS NOT NULL AND ats_platform IS NULL AND domain != ''"
+        "WHERE domain IS NOT NULL AND ats_platform IS NULL AND domain != '' "
+        f"LIMIT {PROBE_LIMIT_PER_RUN}"
     ).fetchall()
 
     if companies_to_probe:
@@ -471,6 +477,7 @@ def run_pipeline_pg(
     user_id: int,
     on_progress: callable = None,
     cancel_event: "threading.Event | None" = None,
+    run_id: int | None = None,
 ) -> dict:
     """Run the full pipeline writing directly to PostgreSQL.
 
@@ -587,7 +594,7 @@ def run_pipeline_pg(
                   total=jobs_scored_so_far + total)
 
         score_results = score_jobs_parallel(
-            score_inputs, config, max_workers=3,
+            score_inputs, config, max_workers=2,
             on_scored=_on_scored, cancel_event=cancel_event,
         )
         _check_cancel()
@@ -613,6 +620,9 @@ def run_pipeline_pg(
                     "salary_estimate": score_result.salary_estimate,
                     "salary_confidence": score_result.salary_confidence,
                 }
+                if run_id is not None:
+                    updates["run_id"] = run_id
+                    updates["viewed_at"] = None  # re-scored = unread
                 if score_result.corrected_title:
                     updates["title"] = score_result.corrected_title
                 if score_result.corrected_company:
@@ -834,7 +844,7 @@ def run_pipeline_pg(
     # === Discover career pages ===
     companies_to_probe = pgdb.fetch_companies(
         conn, user_id,
-        extra_where="AND domain IS NOT NULL AND (ats_platform IS NULL) AND domain != ''",
+        extra_where=f"AND domain IS NOT NULL AND (ats_platform IS NULL) AND domain != '' LIMIT {PROBE_LIMIT_PER_RUN}",
     )
 
     if companies_to_probe:

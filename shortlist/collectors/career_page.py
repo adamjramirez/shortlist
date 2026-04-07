@@ -62,15 +62,16 @@ def discover_ats_from_url(url: str) -> tuple[str | None, str | None]:
         logger.debug(f"Failed to fetch {url}: {e}")
         return None, None
 
-    # Check the page content for ATS URLs
+    # Extract what we need then release the response body immediately
     ats, slug = _find_ats_in_content(resp.text)
     if ats:
+        del resp
         return ats, slug
 
-    # Follow /careers or /jobs links
     domain = urlparse(url).netloc
     links = re.findall(r'href=["\']([^"\']*)["\']', resp.text, re.I)
     career_links = [l for l in links if re.search(r'/careers|/jobs(?!\w)', l, re.I)]
+    del resp  # done with homepage body
 
     for cl in career_links[:2]:
         # Check if the career link itself is an ATS URL
@@ -90,10 +91,12 @@ def discover_ats_from_url(url: str) -> tuple[str | None, str | None]:
             for pattern, ats_name in ATS_URL_PATTERNS:
                 m = pattern.search(final_url)
                 if m:
+                    del resp2
                     return ats_name, m.group(1)
 
-            # Check careers page content
+            # Check careers page content then release
             ats, slug = _find_ats_in_content(resp2.text)
+            del resp2
             if ats:
                 return ats, slug
         except Exception:
