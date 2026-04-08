@@ -16,6 +16,8 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 
+from shortlist.expiry import check_expiry_batch  # noqa: F401 — imported for monkeypatching
+
 from sqlalchemy import not_, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -188,6 +190,23 @@ async def _fire_and_update(
         await _update_profile_after_run(run_id, user_id, interval_h, session_factory)
 
 
+async def run_expiry_checks(db_url: str) -> None:
+    """Run a batch of proactive job expiry checks. Called each scheduler tick.
+
+    Errors are caught and logged — must never crash the scheduler tick.
+    """
+    try:
+        import shortlist.scheduler as _self
+        result = await asyncio.to_thread(_self.check_expiry_batch, db_url)
+        if result["closed"] > 0:
+            logger.info(
+                "Expiry check: %d closed, %d checked, %d errors",
+                result["closed"], result["checked"], result["errors"],
+            )
+    except Exception:
+        logger.exception("run_expiry_checks failed")
+
+
 async def run_scheduler() -> None:
     """Main scheduler loop. Polls every TICK_INTERVAL seconds."""
     from shortlist.api.db import _clean_url, _get_connect_args
@@ -224,6 +243,10 @@ async def run_scheduler() -> None:
                         execute_run_fn=execute_run,
                     )
                 )
+
+            # Step 3: Proactive expiry checks (non-blocking, own DB connection)
+            asyncio.create_task(run_expiry_checks(db_url))
+
         except Exception:
             logger.exception("Scheduler tick failed")
 

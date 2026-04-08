@@ -116,6 +116,8 @@ class JobSummary(BaseModel):
     has_tailored_pdf: bool = False
     is_new: bool = False
     is_closed: bool = False
+    closed_reason: str | None = None
+    prestige_tier: str | None = None
     viewed_at: str | None = None
     company_intel: str | None  # One-line summary from enrichment
     score_reasoning: str | None = None  # Short explanation for the score

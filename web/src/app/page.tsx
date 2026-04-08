@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { track as analytics } from "@/lib/analytics";
@@ -306,6 +306,42 @@ function Landing() {
   );
 }
 
+function fmtRelative(isoStr: string): string {
+  const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function fmtCountdown(isoStr: string): string {
+  const diff = Math.floor((new Date(isoStr).getTime() - Date.now()) / 1000);
+  if (diff <= 0) return "due now";
+  if (diff < 3600) return `in ${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `in ${Math.floor(diff / 3600)}h`;
+  return `in ${Math.floor(diff / 86400)}d`;
+}
+
+function RunStatusLine({ lastRunFinishedAt, nextRunAt }: { lastRunFinishedAt: string | null; nextRunAt: string | null }) {
+  const [, setTick] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    timerRef.current = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
+
+  if (!lastRunFinishedAt && !nextRunAt) return null;
+
+  const parts: string[] = [];
+  if (lastRunFinishedAt) parts.push(`Updated ${fmtRelative(lastRunFinishedAt)}`);
+  if (nextRunAt) parts.push(`next ${fmtCountdown(nextRunAt)}`);
+
+  return (
+    <p className="font-mono text-xs text-gray-400 mt-0.5">{parts.join(" · ")}</p>
+  );
+}
+
 const PER_PAGE = 20;
 
 function Dashboard() {
@@ -318,15 +354,17 @@ function Dashboard() {
   const [minScore, setMinScore] = useState<number | undefined>(SCORE_VISIBLE);
   const [track, setTrack] = useState<string | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [prestigeFilter, setPrestigeFilter] = useState<string | undefined>(undefined);
   const [page, setPage] = useState(1);
   const [runActive, setRunActive] = useState(false);
+  const [lastCompletedRun, setLastCompletedRun] = useState<import("@/lib/types").Run | null>(null);
 
   const loadData = useCallback(async () => {
     try {
       const [p, r, j] = await Promise.all([
         profileApi.get(),
         resumesApi.list(),
-        jobsApi.list({ min_score: minScore, track, user_status: statusFilter, page, per_page: PER_PAGE }),
+        jobsApi.list({ min_score: minScore, track, user_status: statusFilter, prestige: prestigeFilter, page, per_page: PER_PAGE }),
       ]);
       setProfile(p);
       setResumes(r);
@@ -336,7 +374,7 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [minScore, track, statusFilter, page]);
+  }, [minScore, track, statusFilter, prestigeFilter, page]);
 
   useEffect(() => {
     loadData();
@@ -384,6 +422,10 @@ function Dashboard() {
                 {counts.applied > 0 && <span>{counts.applied} applied</span>}
               </p>
             )}
+            <RunStatusLine
+              lastRunFinishedAt={lastCompletedRun?.finished_at ?? null}
+              nextRunAt={profileData?.auto_run?.next_run_at ?? null}
+            />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <select
@@ -410,7 +452,7 @@ function Dashboard() {
                 ))}
               </select>
             )}
-            <RunButton onComplete={loadData} onProgress={loadData} onActiveChange={setRunActive} />
+            <RunButton onComplete={loadData} onProgress={loadData} onActiveChange={setRunActive} onLastRunChange={setLastCompletedRun} />
           </div>
         </div>
 
@@ -429,6 +471,16 @@ function Dashboard() {
               {pill.label}{pill.count !== undefined && pill.count > 0 ? ` (${pill.count})` : ""}
             </button>
           ))}
+          <button
+            onClick={() => { setPrestigeFilter(prestigeFilter === "A" ? undefined : "A"); setPage(1); }}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
+              prestigeFilter === "A"
+                ? "bg-gray-900 text-white"
+                : "border border-gray-300 text-gray-600 hover:bg-white"
+            }`}
+          >
+            Tier A
+          </button>
         </div>
       </div>
 

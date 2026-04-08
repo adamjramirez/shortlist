@@ -6,7 +6,81 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**Pipeline stable and self-healing. Backlog cleared (14 filtered remaining). 187 scored matches in inbox. CV title update still pending.**
+**Collection efficiency live. LinkedIn uses 24h window on recurring runs. NextPlay pre-filters known URLs. Next: cross-source dedup (LinkedIn+Greenhouse same role).**
+
+## 2026-04-08 — Collection efficiency
+
+**What got done:**
+1. **LinkedIn time filter** — changed from `r604800` (week) to `r86400` (24h) on recurring runs. First run (no scored jobs yet) keeps `r604800` to populate the initial inbox. Detection: `COUNT(*) WHERE status IN ('scored', 'low_score')`. Wrapped in try/except — MagicMock comparison crashes without it.
+2. **`_get_collectors` param** — added `li_time_filter: str = "r86400"` so callers control the filter. `run_pipeline_pg` computes it before calling.
+3. **`get_existing_urls(conn, user_id, urls)`** — batch URL lookup, returns set of known URLs.
+4. **`bulk_update_last_seen(conn, user_id, urls, now=None)`** — lightweight timestamp refresh for already-known jobs. `now` param makes it testable.
+5. **`_split_known_new(conn, user_id, name, jobs)`** — module-level function, splits job list into `(known_urls, new_jobs)`. Only applies to `_PREFILTER_SOURCES = {"nextplay"}`. LinkedIn uses f_TPR; HN is low volume.
+6. **Wire-up in `_process_collected`** — known jobs get `bulk_update_last_seen`; new jobs get full `upsert_job` → filter → score path. `jobs_collected` now counts only new jobs.
+7. **9 new tests** — 2 LinkedIn filter tests, 4 pgdb tests, 3 `_split_known_new` tests. 602 total.
+
+**Key decisions:**
+- Curated sources use `_on_curated_fetched` callback (not `_process_collected`) — pre-filter doesn't apply there. Follow-up.
+- `bulk_update_last_seen` takes explicit `now` — not `NOW()` SQL function. Testable without DB, consistent within a run.
+- `_PREFILTER_SOURCES` at module level (not inside function) — not recreated per call.
+- First-run detection via scored job count, not run history — simpler, same semantics.
+
+**Bug found in execution (not caught in review):**
+- `MagicMock() > 0` raises `TypeError` in Python 3.14. The review didn't flag this. Fixed with try/except around the DB query.
+
+## 2026-04-07 — Systematic job expiry detection
+
+**What got done:**
+1. **Migration 011** — `closed_at`, `closed_reason`, `expiry_checked_at` columns on jobs. Backfilled existing `is_closed=true` rows with `closed_reason='user'`.
+2. **`shortlist/expiry.py`** — proactive URL checker for all 4 ATS sources. LinkedIn: HEAD through proxy (404=gone). Greenhouse: API endpoint for native URLs, HEAD stored URL for custom domains (samsara.com etc). Lever: individual API endpoint. Ashby: GET + title check (`@` = active, `Jobs` = gone). HN: no URL signal, age-based only. All HTTP via `shortlist.http`.
+3. **`http.py`** — added `head()` function (same proxy/rate-limit pattern as `get()`).
+4. **`pgdb.mark_stale_jobs()`** — 5-pass staleness pipeline: ATS 3-day last_seen, LinkedIn 30-day posted_at, HN 45-day posted_at, HN null posted_at 45-day last_seen (critical: all current HN jobs have null posted_at), generic 7-day last_seen.
+5. **`upsert_job`** — re-opens auto-closed jobs when they reappear in a feed. Preserves `closed_reason='user'` (never auto-reopens user-closed jobs).
+6. **Scheduler** — `run_expiry_checks()` fires each tick via `asyncio.to_thread`. Checks 20 jobs/tick, cycles through all 187 in ~10 minutes. Errors swallowed.
+7. **Pipeline** — `mark_stale_jobs()` at end of every pipeline run. `closed_count` in return dict and worker progress.
+8. **API** — `closed_reason` in `JobSummary`. Inbox + default view filter `is_closed=false`. Counts exclude closed from `new`. Toggle sets `closed_reason='user'`.
+9. **Frontend** — `closed_reason` sub-text on expanded view, `closed_count` in run footer.
+10. **31 new tests** (580 + 21 expiry = 601 total across test files).
+
+**Key decisions:**
+- Greenhouse `absolute_url` is often on custom company domains (samsara.com) — identify by `sources_seen`, not URL patterns.
+- HN jobs have null `posted_at` — needs separate pass using `last_seen` as fallback.
+- All HTTP via `shortlist.http` — rate limits already registered for all 4 domains, proxy auto-applied for LinkedIn.
+- `closed_reason='user'` is sacred — system never overrides user's explicit close.
+- Saved/Applied tabs keep showing closed jobs (user may have applied before it closed).
+
+**What's next:**
+- Monitor first auto-run to see how many jobs get marked stale
+- CV title update — brief at `cv-new/BRIEF-title-update.md`
+
+## 2026-04-07 — Prestige tier + UI polish
+
+**What got done:**
+1. **Prestige tier** (`prestige_tier` A/B/C/D) — migration 012, scored in main LLM call alongside fit_score, stored as VARCHAR(1), shown as dark pill badge (`bg-gray-900 text-white`) in JobCard. Tier B not shown (too noisy — most jobs are B).
+2. **Prestige refactor** — extracted `build_prestige_criteria(config)` (derives criteria from `config.tracks`, not hardcoded strings) + `score_prestige(job, config)` standalone function (own prompt/schema, reuses criteria builder). Main scorer calls `build_prestige_criteria()` via format param. One source of truth.
+3. **Backfill** — `scripts/backfill_prestige.py` scored all 76 visible jobs. 0 failures.
+4. **Source badge** — first source from `sources_seen` shown as `text-gray-400` mono label in the LEFT meta row (company · location · age · LinkedIn), not the badge row. Prevents layout shift when status badges appear.
+5. **Tier A filter pill** — toggle in filter row, stacks with status filter. API: `prestige` query param. Frontend: `prestigeFilter` state.
+6. **Design system** — badge rule codified: system badges = plain text or fill only (no border). User-set badges = outlined or solid fill. Tier A = `bg-gray-900 text-white` (Ink color, not emerald, to avoid collision with Saved badge).
+7. **Chainguard duplicate** — closed LinkedIn copy (ID 6547), kept Greenhouse (authoritative ATS). Cross-source dedup is a known gap.
+
+**Key decisions:**
+- Prestige criteria derived from `config.tracks` — updating profile automatically updates scoring criteria
+- Tier B hidden — most jobs score B, showing it adds noise without signal
+- `bg-gray-900` for Tier A — emerald conflicted with Saved badge (same color family). Ink = high-value content signal per design system.
+- Source label goes in meta row (left), not badge row (right) — structural info, not status
+
+**What's next:**
+- Cross-source dedup: same role from LinkedIn + Greenhouse = two visible rows. Needs company + normalized title dedup.
+- CV title update — brief at `cv-new/BRIEF-title-update.md`
+- Monitor prestige quality over next few pipeline runs
+
+## 2026-04-07 — Chainguard VP Engineering application
+
+- Generated `adam_ramirez_cv_chainguard.tex/.pdf` — security-first framing, correct 22→10 restructuring history, AI operating model + knowledge transfer system, Engineering Manager Exchange
+- Drafted application answers: velocity question (autonomous bets model + training 100+ engineers), AI teams question (shared context / leaving the team behind)
+- Applied. Marked as applied in Shortlist.
+- Reference check note: tell them verbally on first call, not in writing
 
 ## 2026-04-07 — Pipeline stability: backlog scoring, NextPlay OOM, zombie runs
 

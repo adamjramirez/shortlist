@@ -24,6 +24,104 @@ class ScoreResult:
     corrected_title: str = ""
     corrected_company: str = ""
     corrected_location: str = ""
+    prestige_tier: str = ""  # A / B / C / D — relative to candidate profile
+
+
+def build_prestige_criteria(config: Config) -> str:
+    """Derive prestige tier criteria from the user's track configuration.
+
+    Pulls target role titles, org stage preferences, and minimum scope
+    from config.tracks so criteria stay in sync with the user's profile.
+    """
+    tracks = config.tracks or {}
+
+    titles = [t.title for t in tracks.values() if t.title]
+    target_orgs = list(dict.fromkeys(
+        t.target_orgs for t in tracks.values()
+        if t.target_orgs and t.target_orgs != "any"
+    ))
+    min_reports = max((t.min_reports or 0) for t in tracks.values()) if tracks else 0
+
+    parts = []
+    if titles:
+        parts.append(f"Target role levels: {', '.join(titles)}")
+    if target_orgs:
+        parts.append(f"Preferred org stage: {', '.join(target_orgs)}")
+    if min_reports:
+        parts.append(f"Minimum team size: {min_reports}+ direct reports")
+
+    if not parts:
+        parts.append("Target: senior engineering leadership (VP, Director, CTO)")
+
+    return "\n".join(parts)
+
+
+PRESTIGE_PROMPT_TEMPLATE = """You are evaluating a job listing as a career move for a specific candidate.
+
+## Candidate Context
+{fit_context}
+
+## Candidate's Target
+{prestige_criteria}
+
+## Job
+Title: {title}
+Company: {company}
+Location: {location}
+Description:
+{description}
+
+## Task
+Return a JSON object with a single field: the prestige tier of this job as a career move for this candidate.
+
+Four evaluation criteria:
+1. **Role level** \u2014 Does this match or exceed the candidate's target level?
+2. **Company prestige** \u2014 Well-known brand in tech? Does the name open doors?
+3. **Domain momentum** \u2014 Hot, growing, important space? (AI/security/cloud-native = hot)
+4. **Upside** \u2014 Real equity and scope growth potential?
+
+Tier definitions:
+- **A**: Career-defining. Matches target level, strong brand, hot domain, real upside.
+- **B**: Solid. Most criteria met. Worth engaging seriously.
+- **C**: Fine. One step below target, limited brand, or slow domain.
+- **D**: Deprioritize. Multiple steps below target, no brand, capped upside.
+
+Return ONLY this JSON:
+{{"prestige_tier": "<A|B|C|D>"}}"""
+
+
+PRESTIGE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "prestige_tier": {"type": "STRING", "enum": ["A", "B", "C", "D"]},
+    },
+    "required": ["prestige_tier"],
+}
+
+
+def score_prestige(job: RawJob, config: Config) -> str:
+    """Score prestige tier for a single job. Returns A/B/C/D or '' on failure.
+
+    Standalone function \u2014 safe to call without re-scoring fit.
+    Used for backfill and future re-evaluation.
+    """
+    prompt = PRESTIGE_PROMPT_TEMPLATE.format(
+        fit_context=config.fit_context or "Senior engineering leader.",
+        prestige_criteria=build_prestige_criteria(config),
+        title=job.title,
+        company=job.company,
+        location=job.location or "Not specified",
+        description=job.description,
+    )
+    result = llm.call_llm(prompt, json_schema=PRESTIGE_SCHEMA)
+    if not result:
+        return ""
+    try:
+        data = llm.parse_json(result)
+        tier = data.get("prestige_tier", "")
+        return tier if tier in ("A", "B", "C", "D") else ""
+    except (json.JSONDecodeError, ValueError):
+        return ""
 
 
 SCORING_PROMPT_TEMPLATE = """You are a job search assistant scoring job listings for fit.
@@ -79,7 +177,8 @@ Score this job for fit with the candidate profile. Return a JSON object with exa
     "salary_confidence": "<low|medium|high>",
     "corrected_title": "<the actual job title, e.g. 'VP of Engineering'>",
     "corrected_company": "<the actual company name>",
-    "corrected_location": "<the actual location, e.g. 'Remote' or 'San Francisco, CA'>"
+    "corrected_location": "<the actual location, e.g. 'Remote' or 'San Francisco, CA'>",
+    "prestige_tier": "<A|B|C|D — see below>"
 }}
 ```
 
@@ -98,6 +197,23 @@ The title/company/location fields above may be wrong due to parsing errors. Use 
 - If salary is not listed, infer from company stage, role level, and location. Note confidence.
 - "Engineering Manager" at a 10-person startup managing 3 people is different from EM at a large org managing 20+. Score accordingly.
 - Series A with fresh funding = yellow flag, not disqualifier.
+
+### Job Prestige Tier
+Evaluate this specific job as a career move for THIS candidate. Return A, B, C, or D.
+
+**Candidate's target:**
+{prestige_criteria}
+
+Four evaluation criteria:
+1. **Role level** — Does this match or exceed the candidate's target level?
+2. **Company prestige** — Well-known brand in tech? Does the name open doors?
+3. **Domain momentum** — Hot, growing, important space? (AI/security/cloud-native = hot)
+4. **Upside** — Real equity and scope growth potential?
+
+- **A**: Career-defining. Matches target level, strong brand, hot domain, real upside.
+- **B**: Solid. Most criteria met. Worth engaging seriously.
+- **C**: Fine. One step below target, limited brand, or slow domain. Passive interest only.
+- **D**: Deprioritize. Multiple steps below target, no brand, capped upside.
 
 Return ONLY the JSON object, no other text."""
 
@@ -172,6 +288,7 @@ def build_scoring_prompt(job: RawJob, config: Config) -> str:
         salary_text=job.salary_text or "Not listed",
         source=job.source,
         description=job.description,
+        prestige_criteria=build_prestige_criteria(config),
     )
 
 
@@ -196,6 +313,7 @@ def parse_score_response(response_text: str) -> ScoreResult | None:
         corrected_title=data.get("corrected_title", ""),
         corrected_company=data.get("corrected_company", ""),
         corrected_location=data.get("corrected_location", ""),
+        prestige_tier=data.get("prestige_tier", "") if data.get("prestige_tier") in ("A", "B", "C", "D") else "",
     )
 
 
@@ -211,10 +329,11 @@ SCORE_SCHEMA = {
         "corrected_title": {"type": "STRING"},
         "corrected_company": {"type": "STRING"},
         "corrected_location": {"type": "STRING"},
+        "prestige_tier": {"type": "STRING", "enum": ["A", "B", "C", "D"]},
     },
     "required": ["fit_score", "matched_track", "reasoning", "yellow_flags",
                   "salary_estimate", "salary_confidence", "corrected_title",
-                  "corrected_company", "corrected_location"],
+                  "corrected_company", "corrected_location", "prestige_tier"],
 }
 
 

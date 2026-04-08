@@ -264,6 +264,97 @@ class TestParseScoreResponse:
         assert result is None
 
 
+def test_build_scoring_prompt_includes_prestige_criteria_from_config():
+    """Main scoring prompt derives prestige criteria from config tracks."""
+    from shortlist.processors.scorer import build_scoring_prompt
+    config = Config(
+        name="Test",
+        fit_context="Engineering leader",
+        tracks={"vp": Track(title="VP of Engineering", target_orgs="startup", min_reports=10)},
+        filters=Filters(
+            salary=SalaryFilter(min_base=200000, currency="USD"),
+            location=LocationFilter(remote=True),
+        ),
+    )
+    job = RawJob(title="VP Eng", company="Acme", url="https://example.com",
+                 description="desc", source="linkedin", location="Remote")
+    prompt = build_scoring_prompt(job, config)
+    assert "Target role levels:" in prompt
+    assert "VP of Engineering" in prompt
+
+
+def test_score_prestige_returns_valid_tier(monkeypatch):
+    """score_prestige returns A/B/C/D from LLM response."""
+    from shortlist.processors.scorer import score_prestige
+    import shortlist.llm as llm_mod
+    monkeypatch.setattr(llm_mod, "call_llm", lambda *a, **kw: '{"prestige_tier": "B"}')
+    config = Config(
+        fit_context="Engineering leader",
+        tracks={"vp": Track(title="VP of Engineering", target_orgs="startup", min_reports=10)},
+    )
+    job = RawJob(title="VP Eng", company="Acme", url="https://example.com",
+                 description="desc", source="linkedin", location="Remote")
+    assert score_prestige(job, config) == "B"
+
+
+def test_score_prestige_returns_empty_on_llm_failure(monkeypatch):
+    """score_prestige returns empty string when LLM call fails."""
+    from shortlist.processors.scorer import score_prestige
+    import shortlist.llm as llm_mod
+    monkeypatch.setattr(llm_mod, "call_llm", lambda *a, **kw: None)
+    config = Config(
+        fit_context="Engineering leader",
+        tracks={"vp": Track(title="VP of Engineering", target_orgs="startup", min_reports=10)},
+    )
+    job = RawJob(title="VP Eng", company="Acme", url="https://example.com",
+                 description="desc", source="linkedin", location="Remote")
+    assert score_prestige(job, config) == ""
+
+
+def test_score_result_has_prestige_tier():
+    r = ScoreResult(fit_score=80, matched_track="vp")
+    assert hasattr(r, 'prestige_tier')
+    assert r.prestige_tier == ""
+
+
+def test_parse_score_response_extracts_prestige_tier():
+    response = '''{
+        "fit_score": 85, "matched_track": "vp", "reasoning": "Strong.",
+        "yellow_flags": [], "salary_estimate": "200k-300k USD",
+        "salary_confidence": "medium", "corrected_title": "VP Engineering",
+        "corrected_company": "Acme", "corrected_location": "Remote",
+        "prestige_tier": "A"
+    }'''
+    result = parse_score_response(response)
+    assert result is not None
+    assert result.prestige_tier == "A"
+
+
+def test_parse_score_response_rejects_invalid_prestige_tier():
+    response = '''{
+        "fit_score": 75, "matched_track": "vp", "reasoning": "OK.",
+        "yellow_flags": [], "salary_estimate": "150k USD",
+        "salary_confidence": "low", "corrected_title": "Dir",
+        "corrected_company": "Corp", "corrected_location": "Remote",
+        "prestige_tier": "X"
+    }'''
+    result = parse_score_response(response)
+    assert result is not None
+    assert result.prestige_tier == ""
+
+
+def test_parse_score_response_defaults_prestige_tier_when_missing():
+    response = '''{
+        "fit_score": 75, "matched_track": "vp", "reasoning": "OK.",
+        "yellow_flags": [], "salary_estimate": "150k USD",
+        "salary_confidence": "low", "corrected_title": "Dir",
+        "corrected_company": "Corp", "corrected_location": "Remote"
+    }'''
+    result = parse_score_response(response)
+    assert result is not None
+    assert result.prestige_tier == ""
+
+
 class TestScoreResult:
     def test_dataclass_fields(self):
         r = ScoreResult(

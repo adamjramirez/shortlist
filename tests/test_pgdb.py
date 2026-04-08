@@ -29,9 +29,16 @@ class FakeCursor:
         self._cursor = conn.cursor()
         self._last_query = ""
 
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
     def execute(self, query, params=None):
-        # Convert %s to ? for SQLite compat
-        sqlite_query = query.replace("%s", "?")
+        # Convert %s to ? for SQLite compat, strip PG-specific casts
+        sqlite_query = (query.replace("%s", "?")
+                        .replace("::text", "")
+                        .replace("is_closed = true", "is_closed = 1")
+                        .replace("is_closed = false", "is_closed = 0"))
         self._last_query = sqlite_query
         if params:
             self._cursor.execute(sqlite_query, params)
@@ -90,6 +97,11 @@ def pg_conn():
             last_seen TIMESTAMP,
             posted_at TIMESTAMP,
             status TEXT DEFAULT 'new',
+            is_closed INTEGER DEFAULT 0,
+            closed_at TIMESTAMP,
+            closed_reason TEXT,
+            expiry_checked_at TIMESTAMP,
+            prestige_tier TEXT,
             UNIQUE(user_id, description_hash)
         )
     """)
@@ -197,3 +209,61 @@ def test_upsert_job_preserves_existing_posted_at(pg_conn):
 
     # Should keep the first posted_at (COALESCE behavior)
     assert "2026-03-15" in str(row["posted_at"])
+
+
+def test_get_existing_urls_returns_known_urls(pg_conn):
+    """get_existing_urls returns only URLs that exist in jobs table."""
+    from shortlist.collectors.base import RawJob
+    from shortlist.pgdb import upsert_job, get_existing_urls
+
+    job = RawJob(title="VP Eng", company="Acme", url="https://acme.com/job/1",
+                 description="desc", source="greenhouse", location="Remote")
+    upsert_job(pg_conn, user_id=1, job=job)
+    pg_conn.commit()
+
+    result = get_existing_urls(pg_conn, user_id=1,
+                               urls=["https://acme.com/job/1", "https://acme.com/job/2"])
+    assert "https://acme.com/job/1" in result
+    assert "https://acme.com/job/2" not in result
+
+
+def test_get_existing_urls_empty_input(pg_conn):
+    """get_existing_urls returns empty set for empty input."""
+    from shortlist.pgdb import get_existing_urls
+    assert get_existing_urls(pg_conn, user_id=1, urls=[]) == set()
+
+
+def test_bulk_update_last_seen_advances_timestamp(pg_conn):
+    """bulk_update_last_seen updates last_seen without changing status or first_seen."""
+    import time
+    from datetime import datetime, timezone
+    from shortlist.collectors.base import RawJob
+    from shortlist.pgdb import upsert_job, bulk_update_last_seen
+
+    job = RawJob(title="Dir Eng", company="Corp", url="https://corp.com/job/1",
+                 description="desc", source="lever", location="Remote")
+    upsert_job(pg_conn, user_id=1, job=job)
+    pg_conn.commit()
+
+    time.sleep(0.05)
+    later = datetime.now(timezone.utc)
+    bulk_update_last_seen(pg_conn, user_id=1, urls=["https://corp.com/job/1"],
+                          now=later)
+    pg_conn.commit()
+
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            "SELECT first_seen, last_seen, status FROM jobs WHERE url = %s",
+            ("https://corp.com/job/1",),
+        )
+        row = cur.fetchone()
+    assert row["last_seen"] > row["first_seen"], "last_seen should advance"
+    assert row["status"] == "new", "status must not change"
+
+
+def test_bulk_update_last_seen_empty_input(pg_conn):
+    """bulk_update_last_seen is a no-op for empty input."""
+    from shortlist.pgdb import bulk_update_last_seen
+    from datetime import datetime, timezone
+    # Should not raise
+    bulk_update_last_seen(pg_conn, user_id=1, urls=[], now=datetime.now(timezone.utc))

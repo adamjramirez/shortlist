@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/adam1/.pi/agent/skills/**)",
+      "Read(//Users/adam1/.claude/**)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:v for k,v in d.items\\(\\) if 'skill' in k.lower\\(\\) or 'command' in k.lower\\(\\) or 'pi' in k.lower\\(\\)}, indent=2\\)\\)\")"
+    ]
+  }
+}

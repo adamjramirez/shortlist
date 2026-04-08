@@ -3,7 +3,7 @@ import json
 import logging
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from shortlist.collectors.base import RawJob
@@ -471,6 +471,29 @@ def run_pipeline(
     return brief_path
 
 
+# Sources that get a known-URL pre-filter before upserting.
+# LinkedIn uses f_TPR to limit fetch volume; HN is low-traffic — both bypass.
+_PREFILTER_SOURCES = {"nextplay"}
+
+
+def _split_known_new(conn, user_id: int, name: str, jobs: list) -> tuple[list, list]:
+    """Split a job list into (known_urls, new_jobs) for sources that benefit from pre-filtering.
+
+    Returns:
+        known_urls: list of URL strings already in the DB (need last_seen bump only)
+        new_jobs:   list of RawJob objects not yet in DB (go through full pipeline)
+    """
+    from shortlist import pgdb
+    if name not in _PREFILTER_SOURCES:
+        return [], list(jobs)
+
+    checkable = [j.url for j in jobs if j.url]
+    existing = pgdb.get_existing_urls(conn, user_id, checkable)
+    known_urls = [j.url for j in jobs if j.url and j.url in existing]
+    new_jobs = [j for j in jobs if not j.url or j.url not in existing]
+    return known_urls, new_jobs
+
+
 def run_pipeline_pg(
     config: Config,
     db_url: str,
@@ -489,6 +512,7 @@ def run_pipeline_pg(
     import queue
 
     _ensure_llm(config)
+    run_started_at = datetime.now(timezone.utc)
     conn = pgdb.get_pg_connection(db_url)
     pgdb.ensure_nextplay_cache_table(conn)
     pgdb.ensure_career_page_sources_table(conn)
@@ -652,6 +676,8 @@ def run_pipeline_pg(
                     updates["company"] = score_result.corrected_company
                 if score_result.corrected_location:
                     updates["location"] = score_result.corrected_location
+                if score_result.prestige_tier:
+                    updates["prestige_tier"] = score_result.prestige_tier
 
                 pgdb.update_job(conn, row_id, **updates)
             else:
@@ -738,7 +764,24 @@ def run_pipeline_pg(
         conn.commit()
 
     # === Collect from all sources in parallel ===
-    collectors = _get_collectors(config=config, db=None, pg_db_url=db_url)
+    # Use 24h filter for recurring runs; week filter for first run to populate inbox.
+    try:
+        with conn.cursor() as _cur:
+            _cur.execute(
+                "SELECT COUNT(*) as n FROM jobs "
+                "WHERE user_id = %s AND status IN ('scored', 'low_score')",
+                (user_id,),
+            )
+            _row = _cur.fetchone()
+            _has_prior_jobs = int(_row["n"]) > 0 if _row else False
+    except Exception:
+        _has_prior_jobs = False  # Safe default: use first-run (week) filter
+    li_time_filter = "r86400" if _has_prior_jobs else "r604800"
+    run_type = "recurring" if _has_prior_jobs else "first run"
+    logger.info(f"LinkedIn time filter: {li_time_filter} ({run_type})")
+
+    collectors = _get_collectors(config=config, db=None, pg_db_url=db_url,
+                                 li_time_filter=li_time_filter)
     source_timers: dict[str, float] = {}  # name → start time (monotonic)
     source_final_elapsed: dict[str, int] = {}  # name → frozen elapsed when done
     source_progress = {name: {"status": "searching"} for name in collectors}
@@ -795,10 +838,18 @@ def run_pipeline_pg(
     def _process_collected(name, jobs_list, source_start, needs_descriptions):
         nonlocal jobs_collected, total_scored, total_matches, visible_matches
 
-        for job in jobs_list:
+        known_urls, new_jobs = _split_known_new(conn, user_id, name, jobs_list)
+        if known_urls:
+            pgdb.bulk_update_last_seen(conn, user_id, known_urls)
+        for job in new_jobs:
             pgdb.upsert_job(conn, user_id, job)
-        jobs_collected += len(jobs_list)
-        pgdb.log_source_run(conn, user_id, name, source_start, "success", len(jobs_list))
+        jobs_collected += len(new_jobs)
+        if known_urls:
+            logger.info(
+                f"{name}: {len(new_jobs)} new, {len(known_urls)} already known "
+                f"(last_seen updated)"
+            )
+        pgdb.log_source_run(conn, user_id, name, source_start, "success", len(new_jobs))
 
         if not jobs_list:
             _source_freeze_timer(name)
@@ -939,6 +990,14 @@ def run_pipeline_pg(
             logger.warning(f"Career page discovery failed for {company_row['name']}: {e}")
     conn.commit()
 
+    # === Mark stale/expired jobs ===
+    closed_count = pgdb.mark_stale_jobs(conn, user_id, run_started_at)
+    if closed_count:
+        logger.info(f"Marked {closed_count} stale jobs as closed")
+        _emit(on_progress, f"Closed {closed_count} expired listings",
+              phase="done", detail=f"Closed {closed_count} expired listings")
+    conn.commit()
+
     _emit(on_progress, "Done", phase="done",
           detail=f"Complete — {visible_matches} matches",
           matches=visible_matches)
@@ -949,6 +1008,7 @@ def run_pipeline_pg(
         "jobs_collected": jobs_collected,
         "total_scored": total_scored,
         "visible_matches": visible_matches,
+        "closed_count": closed_count,
         "errors": errors,
     }
 
@@ -1003,8 +1063,13 @@ def _row_to_raw_job(row) -> RawJob:
 
 
 def _get_collectors(config: Config | None = None, db: sqlite3.Connection | None = None,
-                    pg_db_url: str | None = None) -> dict:
-    """Get all enabled collectors."""
+                    pg_db_url: str | None = None,
+                    li_time_filter: str = "r86400") -> dict:
+    """Get all enabled collectors.
+
+    li_time_filter: LinkedIn f_TPR value. Use 'r86400' (24h) for recurring runs
+    and 'r604800' (1 week) for a user's first run to populate their initial inbox.
+    """
     collectors = {
         "hn": HNCollector(),
     }
@@ -1018,11 +1083,11 @@ def _get_collectors(config: Config | None = None, db: sqlite3.Connection | None 
         from shortlist.collectors.linkedin import searches_from_config
         searches = searches_from_config(config)
         collectors["linkedin"] = LinkedInCollector(
-            searches=searches, time_filter="r604800", location=linkedin_location,
+            searches=searches, time_filter=li_time_filter, location=linkedin_location,
         )
     else:
         collectors["linkedin"] = LinkedInCollector(
-            time_filter="r604800", location=linkedin_location,
+            time_filter=li_time_filter, location=linkedin_location,
         )
 
     from shortlist.collectors.nextplay import _is_leadership_role

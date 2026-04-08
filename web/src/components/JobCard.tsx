@@ -132,6 +132,20 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
   const isSkipped = job.user_status === "skipped";
   const isClosed = job.is_closed;
 
+  const sourceLabel = (() => {
+    const src = job.sources_seen?.[0];
+    const map: Record<string, string> = {
+      linkedin: "LinkedIn",
+      hn: "HN",
+      greenhouse: "Greenhouse",
+      lever: "Lever",
+      nextplay: "NextPlay",
+      curated: "Curated",
+      career_page: "Direct",
+    };
+    return src ? (map[src] ?? src) : null;
+  })();
+
   const hasIntel = job.company_intel && !job.company_intel.toLowerCase().includes("no enrichment") && !job.company_intel.toLowerCase().includes("no company intel");
 
   // Condense company intel for collapsed view: show top 2-3 fields, shorter labels
@@ -174,6 +188,7 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
               <span>{job.company}</span>
               {job.location && <><span className="text-gray-300">&middot;</span><span>{job.location}</span></>}
               {age && <><span className="text-gray-300">&middot;</span><span className="text-gray-400 text-xs">{age}</span></>}
+              {sourceLabel && <><span className="text-gray-300">&middot;</span><span className="font-mono text-[10px] uppercase tracking-widest text-gray-400">{sourceLabel}</span></>}
             </div>
             <div className="flex items-center gap-x-1.5 shrink-0">
               {isRecruiter && (
@@ -208,6 +223,9 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                   <span className="group-hover/badge:invisible">Skipped</span>
                   <span className="absolute inset-0 flex items-center justify-center text-red-500 opacity-0 group-hover/badge:opacity-100 transition-opacity">×</span>
                 </button>
+              )}
+              {job.prestige_tier === "A" && (
+                <span className="font-mono text-[10px] uppercase tracking-widest bg-gray-900 text-white px-1.5 py-0.5 rounded">Tier A</span>
               )}
               {isClosed && (
                 <button
@@ -315,6 +333,15 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
                     <span className="ml-auto font-mono text-[11px] text-gray-400">via {sources}</span>
                   )}
                 </div>
+
+                {/* Closed reason — shown when job was auto-closed */}
+                {isClosed && job.closed_reason && job.closed_reason !== "user" && (
+                  <p className="text-xs text-red-400">
+                    {job.closed_reason === "url_check" && "This listing is no longer active."}
+                    {job.closed_reason === "age_expired" && "This listing has expired."}
+                    {job.closed_reason === "last_seen_stale" && "This listing hasn't been seen recently."}
+                  </p>
+                )}
 
                 {/* Interest note — the star, biggest text, most prominent */}
                 {detail.interest_note && (

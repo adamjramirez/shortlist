@@ -5,7 +5,7 @@ Separate from db.py (SQLite, CLI only) and api/db.py (async SQLAlchemy, API only
 """
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 import psycopg2.extras
@@ -49,7 +49,11 @@ def upsert_job(conn, user_id: int, job) -> None:
                 sources.append(job.source)
             cur.execute(
                 "UPDATE jobs SET last_seen = %s, sources_seen = %s, "
-                "posted_at = COALESCE(posted_at, %s) WHERE id = %s",
+                "posted_at = COALESCE(posted_at, %s), "
+                "is_closed = CASE WHEN closed_reason = 'user' THEN is_closed ELSE false END, "
+                "closed_at = CASE WHEN closed_reason = 'user' THEN closed_at ELSE NULL END, "
+                "closed_reason = CASE WHEN closed_reason = 'user' THEN closed_reason ELSE NULL END "
+                "WHERE id = %s",
                 (datetime.now(timezone.utc), json.dumps(sources),
                  posted_at_dt, existing["id"]),
             )
@@ -68,6 +72,39 @@ def upsert_job(conn, user_id: int, job) -> None:
                 ),
             )
     conn.commit()
+
+
+def get_existing_urls(conn, user_id: int, urls: list[str]) -> set[str]:
+    """Return the subset of urls already in the jobs table for this user."""
+    if not urls:
+        return set()
+    placeholders = ", ".join(["%s"] * len(urls))
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT url FROM jobs WHERE user_id = %s AND url IN ({placeholders})",
+            (user_id, *urls),
+        )
+        return {row["url"] for row in cur.fetchall()}
+
+
+def bulk_update_last_seen(conn, user_id: int, urls: list[str],
+                          now: "datetime | None" = None) -> None:
+    """Refresh last_seen for already-known jobs without changing status or source list.
+
+    Accepts an explicit `now` so callers control the timestamp (testable, consistent
+    within a single pipeline run). Falls back to current UTC time if omitted.
+    """
+    if not urls:
+        return
+    if now is None:
+        now = datetime.now(timezone.utc)
+    placeholders = ", ".join(["%s"] * len(urls))
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE jobs SET last_seen = %s "
+            f"WHERE user_id = %s AND url IN ({placeholders})",
+            (now, user_id, *urls),
+        )
 
 
 def log_source_run(conn, user_id: int, source_name: str, started_at: str,
@@ -374,3 +411,138 @@ def update_company(conn, company_id: int, **fields) -> None:
             f"UPDATE companies SET {set_clause} WHERE id = %s",
             (*fields.values(), company_id),
         )
+
+
+# ---------------------------------------------------------------------------
+# Job expiry detection
+# ---------------------------------------------------------------------------
+
+def get_jobs_for_expiry_check(conn, limit: int = 20) -> list[dict]:
+    """Return jobs eligible for proactive URL expiry checking.
+
+    Cross-user query — expiry checking is a system-level operation.
+    Returns jobs from sources with checkable URLs (linkedin, greenhouse, lever, ashby),
+    ordered by expiry_checked_at ASC NULLS FIRST so never-checked jobs go first.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, url, sources_seen, fit_score, expiry_checked_at "
+            "FROM jobs "
+            "WHERE is_closed = false "
+            "  AND fit_score >= 75 "
+            "  AND ("
+            "    sources_seen::text LIKE %s "
+            "    OR sources_seen::text LIKE %s "
+            "    OR sources_seen::text LIKE %s "
+            "    OR sources_seen::text LIKE %s "
+            "  ) "
+            "ORDER BY expiry_checked_at ASC NULLS FIRST, fit_score DESC "
+            "LIMIT %s",
+            ('%\"linkedin\"%', '%\"greenhouse\"%', '%\"lever\"%', '%\"ashby\"%', limit),
+        )
+        return cur.fetchall()
+
+
+def mark_expiry_checked(conn, job_id: int, is_closed: bool,
+                        closed_reason: str | None = None) -> None:
+    """Record the result of a proactive expiry check.
+
+    Always sets expiry_checked_at = NOW().
+    If is_closed=True: also sets is_closed, closed_at, closed_reason.
+    """
+    now = datetime.now(timezone.utc)
+    with conn.cursor() as cur:
+        if is_closed:
+            cur.execute(
+                "UPDATE jobs SET expiry_checked_at = %s, is_closed = true, "
+                "closed_at = %s, closed_reason = %s WHERE id = %s",
+                (now, now, closed_reason, job_id),
+            )
+        else:
+            cur.execute(
+                "UPDATE jobs SET expiry_checked_at = %s WHERE id = %s",
+                (now, job_id),
+            )
+
+
+def mark_stale_jobs(conn, user_id: int, run_started_at: datetime) -> int:
+    """Mark jobs as closed based on staleness/age signals.
+
+    Five passes, each skipping jobs where closed_reason = 'user'.
+    Returns count of jobs newly marked closed.
+
+    Pass 1 — ATS (greenhouse/lever/ashby): last_seen > 3 days before run_started_at
+    Pass 2 — LinkedIn: posted_at > 30 days ago
+    Pass 3 — HN with posted_at: posted_at > 45 days ago
+    Pass 4 — HN with null posted_at: last_seen > 45 days ago
+    Pass 5 — Generic: all other sources not seen in 7 days
+    """
+    now = datetime.now(timezone.utc)
+    ats_cutoff = run_started_at - timedelta(days=3)
+    linkedin_cutoff = now - timedelta(days=30)
+    hn_cutoff = now - timedelta(days=45)
+    generic_cutoff = now - timedelta(days=7)
+
+    closed_total = 0
+    base = "AND user_id = %s AND is_closed = false AND (closed_reason IS NULL OR closed_reason != 'user')"
+
+    # LIKE pattern values — passed as params so psycopg2 doesn't parse the % signs
+    P_GH  = '%"greenhouse"%'
+    P_LV  = '%"lever"%'
+    P_AB  = '%"ashby"%'
+    P_LI  = '%"linkedin"%'
+    P_HN  = '%"hn"%'
+
+    passes = [
+        # Pass 1: ATS sources not seen recently
+        (
+            f"UPDATE jobs SET is_closed = true, closed_at = %s, closed_reason = 'last_seen_stale' "
+            f"WHERE last_seen < %s "
+            f"  AND (sources_seen::text LIKE %s OR sources_seen::text LIKE %s OR sources_seen::text LIKE %s) "
+            f"  {base}",
+            (now, ats_cutoff, P_GH, P_LV, P_AB, user_id),
+        ),
+        # Pass 2: LinkedIn age
+        (
+            f"UPDATE jobs SET is_closed = true, closed_at = %s, closed_reason = 'age_expired' "
+            f"WHERE sources_seen::text LIKE %s "
+            f"  AND posted_at IS NOT NULL AND posted_at < %s "
+            f"  {base}",
+            (now, P_LI, linkedin_cutoff, user_id),
+        ),
+        # Pass 3: HN with posted_at
+        (
+            f"UPDATE jobs SET is_closed = true, closed_at = %s, closed_reason = 'age_expired' "
+            f"WHERE sources_seen::text LIKE %s "
+            f"  AND posted_at IS NOT NULL AND posted_at < %s "
+            f"  {base}",
+            (now, P_HN, hn_cutoff, user_id),
+        ),
+        # Pass 4: HN with null posted_at (last_seen fallback)
+        (
+            f"UPDATE jobs SET is_closed = true, closed_at = %s, closed_reason = 'last_seen_stale' "
+            f"WHERE sources_seen::text LIKE %s "
+            f"  AND posted_at IS NULL AND last_seen < %s "
+            f"  {base}",
+            (now, P_HN, hn_cutoff, user_id),
+        ),
+        # Pass 5: Generic — all other sources not seen in 7 days
+        (
+            f"UPDATE jobs SET is_closed = true, closed_at = %s, closed_reason = 'last_seen_stale' "
+            f"WHERE sources_seen::text NOT LIKE %s "
+            f"  AND sources_seen::text NOT LIKE %s "
+            f"  AND sources_seen::text NOT LIKE %s "
+            f"  AND sources_seen::text NOT LIKE %s "
+            f"  AND sources_seen::text NOT LIKE %s "
+            f"  AND last_seen < %s "
+            f"  {base}",
+            (now, P_GH, P_LV, P_AB, P_LI, P_HN, generic_cutoff, user_id),
+        ),
+    ]
+
+    with conn.cursor() as cur:
+        for sql, params in passes:
+            cur.execute(sql, params)
+            closed_total += cur.rowcount
+
+    return closed_total

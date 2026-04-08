@@ -208,6 +208,7 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
             raise
 
         visible = result.get("visible_matches", 0)
+        closed = result.get("closed_count", 0)
         await update_run(
             status="completed",
             finished_at=datetime.now(timezone.utc),
@@ -216,6 +217,7 @@ async def execute_run(run_id: int, user_id: int, config: dict, db_url: str) -> N
                 "detail": f"Complete — {visible} matches found",
                 "matches": visible,
                 "jobs_collected": result.get("jobs_collected", 0),
+                "closed_count": closed,
             },
         )
 

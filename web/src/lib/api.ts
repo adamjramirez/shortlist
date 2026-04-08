@@ -134,6 +134,7 @@ export const jobs = {
     min_score?: number;
     track?: string;
     user_status?: string;
+    prestige?: string;
     page?: number;
     per_page?: number;
   }) => {

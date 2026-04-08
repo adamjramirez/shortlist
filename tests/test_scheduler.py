@@ -611,3 +611,44 @@ class TestReapZombieRuns:
             pending = await trigger_due_users(session)
 
         assert len(pending) == 1
+
+
+class TestRunExpiryChecks:
+    """run_expiry_checks calls check_expiry_batch in a thread."""
+
+    @pytest.mark.asyncio
+    async def test_run_expiry_checks_calls_batch(self):
+        """run_expiry_checks runs check_expiry_batch via asyncio.to_thread."""
+        from shortlist.scheduler import run_expiry_checks
+        from shortlist import scheduler as sched_mod
+
+        called_with = []
+
+        def fake_batch(db_url, **kwargs):
+            called_with.append(db_url)
+            return {"checked": 5, "closed": 2, "errors": 0}
+
+        orig = sched_mod.check_expiry_batch
+        sched_mod.check_expiry_batch = fake_batch
+        try:
+            await run_expiry_checks("postgresql://test/db")
+        finally:
+            sched_mod.check_expiry_batch = orig
+
+        assert called_with == ["postgresql://test/db"]
+
+    @pytest.mark.asyncio
+    async def test_run_expiry_checks_handles_error(self):
+        """run_expiry_checks swallows errors so the scheduler tick doesn't fail."""
+        from shortlist.scheduler import run_expiry_checks
+        from shortlist import scheduler as sched_mod
+
+        def failing_batch(db_url, **kwargs):
+            raise RuntimeError("db gone")
+
+        orig = sched_mod.check_expiry_batch
+        sched_mod.check_expiry_batch = failing_batch
+        try:
+            await run_expiry_checks("postgresql://test/db")  # Should not raise
+        finally:
+            sched_mod.check_expiry_batch = orig

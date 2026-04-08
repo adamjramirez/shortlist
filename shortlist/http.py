@@ -179,6 +179,26 @@ def _do_get(url: str, domain: str, params, headers, cookies, timeout,
     return resp
 
 
+def head(url: str, *, headers: dict | None = None,
+         timeout: int = DEFAULT_TIMEOUT) -> httpx.Response:
+    """Rate-limited HEAD request. Routes through proxy for LinkedIn."""
+    domain = _domain(url)
+    _wait(domain)
+    merged_headers = {**DEFAULT_HEADERS, **(headers or {})}
+
+    if _should_proxy(domain):
+        with _linkedin_lock:
+            proxy_url = _next_proxy()
+            if proxy_url:
+                try:
+                    with httpx.Client(proxy=proxy_url, timeout=timeout) as client:
+                        return client.head(url, headers=merged_headers)
+                except (httpx.ProxyError, httpx.ConnectError) as e:
+                    logger.warning(f"Proxy error for {domain}: {e}, falling back to direct")
+
+    return httpx.head(url, headers=merged_headers, timeout=timeout)
+
+
 def post(url: str, *, json: dict | None = None, headers: dict | None = None,
          timeout: int = DEFAULT_TIMEOUT) -> httpx.Response:
     """Rate-limited POST request."""

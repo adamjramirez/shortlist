@@ -78,6 +78,8 @@ def _job_to_summary(job: Job, latest_run_id: int | None = None) -> JobSummary:
         has_tailored_pdf=bool(job.tailored_resume_pdf_key),
         is_new=(latest_run_id is not None and job.run_id == latest_run_id),
         is_closed=bool(job.is_closed),
+        closed_reason=job.closed_reason,
+        prestige_tier=job.prestige_tier,
         viewed_at=job.viewed_at.isoformat() if job.viewed_at else None,
         company_intel=(f"⚠️ Posted by {job.company} (recruiter/job board). The actual hiring company isn't listed — no company intel available."
                        if _is_job_board(job.company)
@@ -115,6 +117,7 @@ async def list_jobs(
     min_score: int | None = Query(None),
     track: str | None = Query(None),
     user_status: str | None = Query(None),
+    prestige: str | None = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
 ):
@@ -125,10 +128,20 @@ async def list_jobs(
     filters.append(Job.fit_score >= effective_min)
     if track:
         filters.append(Job.matched_track == track)
+    if prestige:
+        filters.append(Job.prestige_tier == prestige.upper())
     if user_status == "new":
         filters.append(Job.user_status.is_(None))
+        filters.append(Job.is_closed == False)  # noqa: E712
+    elif user_status in ("saved", "applied"):
+        filters.append(Job.user_status == user_status)
+        # Keep closed jobs in saved/applied — user may have applied before it closed
     elif user_status:
         filters.append(Job.user_status == user_status)
+        filters.append(Job.is_closed == False)  # noqa: E712
+    else:
+        # Default (no user_status filter) — hide closed from main view
+        filters.append(Job.is_closed == False)  # noqa: E712
 
     total = (await session.execute(
         select(func.count()).select_from(Job).where(*filters)
@@ -140,7 +153,7 @@ async def list_jobs(
         base_filters.append(Job.matched_track == track)
     count_result = await session.execute(
         select(
-            func.count().filter(Job.user_status.is_(None)).label("new"),
+            func.count().filter(Job.user_status.is_(None), Job.is_closed == False).label("new"),  # noqa: E712
             func.count().filter(Job.user_status == "saved").label("saved"),
             func.count().filter(Job.user_status == "applied").label("applied"),
             func.count().filter(Job.user_status == "skipped").label("skipped"),
@@ -194,7 +207,13 @@ async def update_job_status(
         raise HTTPException(status_code=404, detail="Job not found")
 
     if req.status == "closed":
-        job.is_closed = not job.is_closed  # toggle
+        job.is_closed = not job.is_closed
+        if job.is_closed:
+            job.closed_reason = "user"
+            job.closed_at = datetime.now(timezone.utc)
+        else:
+            job.closed_reason = None
+            job.closed_at = None
     elif req.status == "clear":
         job.user_status = None
     else:

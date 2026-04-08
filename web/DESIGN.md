@@ -175,14 +175,20 @@ Visual weight matches commitment level:
 ### Clearable badges
 Two kinds of badges: **system** (informational) and **user-set** (actionable).
 
-| Badge | Type | On hover |
-|-------|------|----------|
-| New | System | Nothing — not interactive |
-| Recruiter | System | Nothing — not interactive |
-| Saved | User-set | Shows × , click clears status |
-| Applied | User-set | Shows × , click clears status |
-| Skipped | User-set | Shows × , click clears status |
-| Closed | User-set | Shows × , click toggles |
+| Badge | Type | On hover | Treatment |
+|-------|------|----------|-----------|
+| New | System | Nothing | `text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded` — fill, no border |
+| Recruiter | System | Nothing | `text-amber-600` — plain text only, no bg, no border |
+| Tier A | System | Nothing | `bg-gray-900 text-white px-1.5 py-0.5 rounded` — dark fill. Ink color = high-value signal. Distinct from all emerald badges. |
+| Tier B | System | — | Not shown. Most jobs are B — displaying it adds noise without signal. |
+| Source | System | Nothing | `text-gray-400` — plain text only, no bg, no border |
+| Saved | User-set | Shows × , click clears | `text-emerald-600 border border-emerald-300 bg-emerald-50` — outlined |
+| Applied | User-set | Shows × , click clears | `text-white bg-emerald-600` — solid fill |
+| Skipped | User-set | Shows × , click clears | `text-gray-400` — ghost text only |
+| Closed | User-set | Shows × , click toggles | `text-red-500 border border-red-300 bg-red-50` — outlined red |
+
+**The key rule: system badges use plain text only (no border, no background). User-set badges use borders or fills.**
+This makes the functional difference immediately clear — if it has a border or background, it's interactive.
 
 **Pattern:** User-set badges are `<button>` not `<span>`. On hover, label fades to `×` and colors shift to red. Click clears/toggles. Uses `group/badge` with:
 - Label: `group-hover/badge:invisible` (keeps layout width, prevents jump)

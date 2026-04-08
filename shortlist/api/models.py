@@ -115,6 +115,9 @@ class Job(Base):
     brief_count = Column(Integer, default=0)
     user_status = Column(String)  # applied, skipped, saved
     is_closed = Column(Boolean, default=False, server_default="false")
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    closed_reason = Column(String, nullable=True)
+    prestige_tier = Column(String(1), nullable=True)
     viewed_at = Column(DateTime(timezone=True), nullable=True)
     run_id = Column(Integer, ForeignKey("runs.id"), nullable=True)
 

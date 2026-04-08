@@ -9,6 +9,7 @@ interface Props {
   onComplete?: () => void;
   onProgress?: () => void;
   onActiveChange?: (active: boolean) => void;
+  onLastRunChange?: (run: Run | null) => void;
 }
 
 interface SourceState {
@@ -97,7 +98,7 @@ function SourceRow({ name, state }: { name: string; state: SourceState }) {
   );
 }
 
-export default function RunButton({ onComplete, onProgress, onActiveChange }: Props) {
+export default function RunButton({ onComplete, onProgress, onActiveChange, onLastRunChange }: Props) {
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState("");
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -122,8 +123,10 @@ export default function RunButton({ onComplete, onProgress, onActiveChange }: Pr
           sessionStorage.setItem(firedKey, "1");
         }
       }
+      const lastCompleted = runs.find((r) => r.status === "completed") ?? null;
+      onLastRunChange?.(lastCompleted);
     });
-  }, []);
+  }, [onLastRunChange]);
 
   const runId = run?.id;
 
@@ -199,6 +202,7 @@ export default function RunButton({ onComplete, onProgress, onActiveChange }: Pr
 
   const sources = progress?.sources;
   const matches = progress?.matches ?? 0;
+  const closedCount = (progress as Record<string, unknown>)?.closed_count as number | undefined;
   const elapsed = progress?.elapsed_seconds ?? 0;
   const phase = progress?.phase;
 
@@ -255,6 +259,9 @@ export default function RunButton({ onComplete, onProgress, onActiveChange }: Pr
             <div className="flex gap-3 font-mono">
               {matches > 0 && (
                 <span className="font-semibold text-emerald-600">{matches} matches</span>
+              )}
+              {closedCount !== undefined && closedCount > 0 && (
+                <span className="text-gray-400">{closedCount} expired removed</span>
               )}
               {elapsed > 0 && <span>{formatElapsed(elapsed)}</span>}
             </div>

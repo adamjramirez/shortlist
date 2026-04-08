@@ -66,6 +66,8 @@ export interface JobSummary {
   has_tailored_pdf: boolean;
   is_new: boolean;
   is_closed: boolean;
+  closed_reason: string | null;
+  prestige_tier: string | null;
   viewed_at: string | null;
   company_intel: string | null;
   score_reasoning: string | null;
