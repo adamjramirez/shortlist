@@ -297,7 +297,10 @@ def test_check_expiry_batch_empty_returns_zero():
         from shortlist.expiry import check_expiry_batch
         result = check_expiry_batch("postgresql://fake/db")
 
-    assert result == {"checked": 0, "closed": 0, "errors": 0}
+    assert result == {
+        "checked": 0, "closed": 0, "live": 0,
+        "unknown": 0, "skipped_recent": 0, "errors": 0,
+    }
     fake_conn.close.assert_called_once()
 
 

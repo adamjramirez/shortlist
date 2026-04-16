@@ -122,9 +122,18 @@ def check_job_url(url: str, sources_seen: list[str]) -> bool | None:
 
 
 def _run_batch(conn, limit: int = 20) -> dict:
-    """Run expiry checks on a batch of jobs using an existing connection."""
+    """Run expiry checks on a batch of jobs using an existing connection.
+
+    Returns {checked, closed, live, unknown, skipped_recent, errors}:
+      - checked:        HTTP-backed decisions made (= closed + live + unknown)
+      - closed:         explicit 404 → marked closed
+      - live:           explicit 200 → confirmed active
+      - unknown:        HTTP call returned None (3xx/4xx-non-404/5xx/parse fail)
+      - skipped_recent: no HTTP call because last_seen < 24h ago
+      - errors:         exceptions raised during processing (true failures)
+    """
     jobs = pgdb.get_jobs_for_expiry_check(conn, limit=limit)
-    checked = closed = errors = 0
+    checked = closed = live = unknown = skipped_recent = errors = 0
     now = datetime.now(timezone.utc)
     recency_cutoff = now - timedelta(hours=_RECENCY_SKIP_HOURS)
 
@@ -136,11 +145,10 @@ def _run_batch(conn, limit: int = 20) -> dict:
             except (ValueError, TypeError):
                 sources = []
 
-        # 5b — Recency skip: if last_seen is recent, transient errors are far more
+        # 5b — Recency skip: last_seen within 24h → transient errors far more
         # likely than genuine removal. Skip the HTTP call entirely.
         last_seen = job.get("last_seen")
         if last_seen is not None:
-            # Normalise to UTC-aware if DB returns naive datetime
             if isinstance(last_seen, datetime) and last_seen.tzinfo is None:
                 last_seen = last_seen.replace(tzinfo=timezone.utc)
             if isinstance(last_seen, datetime) and last_seen > recency_cutoff:
@@ -148,10 +156,9 @@ def _run_batch(conn, limit: int = 20) -> dict:
                     "url_check skip (recent): job=%d last_seen=%s",
                     job["id"], last_seen.isoformat(),
                 )
-                errors += 1  # counted as "skipped/unknown", not checked
+                skipped_recent += 1
                 continue
 
-        # Determine primary source label for logging (first matched source)
         primary_source = next(
             (s for s in ("linkedin", "greenhouse", "lever", "ashby") if s in sources),
             sources[0] if sources else "unknown",
@@ -160,13 +167,12 @@ def _run_batch(conn, limit: int = 20) -> dict:
         try:
             result = check_job_url(job["url"], sources)
             if result is None:
-                # Unknown — still mark as checked so we don't retry immediately
                 pgdb.mark_expiry_checked(conn, job_id=job["id"], is_closed=False)
                 logger.debug(
                     "url_check unknown: job=%d source=%s url=%s",
                     job["id"], primary_source, job["url"],
                 )
-                errors += 1
+                unknown += 1
             elif result is False:
                 pgdb.mark_expiry_checked(conn, job_id=job["id"], is_closed=True,
                                          closed_reason="url_check")
@@ -181,13 +187,21 @@ def _run_batch(conn, limit: int = 20) -> dict:
                     "url_check live: job=%d source=%s url=%s",
                     job["id"], primary_source, job["url"],
                 )
+                live += 1
             checked += 1
         except Exception as e:
             logger.warning("Expiry check error for job %s: %s", job["id"], e)
             errors += 1
 
     conn.commit()
-    return {"checked": checked, "closed": closed, "errors": errors}
+    return {
+        "checked": checked,
+        "closed": closed,
+        "live": live,
+        "unknown": unknown,
+        "skipped_recent": skipped_recent,
+        "errors": errors,
+    }
 
 
 def check_expiry_batch(db_url: str, limit: int = 20) -> dict:

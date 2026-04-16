@@ -6,9 +6,37 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**Analyze-silent-failure fix deployed (commit 1d7dc33). Local E2E reproduction confirmed fix works — user 10's CV analyzed in 5.2s with valid Gemini key. User 10 (mukulkherli) had encrypted_api_key set but fit_context/tracks empty on prod → their analyze never completed under the old silent-error frontend. Waiting on their retry; new banner + fly-log trace will show the real cause.**
+**Salary transparency shipped + url_check expiry bug fixed (commits cab0fc2, 88a4ca9, 3acd4cf).** Inbox recovered from 3 → 63 for user 2 after discovering the expiry checker was closing jobs on any non-200 HTTP response (403/429/5xx/3xx). Monitor next 24-48h for stability — if false-positive closures return, ship 5c (2-strike rule w/ migration 014). Also decide in 48h whether to write PROJECT_LOG entry for user 10 analyze retry if they retest.
 
-**Separately surfaced during job-card review: the salary shown for every visible job is a Gemini fabrication. 99.8% of scored jobs have no `salary_text` from the source; 100% of visible-to-user jobs (fit_score ≥ 75) are unlisted. The LLM infers from title + company + location + its own prior knowledge. Estimate is display-only (no downstream effect on fit_score). `salary_confidence` is collected every call and discarded. No internal ground truth to validate estimates against (7 "listed" rows are mostly HN parsing noise — `$13`, `$32`, etc.). Decision pending: A hide, B label "est." + tooltip, C external comp data (Glassdoor/levels.fyi), D confidence gate.**
+## 2026-04-16 (session 3) — url_check false-positive closures + salary basis field
+
+**What got done:**
+1. **Salary transparency shipped** (commit cab0fc2, earlier today). Listed-vs-estimated visual split: listed = bold gray-900; estimated = `~` prefix + muted + click-popover with confidence dots + per-job basis sentence + "How we estimate →" link to new `/about/estimates` methodology page. `is_listed_salary()` sanity-filters HN noise (< $50k annual). New `salary_basis` field captured per job from the scoring call (migration 013, ScoreResult/prompt/schema/parser all wired). D-SL-015 in DECISIONS.md explicitly rules out levels.fyi/Glassdoor/BLS/Payscale integrations. §9 Popover added to DESIGN.md.
+2. **Inbox drop investigation** — user reported 54 → 25 → 3 over ~4 hours. Prod diagnostic: 59 visible jobs auto-closed via `closed_reason='url_check'` in last 48h, 29 in the 4-hour window. Including jobs posted that morning (id=11179 Jobgether LinkedIn post, closed 6h after last successful collection).
+3. **Root cause** at `expiry.py:61` (pre-fix): `return resp.status_code == 200`. Meaning any non-200 (404 OK as gone, but also 403/429/5xx/3xx/timeout) → False → closed. Live test on id=11179 returned 200, confirming transient non-200 was the earlier false positive.
+4. **Kill switch + reopen + fix** (commits 88a4ca9, 3acd4cf). Three-step rollout:
+   - Step A: `DISABLE_URL_CHECK=1` env-var gate deployed + activated to stop re-closures.
+   - Step B: SQL reopen — 73 jobs across 2 users (user 2: 61, user 6: 12), 7-day window, score≥75, user_status IN (NULL, saved, applied).
+   - Step C: Fix deployed. Per-source tri-state (True/False/None). Recency skip for last_seen < 24h. Per-close INFO log. Gate removed.
+5. **Post-fix signal:** first batch after deploy = 1 close / 5 checked / 16 skipped-or-unknown (pre-fix would have closed most of the 16). Inbox held at 63.
+6. **Stats cleanup:** `_run_batch` now returns `{checked, closed, live, unknown, skipped_recent, errors}`. Previous `errors` counter conflated 3 different things. Scheduler aggregate log updated to match.
+
+**Key decisions:**
+- Only explicit 404 (or Ashby title="Jobs") = gone. Everything else = unknown. See D-SL-015 structural reasoning.
+- Recency skip is primary defense (one line, zero schema, would have caught today's incident on its own). 2-strike rule (5c, migration 014) deferred — revisit in 48h.
+- Kill switch pattern proved valuable for reopen-before-fix ordering. Keep for future incidents.
+- Didn't touch `last_seen_stale` sweep — it was working correctly (2285 closures, 3 visible = healthy).
+
+**Verification:**
+- `pytest tests/test_expiry.py tests/test_scheduler.py` → 67 passed.
+- Prod: Adam inbox 3 → 63, user 6 inbox +12. Single url_check closure post-deploy is a genuine LinkedIn 404 (job 6392, Lensa VP AI Strategy).
+
+**Follow-ups:**
+- **48h monitor:** if url_check closures on fresh posts reappear, ship 5c (2-strike rule + migration 014).
+- **User 10** still hasn't retried analyze per earlier session — unrelated to today's work.
+- **3 NULL-reason closures** (59 total visible - 56 url_check in the original incident) — watch for recurrence. If zero post-fix, the mystery was a race in the same code path.
+
+---
 
 ## 2026-04-16 — New-user analyze silent failure + step 3/4 UX
 

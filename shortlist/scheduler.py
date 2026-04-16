@@ -207,10 +207,14 @@ async def run_expiry_checks(db_url: str) -> None:
     try:
         import shortlist.scheduler as _self
         result = await asyncio.to_thread(_self.check_expiry_batch, db_url)
-        if result["closed"] > 0:
+        if result["closed"] > 0 or result.get("errors", 0) > 0:
             logger.info(
-                "Expiry check: %d closed, %d checked, %d errors",
-                result["closed"], result["checked"], result["errors"],
+                "Expiry: closed=%d live=%d unknown=%d skipped_recent=%d errors=%d",
+                result["closed"],
+                result.get("live", 0),
+                result.get("unknown", 0),
+                result.get("skipped_recent", 0),
+                result["errors"],
             )
     except Exception:
         logger.exception("run_expiry_checks failed")
