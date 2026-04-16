@@ -6,7 +6,64 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**Collection efficiency live. LinkedIn uses 24h window on recurring runs. NextPlay pre-filters known URLs. Next: cross-source dedup (LinkedIn+Greenhouse same role).**
+**New-user analyze fix shipped to the codebase (not yet deployed). Silent failure surfaced when a concerned new user reported Analyze "started but didn't finish." Root cause: `SaveBar` (the only `error` render site) is gated on `hasProfile || generated`, both false for first-time analyze failures. Added visible banner, amber "most important" callout on step 3, and Regenerate-roles button on step 4. Next: deploy, watch the new user retry.**
+
+## 2026-04-16 — New-user analyze silent failure + step 3/4 UX
+
+**What got done:**
+1. **Error banner under AnalyzeButton** — `web/src/app/profile/page.tsx`. Gated on `error && !hasProfile && !generated` so only first-time-analyze failures show it (existing users still get errors via `SaveBar`). Previously these errors were set in React state but never rendered.
+2. **`saveApiKeyOrThrow` inner + catching outer split** — `handleAnalyze` now aborts early with a proper error message if key-save fails, instead of proceeding to `generate()` and getting a misleading 400.
+3. **Step 3 "Most important" amber callout** — emerald was already taken by the post-analyze success callout directly above (would have made emerald soup). Amber matches existing `SaveBar` "Unsaved changes" treatment.
+4. **"Regenerate roles" button on step 4** — calls existing `/api/profile/generate` with optional `fit_context` passed through, writes only `result.tracks` (discards fit_context + filters intentionally). Disabled when no resume, no fit_context, or no saved/pending API key.
+5. **Backend: optional `fit_context` on `POST /api/profile/generate`** — schemas, `FIT_CONTEXT_ADDENDUM` module constant, per-provider injection (Gemini prepend user turn; OpenAI insert user message between system+resume; Anthropic merge into single user message since roles must alternate). `SYSTEM_PROMPT` byte-identical (md5 verified) so future prompt caching isn't busted.
+6. **Two new API tests** — `test_generate_profile_without_fit_context_unchanged`, `test_generate_profile_with_fit_context_forwarded`. `FakeProfileGenerator` records `last_fit_context`. Existing `test_generate_no_api_key` at line 70 already covered the no-key path; did not duplicate.
+
+**Key decisions:**
+- Amber for step 3 emphasis, not emerald — emerald is reserved for user-action/accent and collides with the existing success callout.
+- Regenerate button discards the returned `fit_context` and `filters` — only overwrites tracks. User's hand-edited step 3 and filters stay intact.
+- Injection as extra user turn, never into `SYSTEM_PROMPT` — keeps the system prompt stable.
+- Anthropic's alternating-role requirement forced merging fit_context + resume into one user message; Gemini/OpenAI use separate messages.
+
+**Process:** tiered-build (Opus plans → Opus reviews plan → Sonnet executes backend → Sonnet executes frontend → Opus reviews both batches). Plan at `docs/plans/2026-04-16-new-user-analyze-fix.md`. First Opus pre-execution review caught emerald-soup risk, missing apiKey guard on Regenerate disabled state, and a duplicate test that already existed.
+
+**Verification:**
+- `pytest tests/api/test_profile_generate.py -q` → 9 passed, 1 pre-existing `fpdf` import error.
+- `pytest tests/ --ignore=tests/api -q` → 613 passed, 2 skipped, 12 pre-existing psycopg2 errors (local Postgres not running).
+- `cd web && npm run build` → clean, no type errors.
+
+**Follow-ups open:**
+- Deploy to Fly (`fly deploy --app shortlist-web`) and walk through the three UX paths as a fresh user.
+- Sharpen the `test_generate_no_api_key` detail-string assertion if we want to lock in the exact error message.
+
+## 2026-04-15 — Title gate + curated sources expansion
+
+**What got done:**
+1. **Fixed `apply_hard_filters` closure bug** — redundant local import inside `run_pipeline_pg` under `if _orphan_new:` shadowed the module-level import, making it UnboundLocalError whenever orphan drain was empty. Runs had been failing for a week. One-line fix (pipeline.py ~527). Deployed.
+2. **Standardized curated-source seeding workflow** — replaced per-list hardcoded scripts with: `data/career_pages/raw/<name>.txt` (paste) → `scripts/parse_career_pages.py <name>` (Gemini extracts + URL regex classifies ATS) → `data/career_pages/<name>.json` (reviewable) → `scripts/seed_career_pages.py <name>` (idempotent load via fly proxy).
+3. **Seeded 37 Ben Lang 2026-04-15 startups** — all landed `active`. Built `scripts/resolve_direct_ats.py` to crawl direct career pages + regex for embedded ATS URLs (ashby/greenhouse/lever/workable); resolved 14 of 35 direct entries (Cursor→ashby, Applied Intuition→greenhouse, WHOOP→lever, etc.). First productive run yielded ~1500 jobs from 10 ATS-resolved companies.
+4. **Title-gate processor** — new `shortlist/processors/title_gate.py`. Batch LLM call (50 titles each) between `apply_hard_filters` and per-job scorer. Fail-open. Gemini 2.0 Flash via `call_llm(json_schema=...)`. `config.llm.title_gate_enabled=True` (default). 23 new tests, 613 total pass. Built via tiered-build (Opus plan → Sonnet execute x2 → Opus review).
+5. **Rotated Decodo proxy to dedicated `shortlist` user** — `PROXY_URL`/`PROXY_URLS` on fly.
+
+**Key decisions:**
+- Gate prompt stays permissive ("pass when in doubt"). User preference: "some might be a fit but we need to process. 45-55 min is OK since it runs in background." Don't tighten to exact-fit.
+- No new DB migration — `jobs.status` is unconstrained `String`, so `status='title_rejected'` just works.
+- Patch `gate_titles` on the consumer (`shortlist.pipeline`), not the source — CLAUDE.md patch-where-used rule.
+- Reaper marks runs `failed` at 45 min but worker keeps going; `finally` block overwrites back to `completed` when it wraps. Consider bumping `ZOMBIE_RUN_TIMEOUT_MINUTES` to 90 for DB/reality alignment.
+
+**Numbers:**
+- Run 58 (no gate, baseline): 50 min, 2133 collected, 4 matches
+- Run 59 (with gate): 47 min, 2128 collected, 2 matches, 222 title_rejected (~30% prune rate — below 70% target because hard filter already removes obvious misses)
+- Net speedup: ~3 min wall clock. Modest but real.
+
+**Follow-ups open:**
+- 21 direct-ATS sources still unresolved (JS-injected iframes can't be parsed by plain HTTP). Headless browser or manual resolution if priority.
+- Curated collector's fetched jobs don't currently go through `_split_known_new` pre-filter — every run re-upserts the full job list for every ATS company. Follow-up from 2026-04-08.
+- Cross-source dedup (LinkedIn+Greenhouse same role).
+
+## 2026-04-14 — Traffic report script
+
+- Added `scripts/posthog_report.py` (project 139823, host `shortlist.addslift.com`).
+- 7-day snapshot: 32 pv / 4 users (all you). Custom events firing: `run_completed` (3), `run_failed` (2), `job_expanded` (7), `job_status_changed` (2). Pipeline active, no external users.
 
 ## 2026-04-08 — Collection efficiency
 

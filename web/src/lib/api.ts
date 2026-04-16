@@ -104,10 +104,10 @@ export const profile = {
       body: JSON.stringify(data),
     }),
 
-  generate: (resumeId: number) =>
+  generate: (resumeId: number, fitContext?: string) =>
     request<{ fit_context: string; tracks: Record<string, unknown>; filters: Record<string, unknown> }>(
       "/profile/generate",
-      { method: "POST", body: JSON.stringify({ resume_id: resumeId }) },
+      { method: "POST", body: JSON.stringify({ resume_id: resumeId, fit_context: fitContext ?? null }) },
     ),
 };
 

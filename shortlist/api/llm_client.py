@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from typing import Protocol
 
 import httpx
@@ -18,7 +19,7 @@ _BACKOFF_BASE = 2.0  # seconds: 2s, 4s
 
 
 class ProfileGenerator(Protocol):
-    async def generate_profile(self, resume_text: str) -> dict: ...
+    async def generate_profile(self, resume_text: str, fit_context: str | None = None) -> dict: ...
 
 
 SYSTEM_PROMPT = """You are analyzing a resume to set up an automated job search profile.
@@ -75,6 +76,12 @@ USER_PROMPT_TEMPLATE = """Here is the resume:
 
 {resume_text}"""
 
+FIT_CONTEXT_ADDENDUM = """The candidate has ALSO written the following description of what they want. Use it as the authoritative source for "fit_context" and as a strong prior for "tracks". If this conflicts with the resume, prefer what the candidate wrote.
+
+<candidate_fit_context>
+{fit_context}
+</candidate_fit_context>"""
+
 
 # Provider API configs
 _GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -118,57 +125,96 @@ def _extract_json(text: str) -> dict:
                 json_str = text[start : end + 1]
 
     if not json_str:
+        logger.warning(
+            "LLM response has no JSON. first_300=%r",
+            text[:300],
+        )
         raise ValueError("No JSON found in LLM response")
 
     # Try direct parse, then fix escapes and retry
     try:
         return json.loads(json_str)
-    except json.JSONDecodeError:
-        return json.loads(_fix_json_escapes(json_str))
+    except json.JSONDecodeError as e:
+        try:
+            return json.loads(_fix_json_escapes(json_str))
+        except json.JSONDecodeError as e2:
+            logger.warning(
+                "LLM JSON parse failed after escape fix. err=%s first_300=%r",
+                e2, json_str[:300],
+            )
+            raise
 
 
-async def _call_gemini(api_key: str, model: str, resume_text: str) -> str:
+async def _call_gemini(api_key: str, model: str, resume_text: str, fit_context: str | None = None) -> str:
     url = PROVIDERS[model]["url"]
+    contents = []
+    if fit_context and fit_context.strip():
+        contents.append({"parts": [{"text": FIT_CONTEXT_ADDENDUM.format(fit_context=fit_context)}]})
+    contents.append({"parts": [{"text": USER_PROMPT_TEMPLATE.format(resume_text=resume_text)}]})
+    logger.info(
+        "llm call start: provider=gemini model=%s resume_len=%d fit_context_len=%d",
+        model, len(resume_text), len(fit_context) if fit_context else 0,
+    )
+    t_start = time.monotonic()
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             url,
             params={"key": api_key},
             json={
                 "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-                "contents": [
-                    {
-                        "parts": [
-                            {"text": USER_PROMPT_TEMPLATE.format(resume_text=resume_text)}
-                        ]
-                    }
-                ],
+                "contents": contents,
                 "generationConfig": {"temperature": 0.3, "responseMimeType": "application/json"},
             },
         )
         resp.raise_for_status()
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        logger.info(
+            "llm call ok: provider=gemini model=%s status=%d elapsed_ms=%d response_len=%d",
+            model, resp.status_code, int((time.monotonic() - t_start) * 1000), len(text),
+        )
+        return text
 
 
-async def _call_openai(api_key: str, model: str, resume_text: str) -> str:
+async def _call_openai(api_key: str, model: str, resume_text: str, fit_context: str | None = None) -> str:
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if fit_context and fit_context.strip():
+        messages.append({"role": "user", "content": FIT_CONTEXT_ADDENDUM.format(fit_context=fit_context)})
+    messages.append({"role": "user", "content": USER_PROMPT_TEMPLATE.format(resume_text=resume_text)})
+    logger.info(
+        "llm call start: provider=openai model=%s resume_len=%d fit_context_len=%d",
+        model, len(resume_text), len(fit_context) if fit_context else 0,
+    )
+    t_start = time.monotonic()
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             PROVIDERS[model]["url"],
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "model": model,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": USER_PROMPT_TEMPLATE.format(resume_text=resume_text)},
-                ],
+                "messages": messages,
                 "temperature": 0.3,
                 "response_format": {"type": "json_object"},
             },
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        text = resp.json()["choices"][0]["message"]["content"]
+        logger.info(
+            "llm call ok: provider=openai model=%s status=%d elapsed_ms=%d response_len=%d",
+            model, resp.status_code, int((time.monotonic() - t_start) * 1000), len(text),
+        )
+        return text
 
 
-async def _call_anthropic(api_key: str, model: str, resume_text: str) -> str:
+async def _call_anthropic(api_key: str, model: str, resume_text: str, fit_context: str | None = None) -> str:
+    user_content = (
+        FIT_CONTEXT_ADDENDUM.format(fit_context=fit_context) + "\n\n"
+        if fit_context and fit_context.strip() else ""
+    ) + USER_PROMPT_TEMPLATE.format(resume_text=resume_text)
+    logger.info(
+        "llm call start: provider=anthropic model=%s resume_len=%d fit_context_len=%d",
+        model, len(resume_text), len(fit_context) if fit_context else 0,
+    )
+    t_start = time.monotonic()
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             PROVIDERS[model]["url"],
@@ -182,13 +228,18 @@ async def _call_anthropic(api_key: str, model: str, resume_text: str) -> str:
                 "max_tokens": 4096,
                 "system": SYSTEM_PROMPT,
                 "messages": [
-                    {"role": "user", "content": USER_PROMPT_TEMPLATE.format(resume_text=resume_text)},
+                    {"role": "user", "content": user_content},
                 ],
                 "temperature": 0.3,
             },
         )
         resp.raise_for_status()
-        return resp.json()["content"][0]["text"]
+        text = resp.json()["content"][0]["text"]
+        logger.info(
+            "llm call ok: provider=anthropic model=%s status=%d elapsed_ms=%d response_len=%d",
+            model, resp.status_code, int((time.monotonic() - t_start) * 1000), len(text),
+        )
+        return text
 
 
 _CALLERS = {
@@ -231,12 +282,12 @@ class LLMProfileGenerator:
         self.model = model
         self.api_key = api_key
 
-    async def generate_profile(self, resume_text: str) -> dict:
+    async def generate_profile(self, resume_text: str, fit_context: str | None = None) -> dict:
         caller = _CALLERS.get(self.model)
         if not caller:
             raise ValueError(f"Unsupported model: {self.model}")
         raw = await _retry_on_transient(
-            lambda: caller(self.api_key, self.model, resume_text),
+            lambda: caller(self.api_key, self.model, resume_text, fit_context),
             f"Profile generation ({self.model})",
         )
         return _extract_json(raw)
@@ -266,7 +317,9 @@ class FakeProfileGenerator:
             },
         }
         self.last_resume_text: str | None = None
+        self.last_fit_context: str | None = None
 
-    async def generate_profile(self, resume_text: str) -> dict:
+    async def generate_profile(self, resume_text: str, fit_context: str | None = None) -> dict:
         self.last_resume_text = resume_text
+        self.last_fit_context = fit_context
         return self.response

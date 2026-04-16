@@ -31,6 +31,7 @@ class UserResponse(BaseModel):
 
 class GenerateProfileRequest(BaseModel):
     resume_id: int
+    fit_context: str | None = None
 
 
 class GenerateProfileResponse(BaseModel):

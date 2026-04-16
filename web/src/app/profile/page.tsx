@@ -39,6 +39,7 @@ export default function ProfilePage() {
   const [resumeList, setResumes] = useState<Resume[]>([]);
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [toast, setToast] = useState("");
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -108,7 +109,8 @@ export default function ProfilePage() {
 
   // ── Handlers ──
 
-  const saveApiKey = async () => {
+  // New inner — throws on error. Used by handleAnalyze.
+  const saveApiKeyOrThrow = async () => {
     if (!apiKey && !llmModel && Object.keys(extraKeys).length === 0) return;
     const llm: Record<string, unknown> = { model: llmModel };
     if (apiKey) llm.api_key = apiKey;
@@ -116,19 +118,24 @@ export default function ProfilePage() {
       Object.entries(extraKeys).filter(([, v]) => v.trim())
     );
     if (Object.keys(nonEmpty).length > 0) llm.provider_keys = nonEmpty;
+    const updated = await profileApi.update({ llm });
+    setProfile(updated);
+    setHasApiKey(!!updated.llm?.has_api_key);
+    setProvidersWithKeys(updated.llm?.providers_with_keys || []);
+    setApiKey("");
+    setExtraKeys({});
+    const mainProvider = llmModel.startsWith("gemini") ? "gemini"
+      : llmModel.startsWith("gpt-") || llmModel.startsWith("o1-") ? "openai"
+      : llmModel.startsWith("claude-") ? "anthropic" : "unknown";
+    if (apiKey) track.apiKeySaved(mainProvider);
+    for (const p of Object.keys(nonEmpty)) track.apiKeySaved(p);
+  };
+
+  // Existing outer — catches for the Save button path.
+  const saveApiKey = async () => {
     try {
-      const updated = await profileApi.update({ llm });
-      setProfile(updated);
-      setHasApiKey(!!updated.llm?.has_api_key);
-      setProvidersWithKeys(updated.llm?.providers_with_keys || []);
-      setApiKey("");
-      setExtraKeys({});
+      await saveApiKeyOrThrow();
       showToast("API key saved ✓");
-      const mainProvider = llmModel.startsWith("gemini") ? "gemini"
-        : llmModel.startsWith("gpt-") || llmModel.startsWith("o1-") ? "openai"
-        : llmModel.startsWith("claude-") ? "anthropic" : "unknown";
-      if (apiKey) track.apiKeySaved(mainProvider);
-      for (const p of Object.keys(nonEmpty)) track.apiKeySaved(p);
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Failed to save key");
     }
@@ -138,7 +145,18 @@ export default function ProfilePage() {
     if (resumeList.length === 0) return;
     setAnalyzing(true);
     setError("");
-    if (apiKey) await saveApiKey();
+    track.profileAnalysisStarted(resumeList[0].id, llmModel, hasApiKey);
+    if (apiKey) {
+      try {
+        await saveApiKeyOrThrow();
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.detail : "Failed to save API key";
+        setError(msg);
+        track.profileAnalysisFailed(msg);
+        setAnalyzing(false);
+        return;
+      }
+    }
     try {
       const result = await profileApi.generate(resumeList[0].id);
       setFitContext(result.fit_context);
@@ -153,6 +171,26 @@ export default function ProfilePage() {
       track.profileAnalysisFailed(msg);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const handleRegenerateTracks = async () => {
+    if (resumeList.length === 0) return;
+    setRegenerating(true);
+    setError("");
+    try {
+      const result = await profileApi.generate(resumeList[0].id, fitContext);
+      // Intentionally only update tracks — discard result.fit_context and result.filters
+      // so the user's hand-edited step 3 and filters are never overwritten.
+      setTracks(jsonToTracks(result.tracks));
+      setDirty(true);
+      showToast("Roles regenerated ✓");
+      track.profileAnalyzed(resumeList[0].id);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.detail : "Regeneration failed";
+      setError(msg);
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -302,6 +340,17 @@ export default function ProfilePage() {
           />
         </div>
 
+        {error && !hasProfile && !generated && (
+          <div className="pb-6 pl-8">
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5">
+              <p className="text-sm text-red-700">{error}</p>
+              <p className="mt-1 text-xs text-red-600/70">
+                If this keeps happening, double-check your API key and model selection in step 2, then try again.
+              </p>
+            </div>
+          </div>
+        )}
+
         {(hasProfile || generated) && <>
           {generated && (
             <div className="py-4 px-1">
@@ -316,8 +365,14 @@ export default function ProfilePage() {
           <SectionCard
             step={3}
             title="What you're looking for"
-            subtitle="This is the main input to the AI scorer. Edit freely — the more specific, the better your matches."
+            subtitle="This is the single biggest lever on match quality. The AI reads it before scoring every job."
           >
+            <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-xs text-amber-800">
+                <span className="font-semibold">Most important step.</span>{" "}
+                Be specific: seniority, industries, company stages, what you want to build, and hard dealbreakers.
+              </p>
+            </div>
             <textarea
               value={fitContext}
               onChange={(e) => {
@@ -336,6 +391,19 @@ export default function ProfilePage() {
             title="Roles to search for"
             subtitle="Each role gets its own search queries. Edit titles, add queries, or remove roles that don't fit."
           >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-gray-500">
+                Generated from your resume and step 3. Edit or regenerate as you refine your context.
+              </p>
+              <button
+                type="button"
+                onClick={handleRegenerateTracks}
+                disabled={regenerating || resumeList.length === 0 || !fitContext.trim() || (!hasApiKey && !apiKey)}
+                className="shrink-0 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-emerald-500 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+              >
+                {regenerating ? "Regenerating…" : "Regenerate roles"}
+              </button>
+            </div>
             <TrackEditor
               tracks={tracks}
               onChange={(t) => { setTracks(t); setDirty(true); setError(""); }}

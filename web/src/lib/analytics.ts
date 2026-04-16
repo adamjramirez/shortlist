@@ -61,6 +61,9 @@ export const track = {
     trackEvent("run_failed", { error }),
 
   // --- Profile events ---
+  profileAnalysisStarted: (resumeId: number, model: string, hasSavedKey: boolean) =>
+    trackEvent("profile_analysis_started", { resume_id: resumeId, model, has_saved_key: hasSavedKey }),
+
   profileAnalyzed: (resumeId: number) =>
     trackEvent("profile_analyzed", { resume_id: resumeId }),
 

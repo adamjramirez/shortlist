@@ -1,4 +1,6 @@
 """Profile routes — get/update user profile config."""
+import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -21,6 +23,8 @@ from shortlist.api.schemas import (
     ProfileUpdate,
 )
 from shortlist.api.storage import Storage, get_storage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
@@ -172,12 +176,19 @@ async def generate_profile(
 
     Does NOT save — user reviews suggestions first.
     """
+    t_start = time.monotonic()
+    fit_context_len_in = len(req.fit_context) if req.fit_context else 0
+
     # Verify resume exists and belongs to user
     result = await session.execute(
         select(Resume).where(Resume.id == req.resume_id, Resume.user_id == user.id)
     )
     resume = result.scalar_one_or_none()
     if not resume:
+        logger.warning(
+            "generate_profile 404: user=%s resume_id=%s (not found or not owned)",
+            user.id, req.resume_id,
+        )
         raise HTTPException(status_code=404, detail="Resume not found")
 
     # Get user's LLM config
@@ -187,6 +198,10 @@ async def generate_profile(
     model = llm_config.get("model", "gemini-2.0-flash")
 
     if not encrypted_key and generator is None:
+        logger.warning(
+            "generate_profile 400: user=%s resume_id=%s model=%s (no api key configured)",
+            user.id, req.resume_id, model,
+        )
         raise HTTPException(
             status_code=400,
             detail="Set up your AI provider and API key first",
@@ -204,10 +219,21 @@ async def generate_profile(
         resume_bytes = await storage.get(resume.s3_key)
     resume_text = resume_bytes.decode("utf-8", errors="replace")
 
+    logger.info(
+        "generate_profile start: user=%s resume_id=%s model=%s resume_len=%d fit_context_len=%d",
+        user.id, req.resume_id, model, len(resume_text), fit_context_len_in,
+    )
+
     try:
-        result = await generator.generate_profile(resume_text)
+        result = await generator.generate_profile(resume_text, fit_context=req.fit_context)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
+        elapsed_ms = int((time.monotonic() - t_start) * 1000)
+        status = e.response.status_code
+        logger.warning(
+            "generate_profile provider error: user=%s model=%s status=%d elapsed_ms=%d",
+            user.id, model, status, elapsed_ms,
+        )
+        if status == 429:
             raise HTTPException(
                 status_code=429,
                 detail=(
@@ -218,13 +244,25 @@ async def generate_profile(
             )
         raise HTTPException(
             status_code=502,
-            detail=f"AI provider error ({e.response.status_code}). Try again shortly.",
+            detail=f"AI provider error ({status}). Try again shortly.",
         )
     except Exception as e:
+        elapsed_ms = int((time.monotonic() - t_start) * 1000)
+        logger.exception(
+            "generate_profile failed: user=%s model=%s elapsed_ms=%d exc_type=%s",
+            user.id, model, elapsed_ms, type(e).__name__,
+        )
         raise HTTPException(
             status_code=502,
             detail=f"AI analysis failed: {str(e)}",
         )
+
+    elapsed_ms = int((time.monotonic() - t_start) * 1000)
+    logger.info(
+        "generate_profile ok: user=%s model=%s elapsed_ms=%d fit_context_len=%d tracks=%d",
+        user.id, model, elapsed_ms,
+        len(result.get("fit_context", "")), len(result.get("tracks", {})),
+    )
 
     return GenerateProfileResponse(
         fit_context=result.get("fit_context", ""),

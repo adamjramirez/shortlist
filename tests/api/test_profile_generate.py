@@ -111,7 +111,7 @@ async def test_generate_profile_429_error(client, auth_headers, resume_id, profi
     import httpx as httpx_mod
 
     class RateLimitedGenerator:
-        async def generate_profile(self, resume_text: str) -> dict:
+        async def generate_profile(self, resume_text: str, fit_context: str | None = None) -> dict:
             resp = httpx_mod.Response(
                 429, request=httpx_mod.Request("POST", "https://example.com")
             )
@@ -137,7 +137,7 @@ async def test_generate_profile_502_error(client, auth_headers, resume_id, profi
     import httpx as httpx_mod
 
     class ServerErrorGenerator:
-        async def generate_profile(self, resume_text: str) -> dict:
+        async def generate_profile(self, resume_text: str, fit_context: str | None = None) -> dict:
             resp = httpx_mod.Response(
                 503, request=httpx_mod.Request("POST", "https://example.com")
             )
@@ -179,6 +179,36 @@ async def pdf_resume_id(client, auth_headers):
     resp = await client.post("/api/resumes", files=files, headers=auth_headers)
     assert resp.status_code == 201
     return resp.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_generate_profile_without_fit_context_unchanged(
+    client, auth_headers, resume_id, profile_with_key, fake_generator
+):
+    """When fit_context is omitted, generator receives None and response is unchanged."""
+    resp = await client.post(
+        "/api/profile/generate",
+        json={"resume_id": resume_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fit_context"] == "Generated fit context from resume."
+    assert fake_generator.last_fit_context is None
+
+
+@pytest.mark.asyncio
+async def test_generate_profile_with_fit_context_forwarded(
+    client, auth_headers, resume_id, profile_with_key, fake_generator
+):
+    """When fit_context is provided, generator receives the exact string."""
+    resp = await client.post(
+        "/api/profile/generate",
+        json={"resume_id": resume_id, "fit_context": "I want infra roles"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert fake_generator.last_fit_context == "I want infra roles"
 
 
 @pytest.mark.asyncio
