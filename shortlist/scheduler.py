@@ -190,11 +190,20 @@ async def _fire_and_update(
         await _update_profile_after_run(run_id, user_id, interval_h, session_factory)
 
 
+_URL_CHECK_DISABLED_LOGGED = False
+
+
 async def run_expiry_checks(db_url: str) -> None:
     """Run a batch of proactive job expiry checks. Called each scheduler tick.
 
     Errors are caught and logged — must never crash the scheduler tick.
     """
+    global _URL_CHECK_DISABLED_LOGGED
+    if os.environ.get("DISABLE_URL_CHECK") == "1":
+        if not _URL_CHECK_DISABLED_LOGGED:
+            logger.warning("url_check DISABLED via DISABLE_URL_CHECK env var — skipping expiry checks")
+            _URL_CHECK_DISABLED_LOGGED = True
+        return
     try:
         import shortlist.scheduler as _self
         result = await asyncio.to_thread(_self.check_expiry_batch, db_url)
