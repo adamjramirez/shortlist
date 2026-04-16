@@ -183,3 +183,24 @@ Inherits: `~/Code/CONSTRAINTS.md` (T1 — agency-level rules)
 **Mitigation:** All HTTP calls must go through `shortlist.http`. No direct `requests`, `httpx`, or `urllib` calls for external resources.
 
 *Source: CLAUDE.md Common Mistakes (top entry).*
+
+---
+
+## SL-019: HTTP health checks — only explicit gone signals close [greppable]
+
+**Impact:** Treating any non-200 response as "gone" silently destroys data. Proxy transients (502/timeout), bot challenges (403), rate limits (429), and redirects to login (302) are not closure signals — the resource is almost certainly still live.
+
+**Incident:** 2026-04-16. `expiry.py:61` pre-fix: `return resp.status_code == 200` — any non-200 → False → job closed. 73 live jobs across 2 users falsely closed in 7 days, including jobs returning 200 when re-tested hours later. User-visible inbox dropped 54 → 3 over ~4 hours.
+
+**Mitigation:**
+- Every health/expiry checker must return tri-state: `True` (explicit live), `False` (explicit gone), `None` (unknown). Callers close only on explicit `False`.
+- Per source, define what "explicit gone" means:
+  - HTTP APIs: 404 only
+  - Page-based (e.g., Ashby): source-specific body signal (e.g., title === "Jobs")
+  - If no explicit signal exists: return `None`, not `False`
+- Add a recency skip before the HTTP call: if the resource was successfully collected within the last 24h, skip the check entirely — transient errors are vastly more likely than genuine removal on fresh data.
+- `last_seen_stale`-style sweeps remain the safety net for truly old resources.
+
+**Greppable:** `return resp.status_code == 200` or equivalent in any checker, absent a 404-specific branch, is the bug pattern.
+
+*Source: PROJECT_LOG.md 2026-04-16 session 3. Plan at `docs/plans/2026-04-16-url-check-false-positives.md`.*
