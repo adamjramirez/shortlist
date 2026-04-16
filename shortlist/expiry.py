@@ -6,11 +6,16 @@ Runs in the scheduler background between pipeline runs.
 import json
 import logging
 import re
+from datetime import datetime, timezone, timedelta
 
 from shortlist import http
 from shortlist import pgdb
 
 logger = logging.getLogger(__name__)
+
+# Jobs seen within this window are skipped — transient network errors more likely
+# than genuine removal. last_seen_stale sweep picks up truly old jobs.
+_RECENCY_SKIP_HOURS = 24
 
 # Regex patterns for extracting org slug + job ID from ATS URLs
 _GREENHOUSE_PATTERN = re.compile(
@@ -49,38 +54,64 @@ def check_job_url(url: str, sources_seen: list[str]) -> bool | None:
     """Check if a job URL is still active.
 
     Returns:
-        True  — job is active
-        False — job is expired/gone
-        None  — unknown (network error, no proxy, unsupported source — do not close)
+        True  — explicit live signal (200 with valid content)
+        False — explicit gone signal (404 or confirmed closed page)
+        None  — unknown (transient error, bot challenge, redirect, unsupported source)
+                Do NOT close on None.
 
     All HTTP via shortlist.http. LinkedIn proxy auto-applied by PROXY_DOMAINS.
+
+    Each source has its own "gone" signal — only a definitive 404 (or equivalent)
+    returns False. Anything ambiguous (403/429/5xx/redirect/timeout) returns None.
     """
     try:
         if "linkedin" in sources_seen:
             resp = http.head(url)
-            return resp.status_code == 200
+            if resp.status_code == 200:
+                return True
+            if resp.status_code == 404:
+                return False
+            # 403/429/5xx/3xx — proxy flake, bot challenge, rate limit → unknown
+            return None
 
         if "greenhouse" in sources_seen:
             api_url = _parse_greenhouse_api_url(url)
             check_url = api_url if api_url else url
             resp = http.head(check_url)
-            return resp.status_code == 200
+            if resp.status_code == 200:
+                return True
+            if resp.status_code == 404:
+                return False
+            return None
 
         if "lever" in sources_seen:
             api_url = _parse_lever_api_url(url)
             if not api_url:
                 return None
             resp = http.head(api_url)
-            return resp.status_code == 200
+            if resp.status_code == 200:
+                return True
+            if resp.status_code == 404:
+                return False
+            return None
 
         if "ashby" in sources_seen:
             resp = http.get(url, timeout=5)
+            if resp.status_code != 200:
+                # Non-200 from Ashby — rate limit, error, or redirect → unknown
+                return None
             # Active jobs: "<title>Job Title @ Company</title>"
             # Expired jobs: "<title>Jobs</title>"
             title_match = re.search(r"<title>([^<]*)</title>", resp.text, re.I)
             if not title_match:
                 return None
-            return "@" in title_match.group(1)
+            title = title_match.group(1)
+            if title.strip() == "Jobs":
+                return False
+            if "@" in title:
+                return True
+            # Unrecognised title format → unknown
+            return None
 
         # HN and other sources have no useful URL signal
         return None
@@ -94,6 +125,8 @@ def _run_batch(conn, limit: int = 20) -> dict:
     """Run expiry checks on a batch of jobs using an existing connection."""
     jobs = pgdb.get_jobs_for_expiry_check(conn, limit=limit)
     checked = closed = errors = 0
+    now = datetime.now(timezone.utc)
+    recency_cutoff = now - timedelta(hours=_RECENCY_SKIP_HOURS)
 
     for job in jobs:
         sources = job["sources_seen"]
@@ -103,18 +136,51 @@ def _run_batch(conn, limit: int = 20) -> dict:
             except (ValueError, TypeError):
                 sources = []
 
+        # 5b — Recency skip: if last_seen is recent, transient errors are far more
+        # likely than genuine removal. Skip the HTTP call entirely.
+        last_seen = job.get("last_seen")
+        if last_seen is not None:
+            # Normalise to UTC-aware if DB returns naive datetime
+            if isinstance(last_seen, datetime) and last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+            if isinstance(last_seen, datetime) and last_seen > recency_cutoff:
+                logger.debug(
+                    "url_check skip (recent): job=%d last_seen=%s",
+                    job["id"], last_seen.isoformat(),
+                )
+                errors += 1  # counted as "skipped/unknown", not checked
+                continue
+
+        # Determine primary source label for logging (first matched source)
+        primary_source = next(
+            (s for s in ("linkedin", "greenhouse", "lever", "ashby") if s in sources),
+            sources[0] if sources else "unknown",
+        )
+
         try:
             result = check_job_url(job["url"], sources)
             if result is None:
                 # Unknown — still mark as checked so we don't retry immediately
                 pgdb.mark_expiry_checked(conn, job_id=job["id"], is_closed=False)
+                logger.debug(
+                    "url_check unknown: job=%d source=%s url=%s",
+                    job["id"], primary_source, job["url"],
+                )
                 errors += 1
             elif result is False:
                 pgdb.mark_expiry_checked(conn, job_id=job["id"], is_closed=True,
                                          closed_reason="url_check")
+                logger.info(
+                    "url_check close: job=%d source=%s url=%s",
+                    job["id"], primary_source, job["url"],
+                )
                 closed += 1
             else:
                 pgdb.mark_expiry_checked(conn, job_id=job["id"], is_closed=False)
+                logger.debug(
+                    "url_check live: job=%d source=%s url=%s",
+                    job["id"], primary_source, job["url"],
+                )
             checked += 1
         except Exception as e:
             logger.warning("Expiry check error for job %s: %s", job["id"], e)

@@ -426,7 +426,7 @@ def get_jobs_for_expiry_check(conn, limit: int = 20) -> list[dict]:
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, url, sources_seen, fit_score, expiry_checked_at "
+            "SELECT id, url, sources_seen, fit_score, expiry_checked_at, last_seen "
             "FROM jobs "
             "WHERE is_closed = false "
             "  AND fit_score >= 75 "
