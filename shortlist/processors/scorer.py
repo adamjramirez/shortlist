@@ -21,6 +21,7 @@ class ScoreResult:
     yellow_flags: list[str] = field(default_factory=list)
     salary_estimate: str = ""
     salary_confidence: str = "low"
+    salary_basis: str = ""
     corrected_title: str = ""
     corrected_company: str = ""
     corrected_location: str = ""
@@ -175,6 +176,7 @@ Score this job for fit with the candidate profile. Return a JSON object with exa
     "yellow_flags": ["<list of concerns, empty if none>"],
     "salary_estimate": "<format as XXXk-XXXk {currency}, e.g. 200k-300k {currency}>",
     "salary_confidence": "<low|medium|high>",
+    "salary_basis": "<one sentence explaining what drove the estimate and its confidence, e.g. 'Public comp data for Director+ roles at Series C security companies in SF' or 'Stealth-stage startup, limited data on comp norms at this size'>",
     "corrected_title": "<the actual job title, e.g. 'VP of Engineering'>",
     "corrected_company": "<the actual company name>",
     "corrected_location": "<the actual location, e.g. 'Remote' or 'San Francisco, CA'>",
@@ -310,6 +312,7 @@ def parse_score_response(response_text: str) -> ScoreResult | None:
         yellow_flags=data.get("yellow_flags", []),
         salary_estimate=data.get("salary_estimate", ""),
         salary_confidence=data.get("salary_confidence", "low"),
+        salary_basis=data.get("salary_basis", ""),
         corrected_title=data.get("corrected_title", ""),
         corrected_company=data.get("corrected_company", ""),
         corrected_location=data.get("corrected_location", ""),
@@ -326,14 +329,16 @@ SCORE_SCHEMA = {
         "yellow_flags": {"type": "ARRAY", "items": {"type": "STRING"}},
         "salary_estimate": {"type": "STRING"},
         "salary_confidence": {"type": "STRING", "enum": ["low", "medium", "high"]},
+        "salary_basis": {"type": "STRING"},
         "corrected_title": {"type": "STRING"},
         "corrected_company": {"type": "STRING"},
         "corrected_location": {"type": "STRING"},
         "prestige_tier": {"type": "STRING", "enum": ["A", "B", "C", "D"]},
     },
     "required": ["fit_score", "matched_track", "reasoning", "yellow_flags",
-                  "salary_estimate", "salary_confidence", "corrected_title",
-                  "corrected_company", "corrected_location", "prestige_tier"],
+                  "salary_estimate", "salary_confidence", "salary_basis",
+                  "corrected_title", "corrected_company", "corrected_location",
+                  "prestige_tier"],
 }
 
 

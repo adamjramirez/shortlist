@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     yellow_flags TEXT,
     salary_estimate TEXT,
     salary_confidence TEXT,
+    salary_basis TEXT,
     enrichment TEXT,
     enriched_at DATETIME,
     tailored_resume_path TEXT,

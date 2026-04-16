@@ -422,6 +422,22 @@ def _parse_max_salary(salary_text: str) -> int | None:
     return max_val
 
 
+_MIN_LISTED_SALARY_USD = 50_000
+
+
+def is_listed_salary(salary_text: str | None) -> bool:
+    """Return True iff salary_text is a parseable annual USD salary >= $50,000.
+
+    Rejects None, monthly rates, and low values that are parser noise (e.g. "$13").
+    """
+    if not salary_text:
+        return False
+    if _is_monthly(salary_text):
+        return False
+    parsed = _parse_max_salary(salary_text)
+    return parsed is not None and parsed >= _MIN_LISTED_SALARY_USD
+
+
 def _check_role_type(job: RawJob, config: Config) -> FilterResult:
     """Reject only if explicitly IC."""
     if not config.filters.role_type.reject_explicit_ic:

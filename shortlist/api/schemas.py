@@ -122,6 +122,10 @@ class JobSummary(BaseModel):
     viewed_at: str | None = None
     company_intel: str | None  # One-line summary from enrichment
     score_reasoning: str | None = None  # Short explanation for the score
+    salary_text: str | None = None
+    salary_confidence: str | None = None
+    salary_listed: bool = False
+    salary_basis: str | None = None
 
 
 class JobDetail(JobSummary):

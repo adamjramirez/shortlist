@@ -15,6 +15,7 @@ from shortlist import llm
 from shortlist.db import init_db, get_db, upsert_job
 from shortlist.processors.filter import apply_hard_filters
 from shortlist.processors.scorer import score_job, score_jobs_parallel, ScoreResult
+from shortlist.processors.title_gate import gate_titles
 from shortlist.processors.enricher import (
     get_cached_enrichment, enrich_company, cache_enrichment,
     rescore_with_enrichment, CompanyIntel, generate_interest_note,
@@ -190,6 +191,7 @@ def run_pipeline(
                     "yellow_flags": json.dumps(score_result.yellow_flags),
                     "salary_estimate": score_result.salary_estimate,
                     "salary_confidence": score_result.salary_confidence,
+                    "salary_basis": score_result.salary_basis,
                 }
                 if score_result.corrected_title:
                     updates["title"] = score_result.corrected_title
@@ -524,7 +526,6 @@ def run_pipeline_pg(
         _orphan_passed = 0
         _orphan_rejected = 0
         for _row in _orphan_new:
-            from shortlist.processors.filter import apply_hard_filters
             _result = apply_hard_filters(_row_to_raw_job(_row), config)
             if _result.passed:
                 pgdb.update_job(conn, _row["id"], status="filtered")
@@ -626,6 +627,26 @@ def run_pipeline_pg(
             order="first_seen DESC", limit=per_source_budget,
         )
 
+        # Pre-score title gate — cheap batch LLM prune before expensive per-job scoring
+        if config.llm.title_gate_enabled and filtered_jobs:
+            pre_gate = [(row["id"], _row_to_raw_job(row)) for row in filtered_jobs]
+            decisions, gate_batch_count = gate_titles(pre_gate, config)
+            llm_calls += gate_batch_count
+            kept_rows = []
+            title_rejected = 0
+            for row in filtered_jobs:
+                passed, reason = decisions.get(row["id"], (True, ""))
+                if passed:
+                    kept_rows.append(row)
+                else:
+                    pgdb.update_job(conn, row["id"], status="title_rejected",
+                                    reject_reason=(reason or "title_gate")[:200])
+                    title_rejected += 1
+            if title_rejected:
+                conn.commit()
+            logger.info(f"Title gate: {len(kept_rows)}/{len(filtered_jobs)} passed, {title_rejected} rejected ({gate_batch_count} batch calls)")
+            filtered_jobs = kept_rows
+
         score_inputs = [(row["id"], _row_to_raw_job(row)) for row in filtered_jobs]
         if not score_inputs:
             return 0, 0, 0
@@ -666,6 +687,7 @@ def run_pipeline_pg(
                     "yellow_flags": json.dumps(score_result.yellow_flags),
                     "salary_estimate": score_result.salary_estimate,
                     "salary_confidence": score_result.salary_confidence,
+                    "salary_basis": score_result.salary_basis,
                 }
                 if run_id is not None:
                     updates["run_id"] = run_id

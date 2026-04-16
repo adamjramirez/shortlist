@@ -118,6 +118,8 @@ class LLMConfig:
     model: str = "claude-sonnet-4-20250514"
     max_jobs_per_run: int = 50
     cost_budget_daily: float = 2.00
+    title_gate_enabled: bool = True
+    title_gate_batch_size: int = 50
 
 
 @dataclass

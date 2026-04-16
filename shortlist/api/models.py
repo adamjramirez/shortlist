@@ -103,6 +103,7 @@ class Job(Base):
     yellow_flags = Column(Text)
     salary_estimate = Column(String)
     salary_confidence = Column(String)
+    salary_basis = Column(Text)
     enrichment = Column(JSON)
     enriched_at = Column(DateTime(timezone=True))
     tailored_resume_key = Column(String)  # S3 key instead of local path

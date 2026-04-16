@@ -198,7 +198,43 @@ This makes the functional difference immediately clear — if it has a border or
 
 **Why:** Users need to undo triage decisions without opening the card. The × appears only on hover — zero visual clutter at rest.
 
-## 9. Anti-Patterns (Banned)
+## 9. Popover
+
+Popovers are for disclosure and methodology — not for primary actions. Use them when a piece of contextual information would clutter the card at rest but is important enough to surface on demand.
+
+### Trigger
+
+- Use a `<button>` or `<span role="button">` with `cursor-help` for informational popovers (indicates "more info", not "do something").
+- The trigger element must have `position: relative` (or be wrapped in `<span className="relative inline-block">`) so the popover anchors correctly.
+- Never put a popover trigger inside another interactive element without `stopPropagation()` on click.
+
+### Container
+
+```
+bg-white border border-gray-200 shadow-lg rounded-lg p-4 text-sm
+```
+
+- `max-w-xs` (288px) — keep it tight.
+- Anchor below the trigger: `absolute top-full mt-2 right-0` (or `left-0` depending on available space).
+- `z-50` to clear card content.
+
+### Behavior
+
+- **Open:** click (not hover — hover popovers are a11y and mobile pain).
+- **Close:** click outside the popover container OR press Escape.
+- Implement with `useRef` + `useEffect` that adds `mousedown` and `keydown` listeners on the document when open, removes them on close or unmount.
+
+### Rule
+
+Never use a popover for primary actions (save, apply, skip, generate). Popovers are read-only disclosure. If the user needs to do something from the popover, link to a page instead.
+
+### Example usage
+
+`SalaryEstimate.tsx` — salary estimate explanation with confidence level and link to methodology page.
+
+---
+
+## 10. Anti-Patterns (Banned)
 
 ### Interaction
 - No blocking UI on status changes (save/skip) — always optimistic
@@ -225,7 +261,7 @@ This makes the functional difference immediately clear — if it has a border or
 - No framer-motion (VM constraint)
 - No warm grays (stone palette) — zinc only
 
-## 10. Page Inventory
+## 11. Page Inventory
 
 | Page | Layout | Status |
 |------|--------|--------|

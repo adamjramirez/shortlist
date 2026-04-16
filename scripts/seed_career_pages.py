@@ -1,74 +1,51 @@
-"""Seed curated career page sources from Ben Lang's 2026-04-07 list.
+"""Seed curated career page sources from a structured data file.
+
+Input:  data/career_pages/<name>.json  (produced by parse_career_pages.py
+        or handwritten — format: {"source": "<name>", "entries": [...]})
 
 Usage:
-    python scripts/seed_career_pages.py [--db-url postgresql://...]
+    python scripts/seed_career_pages.py <name> [--db-url postgresql://...]
+    python scripts/seed_career_pages.py ben_lang_2026-04-15
+
+For prod: run `fly proxy 15432:5432 -a shortlist-db` in another terminal,
+then export DATABASE_URL=postgres://user:pass@localhost:15432/shortlist_web
 
 Idempotent — duplicate URLs are silently skipped.
 """
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import shortlist.pgdb as pgdb
 
-SOURCE = "ben_lang_2026-04-07"
-
-# All 35 companies from Ben Lang's April 7 2026 post.
-# ATS detected from career URLs: ashby/greenhouse/lever/yc/direct.
-# YC company pages use ats=None (no standard ATS slug pattern).
-ENTRIES = [
-    {"company_name": "Baba",                   "career_url": "https://jobs.ashbyhq.com/baba",                      "ats": "ashby",    "slug": "baba"},
-    {"company_name": "Eolas Medical",           "career_url": "https://www.eolasmedical.com/about-us-and-careers#careers",  "ats": "direct",   "slug": None},
-    {"company_name": "InfiniteWatch",           "career_url": "https://infinitewatch.ai/careers#open-positions",   "ats": "direct",   "slug": None},
-    {"company_name": "Ando",                    "career_url": "https://www.ando.work/careers",                      "ats": "direct",   "slug": None},
-    {"company_name": "Aristotle",               "career_url": "https://www.heyaristotle.com/careers",               "ats": "direct",   "slug": None},
-    {"company_name": "ZeroPhase",               "career_url": "https://www.zerophase.de/careers",                   "ats": "direct",   "slug": None},
-    {"company_name": "Diffraqtion",             "career_url": "https://diffraqtion.com/careers",                    "ats": "direct",   "slug": None},
-    {"company_name": "HammerheadAI",            "career_url": "https://hammerheadco.ai/careers/",                   "ats": "direct",   "slug": None},
-    {"company_name": "Powerlattice",            "career_url": "https://powerlatticeinc.com/careers",                "ats": "direct",   "slug": None},
-    {"company_name": "Natural",                 "career_url": "https://www.natural.co/careers",                     "ats": "direct",   "slug": None},
-    {"company_name": "Tivara",                  "career_url": "https://www.ycombinator.com/companies/tivara/jobs", "ats": "direct",   "slug": None},
-    {"company_name": "Cephia AI",               "career_url": "https://www.cephia.ai/careers",                      "ats": "direct",   "slug": None},
-    {"company_name": "Grotto AI",               "career_url": "https://jobs.ashbyhq.com/grotto",                    "ats": "ashby",    "slug": "grotto"},
-    {"company_name": "Formulary Financial",     "career_url": "https://www.formulary.co/careers",                   "ats": "direct",   "slug": None},
-    {"company_name": "Dryft",                   "career_url": "https://dryft.ai/careers",                           "ats": "direct",   "slug": None},
-    {"company_name": "Vybe",                    "career_url": "https://www.vybe.build/careers",                     "ats": "direct",   "slug": None},
-    {"company_name": "Phoebe",                  "career_url": "https://www.phoebe.work/about",                      "ats": "direct",   "slug": None},
-    {"company_name": "Ultra Pouches",           "career_url": "https://takeultra.com/pages/careers",                "ats": "direct",   "slug": None},
-    {"company_name": "Unlimited Industries",    "career_url": "https://www.unlimitedindustries.com/careers",        "ats": "direct",   "slug": None},
-    {"company_name": "AgentMail",               "career_url": "https://www.agentmail.to/careers#roles",             "ats": "direct",   "slug": None},
-    {"company_name": "Brickanta",               "career_url": "https://www.ycombinator.com/companies/brickanta/jobs", "ats": "direct", "slug": None},
-    {"company_name": "Rainfall Health",         "career_url": "https://www.rainfallhealth.com/about/careers",       "ats": "direct",   "slug": None},
-    {"company_name": "Double Blind Bio",        "career_url": "https://www.notion.so/Open-Roles-2f98afefd3f280d58106c8a53793ac96", "ats": "direct", "slug": None},
-    {"company_name": "Antioch",                 "career_url": "https://antioch.com/careers",                        "ats": "direct",   "slug": None},
-    {"company_name": "Pensive",                 "career_url": "https://www.pensive.com/schools/careers",            "ats": "direct",   "slug": None},
-    {"company_name": "Autoscience Institute",   "career_url": "https://autoscience.ai/careers#open-roles",          "ats": "direct",   "slug": None},
-    {"company_name": "Foundry Robotics",        "career_url": "https://jobs.ashbyhq.com/foundry-robotics",          "ats": "ashby",    "slug": "foundry-robotics"},
-    {"company_name": "Autonomous Technologies Group", "career_url": "https://jobs.ashbyhq.com/ATG",                 "ats": "ashby",    "slug": "ATG"},
-    {"company_name": "Asymmetric Security",     "career_url": "https://www.asymmetricsecurity.com/careers",         "ats": "direct",   "slug": None},
-    {"company_name": "Evoke Security",          "career_url": "https://www.evokesecurity.com/careers",              "ats": "direct",   "slug": None},
-    {"company_name": "Momentic",                "career_url": "https://jobs.ashbyhq.com/momentic",                  "ats": "ashby",    "slug": "momentic"},
-    {"company_name": "GetMint",                 "career_url": "https://team.getmint.ai/job-board",                  "ats": "direct",   "slug": None},
-    {"company_name": "Crunched",                "career_url": "https://www.usecrunched.com/careers",                "ats": "direct",   "slug": None},
-    {"company_name": "Feltsense",               "career_url": "https://feltsense.com/",                             "ats": "direct",   "slug": None},
-    {"company_name": "Lemrock",                 "career_url": "https://www.notion.so/Careers-30cc672d08498017bf3ae0f644539878", "ats": "direct", "slug": None},
-]
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = REPO_ROOT / "data" / "career_pages"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Seed curated career page sources")
-    parser.add_argument("--db-url", default=os.environ.get("DATABASE_URL"),
-                        help="PostgreSQL connection URL")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Print entries without inserting")
+    parser = argparse.ArgumentParser(description="Seed curated career page sources from a JSON list")
+    parser.add_argument("name", help="List name (matches file stem in data/career_pages/)")
+    parser.add_argument("--db-url", default=os.environ.get("DATABASE_URL"))
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
+    path = DATA_DIR / f"{args.name}.json"
+    if not path.exists():
+        print(f"ERROR: {path} not found", file=sys.stderr)
+        sys.exit(1)
+
+    payload = json.loads(path.read_text())
+    source = payload.get("source", args.name)
+    entries = payload["entries"]
+
     if args.dry_run:
-        print(f"Would insert {len(ENTRIES)} entries from source={SOURCE!r}:")
-        for e in ENTRIES:
-            print(f"  {e['ats'] or 'direct':10s}  {e['company_name']}")
+        print(f"Would insert {len(entries)} entries from source={source!r}:")
+        for e in entries:
+            print(f"  {e['ats']:10s}  {e['company_name']}")
         return
 
     if not args.db_url:
@@ -77,10 +54,8 @@ def main():
 
     conn = pgdb.get_pg_connection(args.db_url)
     pgdb.ensure_career_page_sources_table(conn)
-    inserted = pgdb.bulk_add_career_page_sources(conn, ENTRIES, source=SOURCE)
-    print(f"Inserted {inserted} / {len(ENTRIES)} entries (duplicates skipped)")
-
-    # Print summary
+    inserted = pgdb.bulk_add_career_page_sources(conn, entries, source=source)
+    print(f"Inserted {inserted} / {len(entries)} entries (duplicates skipped)")
     rows = pgdb.get_active_career_page_sources(conn)
     print(f"Total active curated sources: {len(rows)}")
     conn.close()

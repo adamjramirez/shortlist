@@ -1,0 +1,227 @@
+{
+  "source": "ben_lang_2026-04-15",
+  "entries": [
+    {
+      "company_name": "Hadrian",
+      "career_url": "https://jobs.ashbyhq.com/hadrian-automation",
+      "ats": "ashby",
+      "slug": "hadrian-automation"
+    },
+    {
+      "company_name": "Cursor",
+      "career_url": "https://cursor.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Legora",
+      "career_url": "https://www.legora.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Archer",
+      "career_url": "https://www.archer.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Cyera",
+      "career_url": "https://www.cyera.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Figure",
+      "career_url": "https://www.figure.ai/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Applied Intuition",
+      "career_url": "https://www.appliedintuition.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Glean",
+      "career_url": "https://www.glean.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Harvey",
+      "career_url": "https://www.harvey.ai/company#company-careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Fluidstack",
+      "career_url": "https://careers.fluidstack.io/jobs",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Etched",
+      "career_url": "https://www.etched.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Replit",
+      "career_url": "https://replit.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Zipline",
+      "career_url": "https://www.zipline.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Aura",
+      "career_url": "https://www.aura.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "WHOOP",
+      "career_url": "https://www.whoop.com/us/en/careers/",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Outreach",
+      "career_url": "https://www.outreach.io/company/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Whatnot",
+      "career_url": "https://www.whatnot.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Pennylane",
+      "career_url": "https://www.pennylane.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "\u014cURA",
+      "career_url": "https://ouraring.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Nuro",
+      "career_url": "https://www.nuro.ai/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Sierra",
+      "career_url": "https://sierra.ai/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Transcarent",
+      "career_url": "https://transcarent.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Helsing",
+      "career_url": "https://helsing.ai/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "ClickHouse",
+      "career_url": "https://clickhouse.com/company/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "ElevenLabs",
+      "career_url": "https://elevenlabs.io/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Saronic Technologies",
+      "career_url": "https://jobs.lever.co/saronic",
+      "ats": "lever",
+      "slug": "saronic"
+    },
+    {
+      "company_name": "Abnormal AI",
+      "career_url": "https://abnormal.ai/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Vanta",
+      "career_url": "https://www.vanta.com/company/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "X-energy",
+      "career_url": "https://x-energy.com/careers/",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Teya",
+      "career_url": "https://www.teya.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "DevRev",
+      "career_url": "https://devrev.ai/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Sword Health",
+      "career_url": "https://swordhealth.com/company/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Dandy",
+      "career_url": "https://www.meetdandy.com/careers/",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Saviynt",
+      "career_url": "https://saviynt.com/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Lovable",
+      "career_url": "https://lovable.dev/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Checkr",
+      "career_url": "https://checkr.com/company/careers",
+      "ats": "direct",
+      "slug": null
+    },
+    {
+      "company_name": "Wealthsimple",
+      "career_url": "https://www.wealthsimple.com/en-ca/careers",
+      "ats": "direct",
+      "slug": null
+    }
+  ]
+}

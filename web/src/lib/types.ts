@@ -56,6 +56,10 @@ export interface JobSummary {
   fit_score: number | null;
   matched_track: string | null;
   salary_estimate: string | null;
+  salary_text: string | null;
+  salary_confidence: string | null;
+  salary_listed: boolean;
+  salary_basis: string | null;
   url: string | null;
   status: string | null;
   user_status: string | null;

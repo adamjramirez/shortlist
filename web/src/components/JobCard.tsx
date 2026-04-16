@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { JobSummary, JobDetail } from "@/lib/types";
 import { jobs as jobsApi } from "@/lib/api";
 import { track as analytics } from "@/lib/analytics";
+import SalaryEstimate from "@/components/SalaryEstimate";
 
 import { SCORE_STRONG, SCORE_VISIBLE } from "@/lib/constants";
 
@@ -39,6 +40,17 @@ function formatSalary(salary: string | null): string {
     return `$${val}k`;
   }
   return salary.length > 30 ? "" : salary;
+}
+
+function formatListedSalary(text: string): string {
+  try {
+    return text
+      .trim()
+      .replace(/\s+(per year|\/yr|annually)$/i, "")
+      .trim();
+  } catch {
+    return text;
+  }
 }
 
 function formatYellowFlags(flags: string | null): string[] {
@@ -177,9 +189,13 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
           {/* Line 1: Title left, salary right */}
           <div className="flex items-baseline justify-between gap-x-4">
             <span className={`truncate ${isUnread ? "font-semibold text-gray-900" : "font-normal text-gray-700"}`}>{job.title}</span>
-            {salary && (
-              <span className="font-mono text-sm font-medium text-gray-700 shrink-0">{salary}</span>
-            )}
+            {job.salary_listed && job.salary_text ? (
+              <span className="font-mono text-sm font-semibold text-gray-900 shrink-0">
+                {formatListedSalary(job.salary_text)}
+              </span>
+            ) : salary ? (
+              <SalaryEstimate jobId={job.id} value={salary} confidence={job.salary_confidence} basis={job.salary_basis} />
+            ) : null}
           </div>
 
           {/* Line 2: Company + location + age left, badges right */}

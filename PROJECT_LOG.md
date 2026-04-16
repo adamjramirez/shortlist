@@ -6,7 +6,9 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**New-user analyze fix shipped to the codebase (not yet deployed). Silent failure surfaced when a concerned new user reported Analyze "started but didn't finish." Root cause: `SaveBar` (the only `error` render site) is gated on `hasProfile || generated`, both false for first-time analyze failures. Added visible banner, amber "most important" callout on step 3, and Regenerate-roles button on step 4. Next: deploy, watch the new user retry.**
+**Analyze-silent-failure fix deployed (commit 1d7dc33). Local E2E reproduction confirmed fix works — user 10's CV analyzed in 5.2s with valid Gemini key. User 10 (mukulkherli) had encrypted_api_key set but fit_context/tracks empty on prod → their analyze never completed under the old silent-error frontend. Waiting on their retry; new banner + fly-log trace will show the real cause.**
+
+**Separately surfaced during job-card review: the salary shown for every visible job is a Gemini fabrication. 99.8% of scored jobs have no `salary_text` from the source; 100% of visible-to-user jobs (fit_score ≥ 75) are unlisted. The LLM infers from title + company + location + its own prior knowledge. Estimate is display-only (no downstream effect on fit_score). `salary_confidence` is collected every call and discarded. No internal ground truth to validate estimates against (7 "listed" rows are mostly HN parsing noise — `$13`, `$32`, etc.). Decision pending: A hide, B label "est." + tooltip, C external comp data (Glassdoor/levels.fyi), D confidence gate.**
 
 ## 2026-04-16 — New-user analyze silent failure + step 3/4 UX
 
@@ -32,8 +34,27 @@ Session-by-session progress log. Read this first when resuming work.
 - `cd web && npm run build` → clean, no type errors.
 
 **Follow-ups open:**
-- Deploy to Fly (`fly deploy --app shortlist-web`) and walk through the three UX paths as a fresh user.
+- Deployed 2026-04-16 ~15:10 UTC (commit 1d7dc33). Ask user 10 to retry — new red banner will show the actual provider error.
 - Sharpen the `test_generate_no_api_key` detail-string assertion if we want to lock in the exact error message.
+
+**Post-deploy E2E reproduction (local):**
+- Pulled user 10's CV from Tigris via `fly ssh` + base64 round-trip, uploaded to a fresh local DB (`shortlist_analyze_test`, since dropped).
+- Signed up `analyze-test@example.com`, saved `GEMINI_API_KEY` from `~/Code/shortlist/.env`, POSTed `/api/profile/generate` → HTTP 200 in 5.2s. `fit_context` 1868 chars, 2 tracks. All new log lines fired as designed:
+  ```
+  generate_profile start: user=1 resume_id=1 model=gemini-2.0-flash resume_len=2021 fit_context_len=0
+  llm call start: provider=gemini model=gemini-2.0-flash resume_len=2021 fit_context_len=0
+  llm call ok: provider=gemini model=gemini-2.0-flash status=200 elapsed_ms=5174 response_len=2892
+  generate_profile ok: user=1 model=gemini-2.0-flash elapsed_ms=5176 fit_context_len=1868 tracks=2
+  ```
+- Prod user 10 state (queried via fly ssh): `encrypted_api_key` set, `api_keys.gemini` set, but `fit_context=0`, `tracks=0`, `filters=unset`. Confirms their analyze attempts never completed successfully under the old silent-error frontend. Most likely their Gemini key is invalid/unfunded → retry with new banner will reveal.
+
+**Salary transparency investigation (no code changes yet, decision pending):**
+- Triggered by a Vanta job card showing "300k-450k USD" with no way for the user to tell it's fabricated. Query on prod: `salary_text IS NULL` for 99.8% of scored jobs, 100% of visible (fit_score≥75).
+- `salary_estimate` is display-only (JobCard, brief.py) — no feedback into scoring, no filter gates on it. Safe to change in any direction.
+- Scorer prompt receives only `title, company, location, salary_text, source, description` — enrichment (funding, headcount, Glassdoor) is NOT passed to the salary-inference step. So the "estimate basis" is role title + Gemini's training-data memory of the company + location. Not structured data.
+- `salary_confidence` is persisted to the DB (`pipeline.py:193` SQLite, `pipeline.py:688` PG) — it's just not exposed through the API (`JobSummary` at `schemas.py:102` only has `salary_estimate`). [Earlier log entry claimed it was dropped; that was wrong.]
+- Cannot validate accuracy from our own data — only 7 "listed" rows exist and most are HN parsing noise (`$13`, `$32`, `$135`). External source (levels.fyi, Glassdoor comp ranges, BLS) required for real validation.
+- Decision still open — A hide entirely, B label + tooltip, C external comp data, D confidence gate. Adam leaning toward B near-term + C later.
 
 ## 2026-04-15 — Title gate + curated sources expansion
 

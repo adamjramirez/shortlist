@@ -4,6 +4,7 @@
 **Read `INTENT.md`** — what this project values, scoring philosophy, decided tradeoffs.
 **Read `web/DESIGN.md` before any frontend/design work** — palette, typography, container rules, anti-patterns. This is the design system.
 **Adam's profile:** `~/Code/profile/` — career context, health, identity. CVs live in `shortlist/cv-new/`.
+**Inherits:** `~/Code/` (T1 — agency-level rules, constraints, decisions, project index)
 
 ---
 
@@ -40,7 +41,7 @@ fly deploy --app shortlist-web
 - **PostgreSQL** on Fly.io — `shortlist-db`
 - **Tigris** (S3-compatible) — resume storage
 - **supervisord** — runs FastAPI (:8001) + Next.js (:3000) in one container
-- **PostHog** (EU) — 26 custom events via reverse proxy (`web/src/lib/analytics.ts`)
+- **PostHog** (EU, project 139823) — 26 custom events via reverse proxy (`web/src/lib/analytics.ts`). Traffic reports: `scripts/posthog_report.py` (reads `POSTHOG_API_KEY_SHORTLIST` from `~/.posthog_keys`). Prod host: `shortlist.addslift.com`.
 
 ### CLI (frozen)
 - **SQLite** — `jobs.db` (gitignored)
@@ -167,6 +168,11 @@ LaTeX user uploads .tex
 - **`resolve_*(config, ...)` pattern** — extract business logic from async workers into pure named functions (`resolve_fit_context`, etc.) so they can be unit-tested without any async/DB setup. The worker calls them; the tests import them directly.
 - **Supplement-not-replace for external context** — when an external source (AWW, future integrations) can enrich `fit_context`, append with a labelled separator (`## Additional Context (from AWW)\n`) rather than replacing. User's data is always first and always preserved. Toggle via a dedicated boolean (`use_aww_slice`).
 - **Curated sources state machine** — `career_page_sources` table stores manually-added career pages with `status: active | closed | invalid`. Auto-closes at `consecutive_empty >= 3`. Pipeline feeds from active entries via `CuratedSourcesCollector`. Seed new lists via `pgdb.bulk_add_career_page_sources()` with a `source` attribution string (e.g. `'ben_lang_2026-04-07'`).
+- **Seeding curated career pages (standard workflow)** — unstructured paste → structured JSON → prod DB. Three steps:
+  1. Drop raw text in `data/career_pages/raw/<name>.txt` (e.g. `ben_lang_2026-04-15`)
+  2. `uv run python scripts/parse_career_pages.py <name>` — Gemini extracts `{company_name, career_url}` pairs; Python classifies ATS from URL regex (ashby/lever/greenhouse/direct). Writes `data/career_pages/<name>.json`. Review the diff.
+  3. Run `fly proxy 15432:5432 -a shortlist-db` in background, then `DATABASE_URL=postgres://shortlist_web:...@localhost:15432/shortlist_web?sslmode=disable uv run python scripts/seed_career_pages.py <name>`. Idempotent (dup URLs skipped).
+  Keep raw + JSON both in git — the raw file is the source of truth for re-parsing if we change the schema.
 - **Scoring parallelism** — PG pipeline uses `max_workers=4` for LLM scoring (was 2 before 1GB VM upgrade). Each job gets its own isolated LLM call — no batching, no cross-contamination. Increasing workers beyond 4–6 risks Gemini rate limits on free tier.
 
 ### Cover Letter Pipeline (3 layers)

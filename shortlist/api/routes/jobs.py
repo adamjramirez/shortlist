@@ -15,6 +15,7 @@ from shortlist.api.schemas import (
     JobSummary,
 )
 from shortlist.config import SCORE_VISIBLE
+from shortlist.processors.filter import is_listed_salary
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -85,6 +86,10 @@ def _job_to_summary(job: Job, latest_run_id: int | None = None) -> JobSummary:
                        if _is_job_board(job.company)
                        else _enrichment_summary(job.enrichment)),
         score_reasoning=_clean_reasoning(job.score_reasoning),
+        salary_text=job.salary_text,
+        salary_confidence=job.salary_confidence,
+        salary_listed=is_listed_salary(job.salary_text),
+        salary_basis=job.salary_basis,
     )
 
 

@@ -121,4 +121,8 @@ export const track = {
 
   gettingStartedCtaClicked: () =>
     trackEvent("getting_started_cta_clicked"),
+
+  // --- Salary transparency ---
+  salaryEstimateExpanded: (jobId: number, confidence: string | null) =>
+    trackEvent("salary_estimate_expanded", { job_id: jobId, confidence }),
 };
