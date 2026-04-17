@@ -28,6 +28,44 @@
   animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Attention pulse — one-time glint to draw eye to the fit-context example link.
+   Combines a gradient shimmer sweep (bright glint moving across emerald text)
+   with a subtle scale pulse. Transform + background-position only — hardware-
+   accelerated per DESIGN.md §7. */
+@keyframes attention-shimmer {
+  0%   { background-position: 200% 50%; transform: scale(1); }
+  50%  { transform: scale(1.06); }
+  100% { background-position: -100% 50%; transform: scale(1); }
+}
+
+.animate-attention-pulse {
+  background-image: linear-gradient(
+    100deg,
+    #059669 0%,    /* emerald-600 (base) */
+    #059669 42%,
+    #a7f3d0 48%,   /* emerald-200 (approach glint) */
+    #ffffff 50%,   /* white spark at the center */
+    #a7f3d0 52%,
+    #059669 58%,
+    #059669 100%
+  );
+  background-size: 300% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  transform-origin: right center;
+}
+
+/* Only animate for users who haven't opted out via OS setting. Without this
+   guard, prefers-reduced-motion users see a never-stopping shimmer they
+   cannot escape until they click. */
+@media (prefers-reduced-motion: no-preference) {
+  .animate-attention-pulse {
+    animation: attention-shimmer 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+}
+
 /* Premium transition default */
 .transition-premium {
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
