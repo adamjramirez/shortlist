@@ -229,18 +229,37 @@ async def generate_profile(
     except httpx.HTTPStatusError as e:
         elapsed_ms = int((time.monotonic() - t_start) * 1000)
         status = e.response.status_code
+        # Capture the provider's response body — Google returns useful detail
+        # (API not enabled vs quota exceeded vs true rate limit) that we were
+        # previously discarding. Truncate so a runaway response doesn't flood logs.
+        try:
+            provider_body = (e.response.text or "")[:800]
+        except Exception:
+            provider_body = "<unreadable>"
         logger.warning(
-            "generate_profile provider error: user=%s model=%s status=%d elapsed_ms=%d",
-            user.id, model, status, elapsed_ms,
+            "generate_profile provider error: user=%s model=%s status=%d elapsed_ms=%d body=%r",
+            user.id, model, status, elapsed_ms, provider_body,
         )
         if status == 429:
+            # The "switch to 2.0 Flash" tip is noise when the user is already on 2.0
+            # Flash. For that case (which is usually project-setup, not real rate
+            # limiting), point at the actual cause — API not enabled or key-restriction.
+            on_flash = "2.0-flash" in model
+            if on_flash:
+                tip = (
+                    "You're already on Gemini 2.0 Flash — its free-tier limits are generous, "
+                    "so hitting 429 on a fresh key usually means your Google Cloud project "
+                    "needs the Generative Language API enabled, or your API key's restrictions "
+                    "don't include it. Check console.cloud.google.com → APIs & Services."
+                )
+            else:
+                tip = (
+                    "Gemini keys have generous free-tier limits — "
+                    "switch to Gemini 2.0 Flash in your profile settings."
+                )
             raise HTTPException(
                 status_code=429,
-                detail=(
-                    "Your API key hit rate limits. Wait a minute and try again. "
-                    "Tip: Gemini keys have generous free-tier limits \u2014 "
-                    "switch to Gemini 2.0 Flash in your profile settings."
-                ),
+                detail=f"Your API key hit rate limits. Wait a minute and try again. {tip}",
             )
         raise HTTPException(
             status_code=502,
