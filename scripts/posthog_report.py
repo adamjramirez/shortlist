@@ -92,6 +92,35 @@ def main():
     for dev, u in q(f"SELECT properties.$device_type as d, count(DISTINCT person_id) as u FROM events WHERE event='$pageview' AND timestamp >= now() - interval {d} day {PV_PROD} GROUP BY d ORDER BY u DESC"):
         print(f"  {u:>5}  {dev or '(unknown)'}")
 
+    print("\n=== PER-USER JOURNEY ===")
+    # auth-context.tsx: posthog.identify(String(user.id), { email: user.email })
+    # → distinct_id = our backend user_id, person.properties.email = their email
+    user_rows = q(
+        f"SELECT distinct_id, person.properties.email as email, count() as events, "
+        f"min(timestamp) as first_seen, max(timestamp) as last_seen "
+        f"FROM events WHERE timestamp >= now() - interval {d} day "
+        f"GROUP BY distinct_id, email ORDER BY events DESC LIMIT 20"
+    )
+    if not user_rows:
+        print("  (no user events)")
+    for did, email, events, first, last in user_rows:
+        label = email or f"anon({did[:8] if did else '?'})"
+        # Timestamps come back as ISO strings from HogQL — slice to YYYY-MM-DD HH:MM
+        first_s = str(first)[:16] if first else "?"
+        last_s = str(last)[:16] if last else "?"
+        print(f"\n  user {did} ({label}) — {events} events, {first_s} → {last_s}")
+        # Event-type breakdown for this user, excluding pageviews/noisy PostHog internals
+        ev_rows = q(
+            f"SELECT event, count() as c FROM events "
+            f"WHERE distinct_id = '{did}' AND timestamp >= now() - interval {d} day "
+            f"AND event NOT LIKE '$%' GROUP BY event ORDER BY c DESC LIMIT 12"
+        )
+        if not ev_rows:
+            print("    (pageviews only, no custom events)")
+            continue
+        for ev, c in ev_rows:
+            print(f"    {c:>3}  {ev}")
+
 
 if __name__ == "__main__":
     main()
