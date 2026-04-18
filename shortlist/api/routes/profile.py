@@ -240,6 +240,25 @@ async def generate_profile(
             "generate_profile provider error: user=%s model=%s status=%d elapsed_ms=%d body=%r",
             user.id, model, status, elapsed_ms, provider_body,
         )
+        # Sentry: tie the error to the user + attach provider details so the
+        # event page shows who and why at a glance. No-op if Sentry disabled.
+        try:
+            import sentry_sdk
+            with sentry_sdk.isolation_scope() as scope:
+                scope.set_user({"id": user.id, "email": user.email})
+                scope.set_tag("llm_provider", "gemini" if "gemini" in model else
+                              "openai" if "gpt" in model else
+                              "anthropic" if "claude" in model else "unknown")
+                scope.set_tag("llm_model", model)
+                scope.set_tag("provider_status", str(status))
+                scope.set_context("provider_response", {
+                    "status": status,
+                    "body": provider_body,
+                    "elapsed_ms": elapsed_ms,
+                })
+                sentry_sdk.capture_exception(e)
+        except Exception:
+            pass  # never let telemetry break the error path
         if status == 429:
             # The "switch to 2.0 Flash" tip is noise when the user is already on 2.0
             # Flash. For that case (which is usually project-setup, not real rate
@@ -271,6 +290,19 @@ async def generate_profile(
             "generate_profile failed: user=%s model=%s elapsed_ms=%d exc_type=%s",
             user.id, model, elapsed_ms, type(e).__name__,
         )
+        try:
+            import sentry_sdk
+            with sentry_sdk.isolation_scope() as scope:
+                scope.set_user({"id": user.id, "email": user.email})
+                scope.set_tag("llm_model", model)
+                scope.set_context("generate_profile", {
+                    "elapsed_ms": elapsed_ms,
+                    "resume_len": len(resume_text),
+                    "fit_context_len": fit_context_len_in,
+                })
+                sentry_sdk.capture_exception(e)
+        except Exception:
+            pass
         raise HTTPException(
             status_code=502,
             detail=f"AI analysis failed: {str(e)}",
