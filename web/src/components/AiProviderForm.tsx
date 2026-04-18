@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Lock } from "@phosphor-icons/react";
 
 const inputClass =
   "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
@@ -122,6 +123,15 @@ export default function AiProviderForm({
             </a>
           </p>
         )}
+        {/* Trust signal — plain-language explanation of how the key is handled. */}
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-gray-200/60 bg-gray-50 px-3 py-2.5">
+          <Lock size={16} weight="regular" className="shrink-0 mt-0.5 text-gray-500" />
+          <p className="text-xs text-gray-600 leading-relaxed">
+            Your key travels over an encrypted connection, is stored encrypted
+            on our servers, and is only used by our backend when we call the AI
+            on your behalf. It never runs in your browser, and we never share it.
+          </p>
+        </div>
       </div>
 
       {/* Extra provider keys for cover letters */}
