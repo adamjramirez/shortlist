@@ -19,3 +19,4 @@ anthropic>=0.30
 psycopg2-binary>=2.9
 pymupdf
 pynacl>=1.5
+sentry-sdk[fastapi]>=2.0

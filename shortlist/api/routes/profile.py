@@ -23,6 +23,7 @@ from shortlist.api.schemas import (
     ProfileUpdate,
 )
 from shortlist.api.storage import Storage, get_storage
+from shortlist.api.telemetry import capture_llm_error
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +241,12 @@ async def generate_profile(
             "generate_profile provider error: user=%s model=%s status=%d elapsed_ms=%d body=%r",
             user.id, model, status, elapsed_ms, provider_body,
         )
+        capture_llm_error(
+            e,
+            user_id=user.id, user_email=user.email,
+            model=model, status=status, response_body=provider_body,
+            extra={"generate_profile": {"elapsed_ms": elapsed_ms}},
+        )
         if status == 429:
             # The "switch to 2.0 Flash" tip is noise when the user is already on 2.0
             # Flash. For that case (which is usually project-setup, not real rate
@@ -270,6 +277,15 @@ async def generate_profile(
         logger.exception(
             "generate_profile failed: user=%s model=%s elapsed_ms=%d exc_type=%s",
             user.id, model, elapsed_ms, type(e).__name__,
+        )
+        capture_llm_error(
+            e,
+            user_id=user.id, user_email=user.email, model=model,
+            extra={"generate_profile": {
+                "elapsed_ms": elapsed_ms,
+                "resume_len": len(resume_text),
+                "fit_context_len": fit_context_len_in,
+            }},
         )
         raise HTTPException(
             status_code=502,

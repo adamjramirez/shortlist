@@ -9,6 +9,11 @@ _handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
 logging.getLogger("shortlist").addHandler(_handler)
 logging.getLogger("shortlist").setLevel(logging.INFO)
 
+# Initialise Sentry BEFORE importing route modules so the FastAPI auto-integration
+# hooks are installed first. No-op when SENTRY_DSN is unset (local dev, tests).
+from shortlist.api.telemetry import init_sentry
+init_sentry()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import update
