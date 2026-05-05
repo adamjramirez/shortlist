@@ -60,10 +60,47 @@ class TestInitDb:
             "description_hash", "salary_text", "sources_seen", "first_seen",
             "last_seen", "status", "reject_reason", "fit_score", "matched_track",
             "score_reasoning", "yellow_flags", "salary_estimate", "salary_confidence",
+            "salary_basis", "prestige_tier",
             "enrichment", "enriched_at", "tailored_resume_path", "notes",
             "first_briefed", "brief_count",
         }
         assert required.issubset(columns), f"Missing columns: {required - columns}"
+
+    def test_existing_db_missing_late_columns_gets_them_added(self, db_path):
+        """A DB created before salary_basis / prestige_tier existed should
+        have those columns added on the next init_db() call."""
+        # Build a full DB then drop the late columns to simulate an old schema.
+        init_db(db_path).close()
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("ALTER TABLE jobs DROP COLUMN salary_basis")
+        conn.execute("ALTER TABLE jobs DROP COLUMN prestige_tier")
+        conn.execute(
+            "INSERT INTO jobs (title, company, description_hash, sources_seen, fit_score) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("Existing Job", "Acme", "hash-old", '["hn"]', 80),
+        )
+        conn.commit()
+        conn.close()
+
+        # Re-init should detect the missing columns and ALTER TABLE them back in.
+        conn = init_db(db_path)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        assert "salary_basis" in columns
+        assert "prestige_tier" in columns
+
+        # Existing row preserved
+        row = conn.execute(
+            "SELECT title, fit_score FROM jobs WHERE description_hash = ?",
+            ("hash-old",),
+        ).fetchone()
+        assert row == ("Existing Job", 80)
+        conn.close()
+
+    def test_ensure_columns_is_idempotent(self, db_path):
+        """Running init_db on an already-current DB does not error."""
+        init_db(db_path).close()
+        init_db(db_path).close()
+        # No raise == pass.
 
     def test_companies_table_has_normalized_name(self, db):
         cursor = db.execute("PRAGMA table_info(companies)")

@@ -6,7 +6,40 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-Stable. No active incidents. Deployed deprecated-model upgrade path (2026-04-29).
+Stable. Senior-IC track scoring shipped (#22, 2026-05-05). DB schema gap for `salary_basis` / `prestige_tier` patched in init_db (#23, 2026-05-05).
+
+## 2026-05-05 — DB migration for missing late columns
+
+**Why:** First `shortlist run` after #22 crashed with `sqlite3.OperationalError: no such column: salary_basis`. The schema in `shortlist/db.py` had been updated with `salary_basis` previously, but `CREATE TABLE IF NOT EXISTS` doesn't reconcile column lists, so any DB created before that change was missing it. `prestige_tier` was also referenced by `pipeline.py` but missing entirely from the schema.
+
+**What got done:**
+- Added `prestige_tier TEXT` to the `jobs` CREATE TABLE in `shortlist/db.py`.
+- Introduced `_JOBS_LATE_COLUMNS` registry + `_ensure_jobs_columns()` helper that walks `PRAGMA table_info` and `ALTER TABLE ADD COLUMN`s any missing entries. Runs at the tail of `init_db()`.
+- Updated `tests/test_db.py`: required-columns set now includes `salary_basis` + `prestige_tier`; new test simulates an old DB (drops the late columns) and asserts they're added back on re-init without losing data; new idempotency test for double-init.
+- Pre-PR-#22 jobs.db's were silently broken on the CLI path; this is the fix.
+
+**Pattern recorded:** `_JOBS_LATE_COLUMNS` is a deliberately small migration ledger — additive-only (`TEXT` columns), no data backfill. For anything beyond additive new columns we'd want Alembic-style migrations. The web/Postgres path uses Alembic; the CLI/SQLite path stays light.
+
+**Files changed:** `shortlist/db.py`, `tests/test_db.py`, `PROJECT_LOG.md`.
+
+## 2026-05-05 — Senior-IC track scoring (PR #22)
+
+**Why:** Shortlist scoring was leadership-only. `reject_explicit_ic: true` filtered IC roles before scoring, and the prompt unconditionally said "Must be management." Adam's job hunt now includes senior-IC roles at AI-frontier companies (OpenAI, Anthropic, etc.) where the upside is real.
+
+**What got done:**
+- New `staff_ai` track example in `config/example-profile.yaml` (Senior Staff / Principal SE / Forward Deployed Engineer / Applied AI Engineer; `min_reports: 0`).
+- `reject_explicit_ic` made non-blocking (default still `true` for new users; user opts in).
+- New `_build_track_rules(config)` helper in `shortlist/processors/scorer.py` derives per-track requirements from each track's `min_reports`. `>=1` → leadership rule; `0` → senior-IC rule. Future tracks added to a user's profile.yaml get sensible defaults without prompt edits.
+- `SCORING_PROMPT_TEMPLATE` rewritten: per-track requirements injected, hard exclusions added (research scientist, hardware, legacy IT, frontend craft IC, visionary CTO), AI-builder domain signals weighted positively, yellow flags called out separately.
+- Removed the unconditional "score IC below 40" rule.
+- `scripts/seed_ai_frontier_companies.py`: idempotent seed for 26 companies (16 AI-frontier infra/labs + 10 AI-native B2B targets from Adam's `goals.md`). Domain-only, lets the discovery loop auto-detect ATS.
+- `tests/test_scorer.py`: `TestTrackAwareRules` adds 6 cases (mgmt rule, IC rule, IC-excludes-mgmt, hard exclusions, domain signals, no-IC-rule-leakage when only mgmt track configured).
+
+**Validated:** First `shortlist run` post-PR scored 65 jobs across both tracks (125 EM, 30 staff_ai). 16 of 26 seeded companies got their ATS auto-detected (5 Ashby, 4 Greenhouse, 1 Lever; 10 still pending probe budget). Top-of-brief: Posit PBC VP Eng (100), Atlassian Head of Eng DX (98), Upbound Director Control Planes (98).
+
+**Pattern recorded:** Track config is the single source of truth for scoring rules. The prompt template stays static; `_build_track_rules` derives per-track text. This avoids the trap where track config and scoring prompt drift apart.
+
+**Files changed:** `config/example-profile.yaml`, `scripts/seed_ai_frontier_companies.py`, `shortlist/processors/scorer.py`, `tests/test_scorer.py`, `tests/test_seed_ai_frontier_companies.py`.
 
 ## 2026-04-29 — Deprecated model auto-upgrade
 

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     salary_estimate TEXT,
     salary_confidence TEXT,
     salary_basis TEXT,
+    prestige_tier TEXT,
     enrichment TEXT,
     enriched_at DATETIME,
     tailored_resume_path TEXT,
@@ -111,11 +112,38 @@ CREATE TABLE IF NOT EXISTS run_logs (
 """
 
 
+# Columns added to the jobs table after the original schema. Each entry is
+# (column_name, sqlite_type). On startup we ALTER TABLE for any that are
+# missing, so older databases pick them up without manual migration. Pure
+# additive — no existing data is touched.
+_JOBS_LATE_COLUMNS: list[tuple[str, str]] = [
+    ("salary_basis", "TEXT"),
+    ("prestige_tier", "TEXT"),
+]
+
+
+def _ensure_jobs_columns(conn: sqlite3.Connection) -> None:
+    """Add columns missing from the jobs table on existing databases.
+
+    `CREATE TABLE IF NOT EXISTS` doesn't reconcile column lists, so DBs
+    created against an older schema can be missing columns the code expects
+    to write. This walks `_JOBS_LATE_COLUMNS` and runs ALTER TABLE ADD COLUMN
+    for any that aren't there. Idempotent.
+    """
+    existing = {
+        row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+    }
+    for column, sql_type in _JOBS_LATE_COLUMNS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {sql_type}")
+
+
 def init_db(path: Path) -> sqlite3.Connection:
     """Initialize the database with schema. Idempotent."""
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.executescript(SCHEMA)
+    _ensure_jobs_columns(conn)
     conn.commit()
     return conn
 
