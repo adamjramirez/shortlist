@@ -48,16 +48,21 @@ tracks:
   #     - "VP of Engineering"
   #     - "Vice President Engineering"
 
-  # Example: Specific domain track
-  # ai:
-  #   title: AI Engineering
+  # Example: Senior IC at AI-frontier companies (no management requirement).
+  # If you enable an IC track, also set filters.role_type.reject_explicit_ic
+  # to false below, otherwise IC roles get hard-filtered before scoring.
+  # staff_ai:
+  #   title: Senior IC at AI-Frontier
   #   resume: resumes/ai.tex
-  #   target_orgs: any
-  #   min_reports: 5
+  #   target_orgs: ai-frontier
+  #   min_reports: 0
   #   search_queries:
-  #     - "AI Engineering Manager"
-  #     - "Head of AI"
-  #     - "ML Engineering Manager"
+  #     - "Senior Staff Software Engineer"
+  #     - "Principal Software Engineer"
+  #     - "Staff Software Engineer"
+  #     - "Forward Deployed Engineer"
+  #     - "Applied AI Engineer"
+  #     - "Staff Product Engineer"
 
 filters:
   location:
@@ -74,7 +79,8 @@ filters:
     min_base: 200000                # only reject if explicitly listed below this
 
   role_type:
-    reject_explicit_ic: true        # reject roles that say "individual contributor"
+    reject_explicit_ic: true        # reject roles that say "individual contributor".
+                                    # Set to false if you have an IC track (e.g. staff_ai above).
 
 # Soft preferences (used in scoring, not hard filters)
 preferences:
