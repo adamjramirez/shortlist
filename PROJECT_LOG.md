@@ -6,7 +6,21 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**Decodo proxy traffic throttled (2026-04-26).** Expiry checker was burning ~1200 HEAD/hr through Decodo because LinkedIn `last_seen` doesn't get refreshed for jobs that fall off search-result drift. Cut to ~60 HEAD/hr via `limit=20→5` and `TICK_INTERVAL=60→300`. Open question (D-SL-017): should periodic expiry checking run continuously at all? Deferred pending traffic data.
+Stable. No active incidents. Deployed deprecated-model upgrade path (2026-04-29).
+
+## 2026-04-29 — Deprecated model auto-upgrade
+
+**What got done:**
+- User 10 (mukulkherli) hit `profile_analysis_failed` on Apr 27 at 07:35 — same `gemini-2.0-flash` deprecation as Apr 20, but his saved profile config still had the old model.
+- Added `DEPRECATED_MODELS = {"gemini-2.0-flash": "gemini-2.5-flash"}` in `routes/profile.py`. Any user with a deprecated model saved in their config gets silently upgraded at generate time, not at error time.
+- Added `model_upgraded_from: str | None` to `GenerateProfileResponse` schema so the frontend knows when a remap happened.
+- Frontend: on both generate paths (`handleAnalyze` + `handleRegenerateTracks`), if `model_upgraded_from` is set: updates the model dropdown state to 2.5 Flash and shows an 8-second toast prompting the user to save.
+- Fixed stale `"gemini-2.0-flash"` fallback in `app/page.tsx` (provider detection).
+- Removed `gemini-2.0-flash` from `JobCard.tsx` cover-letter model picker.
+- Made `showToast` duration-configurable (default 3s, upgrade notice uses 8s).
+- Deployed to Fly.io (exit 0).
+
+**Files changed:** `shortlist/api/schemas.py`, `shortlist/api/routes/profile.py`, `web/src/lib/api.ts`, `web/src/app/profile/page.tsx`, `web/src/app/page.tsx`, `web/src/components/JobCard.tsx`
 
 ## 2026-04-26 — Decodo proxy traffic throttled
 

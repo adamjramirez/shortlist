@@ -23,6 +23,10 @@ from shortlist.api.schemas import (
     ProfileUpdate,
 )
 from shortlist.api.storage import Storage, get_storage
+
+DEPRECATED_MODELS: dict[str, str] = {
+    "gemini-2.0-flash": "gemini-2.5-flash",
+}
 from shortlist.api.telemetry import capture_llm_error
 
 logger = logging.getLogger(__name__)
@@ -114,7 +118,7 @@ async def update_profile(
         api_key = llm_updates.pop("api_key", None)
         if api_key:
             from shortlist.llm import detect_provider
-            provider = detect_provider(llm_updates.get("model", existing_llm.get("model", "gemini-2.0-flash")))
+            provider = detect_provider(llm_updates.get("model", existing_llm.get("model", "gemini-2.5-flash")))
             existing_api_keys[provider] = encrypt(api_key)
             llm_updates["encrypted_api_key"] = encrypt(api_key)
         elif "encrypted_api_key" in existing_llm:
@@ -195,21 +199,27 @@ async def generate_profile(
     # Get user's LLM config
     config = user.profile.config if user.profile else {}
     llm_config = config.get("llm", {})
-    encrypted_key = llm_config.get("encrypted_api_key")
-    model = llm_config.get("model", "gemini-2.0-flash")
-
-    if not encrypted_key and generator is None:
-        logger.warning(
-            "generate_profile 400: user=%s resume_id=%s model=%s (no api key configured)",
-            user.id, req.resume_id, model,
-        )
-        raise HTTPException(
-            status_code=400,
-            detail="Set up your AI provider and API key first",
-        )
+    model = llm_config.get("model", "gemini-2.5-flash")
+    model_upgraded_from: str | None = None
+    if model in DEPRECATED_MODELS:
+        model_upgraded_from = model
+        model = DEPRECATED_MODELS[model]
 
     # Use injected generator (tests) or build real one
     if generator is None:
+        from shortlist.llm import detect_provider
+        provider = detect_provider(model)
+        api_keys = llm_config.get("api_keys", {})
+        encrypted_key = api_keys.get(provider) or llm_config.get("encrypted_api_key")
+        if not encrypted_key:
+            logger.warning(
+                "generate_profile 400: user=%s resume_id=%s model=%s provider=%s (no api key)",
+                user.id, req.resume_id, model, provider,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"No API key for {provider}. Add one in your Profile settings.",
+            )
         api_key = decrypt(encrypted_key)
         generator = LLMProfileGenerator(model=model, api_key=api_key)
 
@@ -248,11 +258,15 @@ async def generate_profile(
             extra={"generate_profile": {"elapsed_ms": elapsed_ms}},
         )
         if status == 429:
-            # The "switch to 2.0 Flash" tip is noise when the user is already on 2.0
-            # Flash. For that case (which is usually project-setup, not real rate
-            # limiting), point at the actual cause — API not enabled or key-restriction.
+            free_tier_exhausted = "free_tier" in provider_body
             on_flash = "2.0-flash" in model
-            if on_flash:
+            if free_tier_exhausted:
+                tip = (
+                    "Your key is from a Google Cloud project with billing enabled, which removes "
+                    "the free-tier quota. Get a key from aistudio.google.com instead — "
+                    "AI Studio keys have free-tier access built in."
+                )
+            elif on_flash:
                 tip = (
                     "You're already on Gemini 2.0 Flash — its free-tier limits are generous, "
                     "so hitting 429 on a fresh key usually means your Google Cloud project "
@@ -265,11 +279,37 @@ async def generate_profile(
                     "switch to Gemini 2.0 Flash in your profile settings."
                 )
             raise HTTPException(
-                status_code=429,
-                detail=f"Your API key hit rate limits. Wait a minute and try again. {tip}",
+                status_code=422,
+                detail=f"Your API key hit rate limits. {tip}",
+            )
+        if status == 404 and "no longer available" in provider_body:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "The model 'Gemini 2.0 Flash' is no longer available for new API keys. "
+                    "Go to your profile settings and switch the model to 'Gemini 2.5 Flash', then try again."
+                ),
+            )
+        if status == 403:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Your Gemini API key was rejected (403). This usually means the Generative "
+                    "Language API isn't enabled for your Google Cloud project. Go to "
+                    "console.cloud.google.com → APIs & Services → search 'Generative Language API' "
+                    "→ Enable. Then try again."
+                ),
+            )
+        if status == 401:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Your Gemini API key is invalid (401). Make sure you copied the full API key "
+                    "from aistudio.google.com, not an OAuth token or service account credential."
+                ),
             )
         raise HTTPException(
-            status_code=502,
+            status_code=422,
             detail=f"AI provider error ({status}). Try again shortly.",
         )
     except Exception as e:
@@ -303,4 +343,5 @@ async def generate_profile(
         fit_context=result.get("fit_context", ""),
         tracks=result.get("tracks", {}),
         filters=result.get("filters", {}),
+        model_upgraded_from=model_upgraded_from,
     )

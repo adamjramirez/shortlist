@@ -50,7 +50,7 @@ async def _configure_llm(user: User, session: AsyncSession,
     from shortlist import llm as llm_module
 
     llm_config = profile.config.get("llm", {})
-    model = model_override or llm_config.get("model", "gemini-2.0-flash")
+    model = model_override or llm_config.get("model", "gemini-2.5-flash")
     provider = llm_module.detect_provider(model)
 
     # Try per-provider key first, fall back to legacy single key
@@ -282,7 +282,7 @@ async def generate_cover_letter_endpoint(
             select(Profile).where(Profile.user_id == user.id)
         )
         profile = result.scalar_one_or_none()
-        model = (profile.config or {}).get("llm", {}).get("model", "gemini-2.0-flash") if profile else "unknown"
+        model = (profile.config or {}).get("llm", {}).get("model", "gemini-2.5-flash") if profile else "unknown"
         return CoverLetterResponse(cover_letter=job.cover_letter, model_used=model)
 
     model = await _configure_llm(user, session, model_override=model_choice)

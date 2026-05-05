@@ -539,7 +539,7 @@ function Dashboard() {
                 availableProviders={(() => {
                   const providers = new Set(profileData?.llm?.providers_with_keys || []);
                   if (profileData?.llm?.has_api_key) {
-                    const m = profileData.llm.model || "gemini-2.0-flash";
+                    const m = profileData.llm.model || "gemini-2.5-flash";
                     if (m.startsWith("gemini")) providers.add("gemini");
                     else if (m.startsWith("gpt-") || m.startsWith("o1-")) providers.add("openai");
                     else if (m.startsWith("claude-")) providers.add("anthropic");
