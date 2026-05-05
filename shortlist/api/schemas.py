@@ -38,6 +38,7 @@ class GenerateProfileResponse(BaseModel):
     fit_context: str
     tracks: dict
     filters: dict
+    model_upgraded_from: str | None = None
 
 
 class AutoRunConfig(BaseModel):

@@ -121,7 +121,7 @@ export default function ProfilePage() {
   }, []);
   const [tracks, setTracks] = useState<TrackForm[]>([]);
   const [filters, setFilters] = useState<FiltersForm>(defaultFilters());
-  const [llmModel, setLlmModel] = useState("gemini-2.0-flash");
+  const [llmModel, setLlmModel] = useState("gemini-2.5-flash");
   const [apiKey, setApiKey] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [substackSid, setSubstackSid] = useState("");
@@ -150,7 +150,7 @@ export default function ProfilePage() {
       setFitContext(p.fit_context);
       setTracks(jsonToTracks(p.tracks));
       setFilters(jsonToFilters(p.filters));
-      setLlmModel(p.llm?.model || "gemini-2.0-flash");
+      setLlmModel(p.llm?.model || "gemini-2.5-flash");
       setHasApiKey(!!p.llm?.has_api_key);
       setProvidersWithKeys(p.llm?.providers_with_keys || []);
       setSubstackSid(p.substack_sid || "");
@@ -172,10 +172,10 @@ export default function ProfilePage() {
     [],
   );
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, durationMs = 3000) => {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(""), 3000);
+    toastTimer.current = setTimeout(() => setToast(""), durationMs);
   };
 
   // ── Handlers ──
@@ -217,16 +217,14 @@ export default function ProfilePage() {
     setAnalyzing(true);
     setError("");
     track.profileAnalysisStarted(resumeList[0].id, llmModel, hasApiKey);
-    if (apiKey) {
-      try {
-        await saveApiKeyOrThrow();
-      } catch (err) {
-        const msg = err instanceof ApiError ? err.detail : "Failed to save API key";
-        setError(msg);
-        track.profileAnalysisFailed(msg);
-        setAnalyzing(false);
-        return;
-      }
+    try {
+      await saveApiKeyOrThrow();
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.detail : "Failed to save API key";
+      setError(msg);
+      track.profileAnalysisFailed(msg);
+      setAnalyzing(false);
+      return;
     }
     try {
       const result = await profileApi.generate(resumeList[0].id);
@@ -236,6 +234,10 @@ export default function ProfilePage() {
       setGenerated(true);
       track.profileAnalyzed(resumeList[0].id);
       setDirty(true);
+      if (result.model_upgraded_from) {
+        setLlmModel("gemini-2.5-flash");
+        showToast("Your model was upgraded from Gemini 2.0 Flash to Gemini 2.5 Flash. Save your profile to keep this change.", 8000);
+      }
     } catch (err) {
       const msg = err instanceof ApiError ? err.detail : "Analysis failed";
       setError(msg);
@@ -255,7 +257,12 @@ export default function ProfilePage() {
       // so the user's hand-edited step 3 and filters are never overwritten.
       setTracks(jsonToTracks(result.tracks));
       setDirty(true);
-      showToast("Roles regenerated ✓");
+      if (result.model_upgraded_from) {
+        setLlmModel("gemini-2.5-flash");
+        showToast("Your model was upgraded from Gemini 2.0 Flash to Gemini 2.5 Flash. Save your profile to keep this change.", 8000);
+      } else {
+        showToast("Roles regenerated ✓");
+      }
       track.profileAnalyzed(resumeList[0].id);
     } catch (err) {
       const msg = err instanceof ApiError ? err.detail : "Regeneration failed";

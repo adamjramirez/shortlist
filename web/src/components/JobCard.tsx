@@ -532,7 +532,6 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
 
                   {!generatingLetter && (() => {
                     const models: { value: string; label: string; provider: string }[] = [
-                      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "gemini" },
                       { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "gemini" },
                       { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "gemini" },
                       { value: "gpt-4o", label: "GPT-4o", provider: "openai" },

@@ -105,7 +105,7 @@ export const profile = {
     }),
 
   generate: (resumeId: number, fitContext?: string) =>
-    request<{ fit_context: string; tracks: Record<string, unknown>; filters: Record<string, unknown> }>(
+    request<{ fit_context: string; tracks: Record<string, unknown>; filters: Record<string, unknown>; model_upgraded_from?: string | null }>(
       "/profile/generate",
       { method: "POST", body: JSON.stringify({ resume_id: resumeId, fit_context: fitContext ?? null }) },
     ),

@@ -6,6 +6,40 @@ Inherits: `~/Code/DECISIONS.md` (T1 — agency-level decisions)
 
 ---
 
+## D-SL-017: Whether expiry checking should run continuously at all — deferred (2026-04-26)
+
+**Chose:** Keep continuous expiry checks running, but at sharply reduced rate (~60 HEAD/hr). Defer the bigger question.
+
+**Over:** Switching to nightly batch, or removing expiry checking entirely.
+
+**Why:** The signal value of "Closed" badges is dubious for the current usage pattern — most users see closed badges on jobs they've already triaged, so the badge rarely changes a decision. But killing it removes a real (if low-value) freshness signal, and we don't have user-traffic data to confirm nobody relies on it. Cheaper to throttle now and revisit with data than to make the call cold.
+
+**Evidence:** D-SL-016 (the throttle) ships the immediate proxy-cost fix. CLAUDE.md "Expiry checker is a continuous proxy-traffic source" pattern entry.
+
+**Revisit when:** (a) Decodo bill notably drops but still feels excessive, (b) PostHog data shows users don't engage with closed-state UI, or (c) we add a second always-on background process and need to budget proxy spend across both.
+
+---
+
+## D-SL-016: Expiry checker throttled — `limit=5`, `TICK_INTERVAL=300s` (2026-04-26)
+
+**Chose:** `expiry._run_batch(limit=5)` (was 20) and `scheduler.TICK_INTERVAL=300` (was 60). Combined effect: ~1200 HEAD/hr → ~60 HEAD/hr through Decodo. Each open job still re-checked every ~10–50h on average.
+
+**Over:**
+- Status quo (`limit=20`, `60s` tick) — burning Decodo bandwidth 24/7 for closure signals of marginal value.
+- Mass-closing stale rows (`last_seen >30d`) — only 61 rows matched; doesn't reduce sustained rate because the driver is the 3000 rows at >24h that aren't getting re-collected.
+- Killing the expiry loop entirely — see D-SL-017.
+
+**Why:** Closure-signal freshness from <60s to <5min latency is invisible to the user (jobs don't close in real-time anyway). Each row re-checked every ~10h is still well within useful for "did this Greenhouse posting come down?" Tradeoff is 20× lower proxy spend.
+
+**Evidence:** Commits 9056e29 (batch size) + 18878a9 (tick interval). Pre-throttle: log spot-check showed ~50 LinkedIn HEAD/min sustained.
+
+**Revisit when:**
+- A user-facing feature starts depending on near-real-time job-closure signals
+- We add `last_check_at` separately from `last_seen` so the long tail can self-throttle (then we can raise these defaults safely)
+- D-SL-017 resolves to "kill expiry loop" or "move to nightly batch"
+
+---
+
 ## D-SL-015: Salary estimates from LLM training data only — no external comp sources (2026-04-16)
 
 **Chose:** Salary estimates come from Gemini's self-assessment during the scoring call. Inputs: role title + company + location. Output: range + confidence (low/medium/high) + one-sentence basis.

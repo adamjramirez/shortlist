@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shortlist.api.models import Profile, Run, User
 
 logger = logging.getLogger(__name__)
-TICK_INTERVAL = 60  # seconds
+TICK_INTERVAL = 300  # seconds
 ZOMBIE_RUN_TIMEOUT_MINUTES = 45  # runs stuck in 'running' longer than this are dead
 
 

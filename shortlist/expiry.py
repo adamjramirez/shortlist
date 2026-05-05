@@ -121,7 +121,7 @@ def check_job_url(url: str, sources_seen: list[str]) -> bool | None:
         return None
 
 
-def _run_batch(conn, limit: int = 20) -> dict:
+def _run_batch(conn, limit: int = 5) -> dict:
     """Run expiry checks on a batch of jobs using an existing connection.
 
     Returns {checked, closed, live, unknown, skipped_recent, errors}:
@@ -204,7 +204,7 @@ def _run_batch(conn, limit: int = 20) -> dict:
     }
 
 
-def check_expiry_batch(db_url: str, limit: int = 20) -> dict:
+def check_expiry_batch(db_url: str, limit: int = 5) -> dict:
     """Open a DB connection, check a batch of jobs, close the connection.
 
     Safe to call from asyncio.to_thread — opens and closes its own connection.

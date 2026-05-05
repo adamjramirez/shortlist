@@ -6,7 +6,63 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-**Salary transparency shipped + url_check expiry bug fixed (commits cab0fc2, 88a4ca9, 3acd4cf).** Inbox recovered from 3 → 63 for user 2 after discovering the expiry checker was closing jobs on any non-200 HTTP response (403/429/5xx/3xx). Monitor next 24-48h for stability — if false-positive closures return, ship 5c (2-strike rule w/ migration 014). Also decide in 48h whether to write PROJECT_LOG entry for user 10 analyze retry if they retest.
+Stable. No active incidents. Deployed deprecated-model upgrade path (2026-04-29).
+
+## 2026-04-29 — Deprecated model auto-upgrade
+
+**What got done:**
+- User 10 (mukulkherli) hit `profile_analysis_failed` on Apr 27 at 07:35 — same `gemini-2.0-flash` deprecation as Apr 20, but his saved profile config still had the old model.
+- Added `DEPRECATED_MODELS = {"gemini-2.0-flash": "gemini-2.5-flash"}` in `routes/profile.py`. Any user with a deprecated model saved in their config gets silently upgraded at generate time, not at error time.
+- Added `model_upgraded_from: str | None` to `GenerateProfileResponse` schema so the frontend knows when a remap happened.
+- Frontend: on both generate paths (`handleAnalyze` + `handleRegenerateTracks`), if `model_upgraded_from` is set: updates the model dropdown state to 2.5 Flash and shows an 8-second toast prompting the user to save.
+- Fixed stale `"gemini-2.0-flash"` fallback in `app/page.tsx` (provider detection).
+- Removed `gemini-2.0-flash` from `JobCard.tsx` cover-letter model picker.
+- Made `showToast` duration-configurable (default 3s, upgrade notice uses 8s).
+- Deployed to Fly.io (exit 0).
+
+**Files changed:** `shortlist/api/schemas.py`, `shortlist/api/routes/profile.py`, `web/src/lib/api.ts`, `web/src/app/profile/page.tsx`, `web/src/app/page.tsx`, `web/src/components/JobCard.tsx`
+
+## 2026-04-26 — Decodo proxy traffic throttled
+
+**What got done:**
+- Diagnosed continuous LinkedIn HEAD traffic via `fly logs` + DB count: 7 users on 12h auto-runs (only 1 with `next_run_at` set) couldn't explain the volume. Real driver: `expiry.check_expiry_batch` firing 20 jobs every 60s against 3000+ open LinkedIn rows older than the 24h recency-skip threshold.
+- Shipped `expiry._run_batch(limit=5)` (commit 9056e29) and `scheduler.TICK_INTERVAL=300` (commit 18878a9). Combined: ~20× reduction.
+- Closed 61 jobs at `last_seen >30d` with `closed_reason='stale_30d'` — small impact, but cleared the long-stale tail.
+
+**Key decisions:** D-SL-016 (throttle), D-SL-017 (defer the "should expiry run at all?" question).
+
+**Lesson:** Initial proposal to mass-close stale rows looked like a major lever; sampling the distribution showed it was 61 rows, not thousands. Added to root `CLAUDE.md` Quality Standards: "Sample the distribution before proposing a cleanup as a fix."
+
+**Follow-ups:**
+- Watch Decodo dashboard over the next few days to confirm rate dropped as expected.
+- If we keep the loop, consider adding `last_check_at` separate from `last_seen` so the LinkedIn long tail self-throttles and we can safely raise the throughput defaults.
+
+## 2026-04-20 — Analyze resume: 5 prod bugs fixed for user 10
+
+**What got done:**
+Five bugs discovered live via `fly logs` while debugging user 10's failed "Analyze my resume" attempts.
+
+1. **`gemini-2.0-flash` removed from UI + all defaults changed to `gemini-2.5-flash`** — Google deprecated the non-versioned `gemini-2.0-flash` endpoint for new users with billing-enabled GCP projects (returns 404 with "no longer available to new users"). Changed defaults in: `profile.py`, `tailor.py`, `worker.py`, `profile/page.tsx` (3 occurrences). Removed `gemini-2.0-flash` option from `AiProviderForm.tsx` model selector and `API_KEY_LINKS` dict.
+
+2. **Cloudflare intercepts 502/503/504 → changed all LLM errors to 422** — Our generate endpoint raised `HTTPException(status_code=502)` for LLM provider errors. Cloudflare (which fronts the app) replaces 502/503/504 body with its own HTML error page, so `resp.json()` in the frontend fails silently. Changed ALL LLM-related errors in `profile.py`'s generate route from 502 → 422. Client-side JSON errors now reach the user.
+
+3. **`handleAnalyze` model-not-saving bug** — `saveApiKeyOrThrow()` was only called inside `if (apiKey)`, meaning a model-only change (user switches dropdown from 2.0→2.5 without entering a new key) never got saved to the server before calling generate. Server read stale `gemini-2.0-flash` from DB. Fix: removed the `if (apiKey)` guard — `saveApiKeyOrThrow()` always runs before generate.
+
+4. **generate endpoint ignored per-provider `api_keys`** — The `/api/profile/generate` route only checked `llm.encrypted_api_key` (legacy single-key format). Users who saved keys via the per-provider format (`api_keys.gemini`, `api_keys.openai`, `api_keys.anthropic`) got "no API key" errors despite having one saved. Aligned with `tailor.py`'s existing pattern: `api_keys.get(provider) or llm_config.get("encrypted_api_key")`.
+
+5. **429 with `limit: 0` = billing-enabled GCP project** — User's Gemini key came from a billing-enabled GCP project. Google sets free-tier quota to `limit: 0` for such projects (meaning free-tier is removed, not exhausted). Old error message said "enable billing" which was wrong. Fixed message: "Your key is from a GCP project with billing enabled, which removes the free-tier quota. Get a key from aistudio.google.com instead."
+
+Also added specific handlers for 403 (API not enabled in GCP console) and 401 (invalid key type — OAuth/service account instead of API key).
+
+**Files changed:** `shortlist/api/routes/profile.py`, `shortlist/api/routes/tailor.py`, `shortlist/api/worker.py`, `web/src/app/profile/page.tsx`, `web/src/components/AiProviderForm.tsx`
+
+**Key decisions:**
+- 422 is the right status for all app-level errors that need to reach the client as JSON (when behind Cloudflare). 502 is only for when we're the proxy and an upstream is down.
+- `saveApiKeyOrThrow()` must always run before generate — it saves `model: llmModel` alongside any key, so it's the sync point even with no new key.
+- `gemini-2.5-flash` is now the single default everywhere — `gemini-2.0-flash` was deprecated for new users and should not appear anywhere in the codebase.
+
+**Follow-ups:**
+- Confirm with user 10 that they can now complete the analyze flow.
 
 ## 2026-04-16 (session 3) — url_check false-positive closures + salary basis field
 

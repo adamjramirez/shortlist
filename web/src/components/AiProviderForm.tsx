@@ -7,10 +7,6 @@ const inputClass =
   "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 
 const API_KEY_LINKS: Record<string, { label: string; url: string }> = {
-  "gemini-2.0-flash": {
-    label: "Get a Gemini key",
-    url: "https://aistudio.google.com/apikey",
-  },
   "gemini-2.5-flash": {
     label: "Get a Gemini key",
     url: "https://aistudio.google.com/apikey",
@@ -82,11 +78,8 @@ export default function AiProviderForm({
           onChange={(e) => onModelChange(e.target.value)}
           className={inputClass}
         >
-          <option value="gemini-2.0-flash">
-            Gemini 2.0 Flash (recommended — fast &amp; cheap)
-          </option>
           <option value="gemini-2.5-flash">
-            Gemini 2.5 Flash (smarter, slower)
+            Gemini 2.5 Flash (recommended — fast &amp; cheap)
           </option>
           <option value="gpt-4o-mini">GPT-4o Mini</option>
           <option value="claude-3-5-haiku-latest">Claude 3.5 Haiku</option>
