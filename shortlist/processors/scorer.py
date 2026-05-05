@@ -134,24 +134,42 @@ Name: {name}
 ### What This Person Is Best At
 {fit_context}
 
-### Target Role Tracks
-{tracks_description}
+### Target Tracks
 
-### Hard Requirements
+The candidate is running parallel hunts. Pick the track the job best fits as `matched_track`. Each track has its own requirements, applied only when the job matches that track. If the job fails the requirements of every track, score below 40.
+
+{tracks_description_with_rules}
+
+### Hard Exclusions (apply regardless of track; score below 40)
+
+- ML research scientist / research engineer / pure ML theory roles
+- Pure enterprise IT / legacy modernization with no AI-native architecture
+- Companies "adding AI features" to an otherwise traditional product (vs. AI-native)
+- Hardware / chip / silicon / data-center / GPU-plumbing roles
+- Pure frontend-craft IC roles where the value is design-system polish
+- "Visionary CTO" roles where conference speaking / thought leadership is the primary expectation
+
+### Domain Fit Signals (boost or reduce within the chosen track)
+
+**Strong positives (boost score):**
+- AI in the critical product path (not bolted on as a feature)
+- Evaluation systems with rubrics, golden datasets, regression testing for AI
+- Cost / token economics as a real engineering concern
+- Agent-native engineering workflows (MCP, agent docs, structured prompts)
+- LLM observability / tracing (Langfuse, OpenTelemetry, etc.)
+- Multi-step LLM agents, RAG, tool use
+- B2B / enterprise applications, Forward Deployed Engineer, Applied AI Engineer
+
+**Yellow flags (score down, don't reject):**
+- Series A with fresh funding (stage risk)
+- Equity grant with no real upside
+- Unclear whether engineering leader has true ownership / authority
+
+### Hard Requirements (cross-track)
+
 - Location: {location_requirement}
 - If a role says "Remote" but restricts to a specific country/region the candidate is NOT in, score below 60.
-- Salary: Minimum {min_salary:,} {currency} base. If the job lists salary in a different currency, convert approximately.
-- Must be a management/leadership role with direct reports
-- Prefer ~20+ reports (adjusted for company size/stage)
-
-### Preferences (soft scoring)
-- Equity: nice to have, depends on company stage + salary + growth potential
-- Travel: less is better
-- Series A with fresh funding: yellow flag (score down, don't reject)
-- Company growth trajectory: higher is better
-- Engineering culture signals: blog, OSS, Glassdoor, tech talks
-- Bigger scope relative to company size = better
-- Career growth potential: upward trajectory visible
+- Salary: Minimum {min_salary:,} {currency} base. If the job lists salary in a different currency, convert approximately. Total comp matters more than base.
 
 ## Job Listing
 
@@ -166,39 +184,38 @@ Name: {name}
 
 ## Instructions
 
-Score this job for fit with the candidate profile. Return a JSON object with exactly these fields:
+Score this job for fit. Return a JSON object with exactly these fields:
 
 ```json
 {{
     "fit_score": <0-100 integer>,
     "matched_track": "<one of: {track_keys}>",
-    "reasoning": "<2-3 sentences explaining the score>",
+    "reasoning": "<2-3 sentences explaining the score, citing track fit + domain signals>",
     "yellow_flags": ["<list of concerns, empty if none>"],
-    "salary_estimate": "<format as XXXk-XXXk {currency}, e.g. 200k-300k {currency}>",
+    "salary_estimate": "<format as XXXk-XXXk {currency}, e.g. 250k-350k {currency}>",
     "salary_confidence": "<low|medium|high>",
-    "salary_basis": "<one sentence explaining what drove the estimate and its confidence, e.g. 'Public comp data for Director+ roles at Series C security companies in SF' or 'Stealth-stage startup, limited data on comp norms at this size'>",
-    "corrected_title": "<the actual job title, e.g. 'VP of Engineering'>",
+    "salary_basis": "<one sentence explaining what drove the estimate>",
+    "corrected_title": "<the actual job title>",
     "corrected_company": "<the actual company name>",
     "corrected_location": "<the actual location, e.g. 'Remote' or 'San Francisco, CA'>",
     "prestige_tier": "<A|B|C|D — see below>"
 }}
 ```
 
-The title/company/location fields above may be wrong due to parsing errors. Use the full description to determine the correct values.
+The title/company/location fields above may be wrong due to parsing errors. Use the description to determine correct values.
 
 ### Scoring Guide
-- **90-100:** Exceptional fit. Right level, right scope, right company, right location, salary meets minimum.
+- **90-100:** Exceptional fit. Matched track requirements clearly met, strong domain signals, salary meets minimum.
 - **80-89:** Strong fit. Most criteria met, maybe one minor gap.
-- **70-79:** Good fit with caveats. Might be slightly below scope, or salary uncertain.
+- **70-79:** Good fit with caveats. Slightly below scope, salary uncertain, or modest domain fit.
 - **60-69:** Worth reviewing. Some fit but significant unknowns or trade-offs.
 - **40-59:** Weak fit. Missing multiple criteria.
-- **0-39:** Poor fit. Wrong level, wrong location, IC role, or clearly below salary range.
+- **0-39:** Hits a hard exclusion, fails the matched track's requirements, wrong location, or salary clearly below minimum.
 
 ### Important
-- If the role is clearly IC (no management), score below 40.
 - If salary is not listed, infer from company stage, role level, and location. Note confidence.
 - "Engineering Manager" at a 10-person startup managing 3 people is different from EM at a large org managing 20+. Score accordingly.
-- Series A with fresh funding = yellow flag, not disqualifier.
+- Senior Staff / Staff / Principal IC at AI-frontier companies is a real target — do NOT auto-penalize for being IC; check the staff_ai-style track first.
 
 ### Job Prestige Tier
 Evaluate this specific job as a career move for THIS candidate. Return A, B, C, or D.
@@ -207,10 +224,10 @@ Evaluate this specific job as a career move for THIS candidate. Return A, B, C, 
 {prestige_criteria}
 
 Four evaluation criteria:
-1. **Role level** — Does this match or exceed the candidate's target level?
-2. **Company prestige** — Well-known brand in tech? Does the name open doors?
-3. **Domain momentum** — Hot, growing, important space? (AI/security/cloud-native = hot)
-4. **Upside** — Real equity and scope growth potential?
+1. **Role level** — Does this match or exceed the matched track's target level?
+2. **Company prestige** — Well-known brand in tech? AI-frontier company? Does the name open doors?
+3. **Domain momentum** — Hot, growing, important space? (AI / agents / B2B AI = hot; legacy IT = cold)
+4. **Upside** — Real equity and scope growth (management track) or career-defining IC opportunity (IC track)?
 
 - **A**: Career-defining. Matches target level, strong brand, hot domain, real upside.
 - **B**: Solid. Most criteria met. Worth engaging seriously.
@@ -263,23 +280,46 @@ def _build_location_requirement(config: Config) -> str:
         return "Any location"
 
 
+def _build_track_rules(config: Config) -> str:
+    """Build per-track requirements injected into the scoring prompt.
+
+    Each track gets its own rule block. Management tracks (min_reports >= 1)
+    require leadership; IC tracks (min_reports == 0) require senior IC level.
+    Rules are derived from track config so the prompt stays in sync.
+    """
+    parts = []
+    for key, track in config.tracks.items():
+        if track.min_reports and track.min_reports >= 1:
+            rule = (
+                f"requires a management/leadership role with at least "
+                f"{track.min_reports} direct reports. IC roles or roles with "
+                f"fewer than {track.min_reports} reports score below 40 if "
+                f"matched to this track."
+            )
+        else:
+            rule = (
+                "requires senior IC level (Senior Staff / Staff / Principal "
+                "Software Engineer) OR a Forward Deployed Engineer / Applied "
+                "AI Engineer role at an AI-frontier or AI-native company. "
+                "Junior or mid IC roles score below 40 if matched to this "
+                "track. Management roles do NOT match this track."
+            )
+        parts.append(
+            f"- **{key}** (target: {track.title}; org focus: "
+            f"{track.target_orgs}) {rule}"
+        )
+    return "\n".join(parts) if parts else "- (no tracks configured)"
+
+
 def build_scoring_prompt(job: RawJob, config: Config) -> str:
     """Build the scoring prompt for a job."""
-    tracks_desc = []
-    for key, track in config.tracks.items():
-        tracks_desc.append(
-            f"- **{key}**: {track.title} "
-            f"(target: {track.target_orgs}, min reports: {track.min_reports})"
-        )
-
     track_keys = ", ".join(config.tracks.keys()) or "default"
-
     currency = config.filters.salary.currency or "USD"
 
     return SCORING_PROMPT_TEMPLATE.format(
         name=config.name or "Candidate",
         fit_context=config.fit_context or "No additional context provided.",
-        tracks_description="\n".join(tracks_desc),
+        tracks_description_with_rules=_build_track_rules(config),
         track_keys=track_keys,
         location_requirement=_build_location_requirement(config),
         min_salary=config.filters.salary.min_base or 250000,

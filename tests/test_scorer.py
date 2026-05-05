@@ -355,6 +355,92 @@ def test_parse_score_response_defaults_prestige_tier_when_missing():
     assert result.prestige_tier == ""
 
 
+class TestTrackAwareRules:
+    """The scoring prompt branches its hard rules per track.
+
+    Management tracks (min_reports >= 1) require a leadership role.
+    IC tracks (min_reports == 0) require senior IC level (Staff/Principal/etc).
+    """
+
+    @pytest.fixture
+    def ic_and_mgmt_config(self):
+        return Config(
+            name="Adam",
+            tracks={
+                "lead": Track(
+                    title="VP of Engineering",
+                    resume="resumes/em.tex",
+                    target_orgs="ai_native",
+                    min_reports=10,
+                    search_queries=["VP Engineering"],
+                ),
+                "staff_ai": Track(
+                    title="Senior IC at AI-Frontier",
+                    resume="resumes/ai.tex",
+                    target_orgs="ai_frontier",
+                    min_reports=0,
+                    search_queries=["Senior Staff Software Engineer"],
+                ),
+            },
+            filters=Filters(
+                location=LocationFilter(remote=True, local_zip="75098"),
+                salary=SalaryFilter(min_base=250000),
+                role_type=RoleTypeFilter(reject_explicit_ic=False),
+            ),
+        )
+
+    def test_management_track_requires_reports(self, ic_and_mgmt_config, sample_job):
+        prompt = build_scoring_prompt(sample_job, ic_and_mgmt_config)
+        assert "10 direct reports" in prompt
+        assert "lead" in prompt
+
+    def test_ic_track_requires_senior_ic_level(self, ic_and_mgmt_config, sample_job):
+        prompt = build_scoring_prompt(sample_job, ic_and_mgmt_config)
+        assert "Senior Staff / Staff / Principal" in prompt
+        assert "Forward Deployed Engineer" in prompt
+        assert "staff_ai" in prompt
+
+    def test_ic_track_excludes_management_roles(self, ic_and_mgmt_config, sample_job):
+        prompt = build_scoring_prompt(sample_job, ic_and_mgmt_config)
+        # IC track should explicitly say management roles don't match
+        assert "Management roles do NOT match this track" in prompt
+
+    def test_hard_exclusions_listed(self, ic_and_mgmt_config, sample_job):
+        prompt = build_scoring_prompt(sample_job, ic_and_mgmt_config)
+        assert "research scientist" in prompt.lower()
+        assert "hardware" in prompt.lower() or "chip" in prompt.lower()
+        assert "legacy modernization" in prompt.lower()
+
+    def test_domain_signals_listed(self, ic_and_mgmt_config, sample_job):
+        prompt = build_scoring_prompt(sample_job, ic_and_mgmt_config)
+        # AI-builder positive signals
+        assert "RAG" in prompt or "tool use" in prompt.lower()
+        assert "evaluation systems" in prompt.lower() or "rubrics" in prompt.lower()
+        assert "agent-native" in prompt.lower() or "MCP" in prompt
+
+    def test_management_only_config_skips_ic_rules(self, sample_job):
+        """A config with only management tracks shouldn't expose IC-track rules."""
+        cfg = Config(
+            name="Adam",
+            tracks={
+                "lead": Track(
+                    title="VP Engineering",
+                    resume="resumes/em.tex",
+                    target_orgs="any",
+                    min_reports=10,
+                    search_queries=["VP"],
+                ),
+            },
+            filters=Filters(
+                location=LocationFilter(remote=True, local_zip="75098"),
+                salary=SalaryFilter(min_base=250000),
+            ),
+        )
+        prompt = build_scoring_prompt(sample_job, cfg)
+        # The IC rule should not appear when no IC track is configured.
+        assert "Senior Staff / Staff / Principal Software Engineer" not in prompt
+
+
 class TestScoreResult:
     def test_dataclass_fields(self):
         r = ScoreResult(

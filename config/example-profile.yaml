@@ -3,22 +3,31 @@
 
 name: Your Name
 
-# Describe what you're looking for. This gets sent to the LLM scorer.
+# Describe what you're looking for. This gets sent to the LLM scorer
+# alongside per-track rules derived from your tracks: section below.
 # Be specific — the more context, the better the scoring.
+#
+# If you run multiple tracks (e.g. leadership + senior IC), describe
+# each one explicitly so the scorer can apply the right rules per match.
 fit_context: |
-  Looking for senior engineering leadership roles (Director/VP level).
-  Strong background in backend systems, distributed architecture, and team building.
-  Prefer product-focused companies over pure consulting/services.
-  
+  Looking for senior engineering leadership roles (Director/VP level)
+  at AI-native B2B companies. Strong background in backend systems,
+  distributed architecture, and team building.
+
+  Secondary track: senior IC (Staff/Principal) at AI-frontier or
+  AI-native companies if the role is high-leverage.
+
   Strong fit signals:
   - Companies building developer tools or infrastructure
   - Series B+ with product-market fit
-  - Teams of 20-50 engineers needing scaling leadership
-  
+  - AI in the critical product path (not a feature bolted on)
+  - Eval systems, agent-native engineering workflows
+
   Avoid / score down:
-  - Pure research roles (not my strength)
-  - Very early stage (pre-product)
-  - Roles focused primarily on frontend/mobile
+  - Pure ML research / research-scientist roles
+  - Pure enterprise IT / legacy modernization
+  - Hardware / chip / silicon roles
+  - Pure frontend-craft IC where the value is design-system polish
 
 # Define the role tracks you're targeting.
 # Each track has search queries (used for LinkedIn) and resume paths.

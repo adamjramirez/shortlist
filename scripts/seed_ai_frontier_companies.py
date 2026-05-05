@@ -26,7 +26,12 @@ DEFAULT_DB = REPO_ROOT / "jobs.db"
 
 
 # (name, domain) — kept domain-only so the discovery loop auto-detects the ATS.
+# Two clusters:
+#   1. AI-frontier labs and core AI infra — for the staff_ai (senior IC) track
+#   2. AI-native B2B SaaS targets — for the em (engineering leadership) track
+# Both feed the same companies table; per-track scoring is done by the scorer.
 AI_FRONTIER_COMPANIES: list[tuple[str, str]] = [
+    # AI-frontier / core AI infra
     ("OpenAI", "openai.com"),
     ("Anthropic", "anthropic.com"),
     ("Hugging Face", "huggingface.co"),
@@ -43,6 +48,17 @@ AI_FRONTIER_COMPANIES: list[tuple[str, str]] = [
     ("Stripe", "stripe.com"),
     ("GitHub", "github.com"),
     ("Databricks", "databricks.com"),
+    # AI-native B2B SaaS targets (from career goals.md, Apr 2026)
+    ("Glean", "glean.com"),
+    ("Writer", "writer.com"),
+    ("Vanta", "vanta.com"),
+    ("Weights & Biases", "wandb.ai"),
+    ("Replit", "replit.com"),
+    ("Pinecone", "pinecone.io"),
+    ("Harvey", "harvey.ai"),
+    ("Decagon", "decagon.ai"),
+    ("EliseAI", "eliseai.com"),
+    ("Clay", "clay.com"),
 ]
 
 
