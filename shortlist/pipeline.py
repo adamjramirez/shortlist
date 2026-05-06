@@ -199,6 +199,8 @@ def run_pipeline(
                     updates["company"] = score_result.corrected_company
                 if score_result.corrected_location:
                     updates["location"] = score_result.corrected_location
+                if score_result.prestige_tier:
+                    updates["prestige_tier"] = score_result.prestige_tier
 
                 set_clause = ", ".join(f"{k} = ?" for k in updates)
                 db.execute(
