@@ -44,6 +44,11 @@ def main() -> None:
         default=SCORE_VISIBLE,
         help=f"Only backfill jobs with fit_score >= this (default: {SCORE_VISIBLE})",
     )
+    parser.add_argument(
+        "--rescore",
+        action="store_true",
+        help="Re-score jobs that already have a prestige_tier (use when rubric changes)",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -53,13 +58,15 @@ def main() -> None:
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
 
+    where_clause = "WHERE fit_score >= ?"
+    if not args.rescore:
+        where_clause += " AND prestige_tier IS NULL"
     rows = conn.execute(
-        """
+        f"""
         SELECT id, title, company, url, description, location,
                salary_text, sources_seen, fit_score
         FROM jobs
-        WHERE fit_score >= ?
-          AND prestige_tier IS NULL
+        {where_clause}
         ORDER BY fit_score DESC
         """,
         (args.min_score,),
