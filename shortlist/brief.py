@@ -177,6 +177,7 @@ def _render_top_match(job: dict, rank: int) -> str:
     title = job.get("title", "Unknown")
     company = job.get("company", "Unknown")
     score = job.get("fit_score", "?")
+    prestige = job.get("prestige_tier") or ""
     location = job.get("location") or "Unknown"
     track = job.get("matched_track") or ""
     salary = job.get("salary_estimate") or job.get("salary_text") or ""
@@ -185,9 +186,15 @@ def _render_top_match(job: dict, rank: int) -> str:
     yellow_flags = job.get("yellow_flags") or ""
 
     recruiter_tag = " 🔍" if job.get("is_recruiter") else ""
+    score_line = f"**Score: {score}**"
+    if prestige:
+        score_line += f" | **Tier: {prestige}**"
+    score_line += f" | {location}"
+    if salary:
+        score_line += f" | {salary}"
     lines = [
         f"### {rank}. {marker} {title} — {company}{recruiter_tag}",
-        f"**Score: {score}** | {location}" + (f" | {salary}" if salary else ""),
+        score_line,
     ]
     if reasoning:
         lines.append(f"\n**Why it fits:** {reasoning}")
@@ -243,9 +250,11 @@ def _render_top_match(job: dict, rank: int) -> str:
 
 def _render_worth_a_look(job: dict) -> str:
     marker = _job_marker(job)
+    prestige = job.get("prestige_tier") or ""
+    tier_part = f" | Tier {prestige}" if prestige else ""
     return (
         f"- {marker} **{job.get('title', '?')}** — {job.get('company', '?')} "
-        f"(Score: {job.get('fit_score', '?')} | {job.get('location') or '?'})"
+        f"(Score: {job.get('fit_score', '?')}{tier_part} | {job.get('location') or '?'})"
     )
 
 
