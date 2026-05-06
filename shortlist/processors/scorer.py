@@ -75,17 +75,19 @@ Description:
 ## Task
 Return a JSON object with a single field: the prestige tier of this job as a career move for this candidate.
 
-Four evaluation criteria:
-1. **Role level** \u2014 Does this match or exceed the candidate's target level?
-2. **Company prestige** \u2014 Well-known brand in tech? Does the name open doors?
-3. **Domain momentum** \u2014 Hot, growing, important space? (AI/security/cloud-native = hot)
-4. **Upside** \u2014 Real equity and scope growth potential?
+Four evaluation criteria. For each, consider whether the role meets the bar at an EXCEPTIONAL level, a passing level, or below.
 
-Tier definitions:
-- **A**: Career-defining. Matches target level, strong brand, hot domain, real upside.
-- **B**: Solid. Most criteria met. Worth engaging seriously.
-- **C**: Fine. One step below target, limited brand, or slow domain.
-- **D**: Deprioritize. Multiple steps below target, no brand, capped upside.
+1. **Role level** \u2014 EXCEPTIONAL: exceeds target (e.g. CTO when target is VP; Distinguished/Principal when target is Senior Staff). PASSING: matches target. BELOW: one or more steps below target.
+2. **Company prestige** \u2014 EXCEPTIONAL: top-tier brand that opens doors anywhere; AI-frontier labs (OpenAI, Anthropic, DeepMind, Hugging Face) or marquee AI-native companies (Glean, Harvey, Cursor, Linear, Vercel, Stripe, Anthropic, Databricks). PASSING: established and recognizable in tech. BELOW: no brand recognition outside niche.
+3. **Domain momentum** \u2014 EXCEPTIONAL: at the frontier (foundation models, agents, AI-native B2B leaders). PASSING: AI-relevant or hot-adjacent. BELOW: legacy / slow-moving / pivoting-toward-AI but not there yet.
+4. **Upside** \u2014 EXCEPTIONAL: meaningful equity (>0.5% for early-stage; substantial RSU grants for late-stage) at a company with a credible path to a >5x outcome, or already on a clear pre-IPO trajectory. PASSING: standard equity, established company, normal scope growth. BELOW: capped upside (mature low-growth company, RSU-only with limited appreciation potential).
+
+Tier definitions \u2014 be parsimonious. A is reserved for the rare top 5\u201310% of visible roles.
+
+- **A** \u2014 Career-defining. ALL FOUR criteria are EXCEPTIONAL (not just present). The kind of role where you'd tell the candidate "drop everything and pursue this." If the candidate had to pick one job tonight from their inbox, would this be it? If not, it's a B.
+- **B** \u2014 Solid. Worth engaging seriously. Most criteria at PASSING level; maybe one EXCEPTIONAL but not all four. The default for a strong but not transcendent role.
+- **C** \u2014 Fine. Passive interest only. One step below target, limited brand, or slow domain.
+- **D** \u2014 Deprioritize. Multiple steps below target, no brand, or capped upside.
 
 Return ONLY this JSON:
 {{"prestige_tier": "<A|B|C|D>"}}"""
@@ -223,16 +225,19 @@ Evaluate this specific job as a career move for THIS candidate. Return A, B, C, 
 **Candidate's target:**
 {prestige_criteria}
 
-Four evaluation criteria:
-1. **Role level** — Does this match or exceed the matched track's target level?
-2. **Company prestige** — Well-known brand in tech? AI-frontier company? Does the name open doors?
-3. **Domain momentum** — Hot, growing, important space? (AI / agents / B2B AI = hot; legacy IT = cold)
-4. **Upside** — Real equity and scope growth (management track) or career-defining IC opportunity (IC track)?
+Four evaluation criteria. For each, consider whether the role meets the bar at an EXCEPTIONAL level, a passing level, or below.
 
-- **A**: Career-defining. Matches target level, strong brand, hot domain, real upside.
-- **B**: Solid. Most criteria met. Worth engaging seriously.
-- **C**: Fine. One step below target, limited brand, or slow domain. Passive interest only.
-- **D**: Deprioritize. Multiple steps below target, no brand, capped upside.
+1. **Role level** — EXCEPTIONAL: exceeds the matched track's target. PASSING: matches target. BELOW: one or more steps below target.
+2. **Company prestige** — EXCEPTIONAL: top-tier brand that opens doors anywhere; AI-frontier labs (OpenAI, Anthropic, DeepMind, Hugging Face) or marquee AI-native companies (Glean, Harvey, Cursor, Linear, Vercel, Stripe, Databricks). PASSING: established and recognizable in tech. BELOW: no brand recognition outside niche.
+3. **Domain momentum** — EXCEPTIONAL: at the frontier (foundation models, agents, AI-native B2B leaders). PASSING: AI-relevant or hot-adjacent. BELOW: legacy / slow-moving / pivoting-toward-AI but not there yet.
+4. **Upside** — EXCEPTIONAL: meaningful equity at a company with a credible path to a >5x outcome, or already on a pre-IPO trajectory; for IC tracks, a career-defining technical opportunity. PASSING: standard equity, established company, normal scope growth. BELOW: capped upside.
+
+Be parsimonious. A is reserved for the rare top 5–10% of visible roles.
+
+- **A** — Career-defining. ALL FOUR criteria EXCEPTIONAL. "Drop everything and pursue this."
+- **B** — Solid. Worth engaging seriously. Most criteria at PASSING; maybe one EXCEPTIONAL. The default for a strong but not transcendent role.
+- **C** — Fine. Passive interest only. One step below target, limited brand, or slow domain.
+- **D** — Deprioritize. Multiple steps below target, no brand, or capped upside.
 
 Return ONLY the JSON object, no other text."""
 
