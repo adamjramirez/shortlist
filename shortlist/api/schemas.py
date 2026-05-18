@@ -100,6 +100,23 @@ class ResumeResponse(BaseModel):
 
 # --- Jobs ---
 
+class EvergreenSignal(BaseModel):
+    """External signal that the company runs many long-open requisitions.
+
+    Sourced from third-party datasets like CSVFirst. A high share_180d means
+    most of the company's reqs stay open >6 months — often a sign of evergreen
+    talent funnels, "always-on" hiring, or structural recruiting inefficiency.
+    Applicants to these reqs are commonly ghosted.
+    """
+    share_180d: float           # 0.0-1.0
+    share_365d: float | None    # 0.0-1.0
+    total_active: int | None    # company's total active reqs in snapshot
+    oldest_days: int | None     # oldest single req's open days
+    mean_days: float | None     # mean open-days across all reqs
+    source: str                 # e.g. "csvfirst"
+    snapshot_date: str          # ISO date
+
+
 class JobSummary(BaseModel):
     id: int
     title: str
@@ -127,6 +144,7 @@ class JobSummary(BaseModel):
     salary_confidence: str | None = None
     salary_listed: bool = False
     salary_basis: str | None = None
+    evergreen_signal: EvergreenSignal | None = None
 
 
 class JobDetail(JobSummary):

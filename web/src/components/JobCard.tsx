@@ -205,6 +205,17 @@ export default function JobCard({ job, onStatusChange, availableProviders = [] }
               {job.location && <><span className="text-gray-300">&middot;</span><span>{job.location}</span></>}
               {age && <><span className="text-gray-300">&middot;</span><span className="text-gray-400 text-xs">{age}</span></>}
               {sourceLabel && <><span className="text-gray-300">&middot;</span><span className="font-mono text-[10px] uppercase tracking-widest text-gray-400">{sourceLabel}</span></>}
+              {job.evergreen_signal && job.evergreen_signal.share_180d > 0.4 && (
+                <>
+                  <span className="text-gray-300">&middot;</span>
+                  <span
+                    className="font-mono text-[10px] uppercase tracking-widest text-amber-600"
+                    title={`Per ${job.evergreen_signal.source} (${job.evergreen_signal.snapshot_date}): ${Math.round(job.evergreen_signal.share_180d * 100)}% of ${job.evergreen_signal.total_active ?? "?"} active reqs open 6+ months. Oldest ${job.evergreen_signal.oldest_days ?? "?"} days. Listings that stay open this long often indicate evergreen talent funnels or recruiting inefficiencies — expect a low response rate.`}
+                  >
+                    Evergreen {Math.round(job.evergreen_signal.share_180d * 100)}%
+                  </span>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-x-1.5 shrink-0">
               {isRecruiter && (

@@ -2,19 +2,21 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shortlist.api.db import get_session
 from shortlist.api.deps import get_current_user
 from shortlist.api.models import Job, Run, User
 from shortlist.api.schemas import (
+    EvergreenSignal,
     JobDetail,
     JobListResponse,
     JobStatusUpdate,
     JobSummary,
 )
 from shortlist.config import SCORE_VISIBLE
+from shortlist.processors.enricher import _normalize_company
 from shortlist.processors.filter import is_listed_salary
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -60,7 +62,48 @@ async def _get_latest_run_id(session: AsyncSession, user_id: int) -> int | None:
     return result.scalar()
 
 
-def _job_to_summary(job: Job, latest_run_id: int | None = None) -> JobSummary:
+async def _fetch_evergreen_signals(session: AsyncSession, companies: list[str]) -> dict[str, EvergreenSignal]:
+    """Batch-lookup latest hiring stats for a list of company names.
+    Returns {company_norm: EvergreenSignal} for any company with data.
+    Skips the table-missing case silently so dev / fresh installs don't break.
+    """
+    norms = sorted({_normalize_company(c) for c in companies if c})
+    if not norms:
+        return {}
+    try:
+        result = await session.execute(
+            text("""
+                SELECT DISTINCT ON (company_norm)
+                       company_norm, source, snapshot_date,
+                       total_active_jobs, share_180d_plus, share_365d_plus,
+                       mean_open_days, oldest_job_open_days
+                FROM company_hiring_stats
+                WHERE company_norm = ANY(:norms)
+                ORDER BY company_norm, snapshot_date DESC, source
+            """),
+            {"norms": norms},
+        )
+        rows = result.mappings().all()
+    except Exception:
+        return {}  # table missing or transient; no badge instead of 500
+    out: dict[str, EvergreenSignal] = {}
+    for r in rows:
+        if r["share_180d_plus"] is None:
+            continue
+        out[r["company_norm"]] = EvergreenSignal(
+            share_180d=float(r["share_180d_plus"]),
+            share_365d=float(r["share_365d_plus"]) if r["share_365d_plus"] is not None else None,
+            total_active=r["total_active_jobs"],
+            oldest_days=r["oldest_job_open_days"],
+            mean_days=float(r["mean_open_days"]) if r["mean_open_days"] is not None else None,
+            source=r["source"],
+            snapshot_date=r["snapshot_date"].isoformat(),
+        )
+    return out
+
+
+def _job_to_summary(job: Job, latest_run_id: int | None = None,
+                    evergreen_by_norm: dict[str, EvergreenSignal] | None = None) -> JobSummary:
     return JobSummary(
         id=job.id,
         title=job.title,
@@ -90,6 +133,7 @@ def _job_to_summary(job: Job, latest_run_id: int | None = None) -> JobSummary:
         salary_confidence=job.salary_confidence,
         salary_listed=is_listed_salary(job.salary_text),
         salary_basis=job.salary_basis,
+        evergreen_signal=(evergreen_by_norm or {}).get(_normalize_company(job.company)),
     )
 
 
@@ -101,8 +145,9 @@ def _clean_reasoning(text: str | None) -> str | None:
     return re.sub(r"\s*\[Re-scored:.*?\]", "", text).strip()
 
 
-def _job_to_detail(job: Job, latest_run_id: int | None = None) -> JobDetail:
-    summary = _job_to_summary(job, latest_run_id).model_dump()
+def _job_to_detail(job: Job, latest_run_id: int | None = None,
+                   evergreen_by_norm: dict[str, EvergreenSignal] | None = None) -> JobDetail:
+    summary = _job_to_summary(job, latest_run_id, evergreen_by_norm).model_dump()
     return JobDetail(
         **summary,
         description=job.description,
@@ -176,7 +221,9 @@ async def list_jobs(
         .limit(per_page)
     )
     latest_run_id = await _get_latest_run_id(session, user.id)
-    jobs = [_job_to_summary(j, latest_run_id) for j in result.scalars().all()]
+    job_rows = result.scalars().all()
+    evergreen = await _fetch_evergreen_signals(session, [j.company for j in job_rows])
+    jobs = [_job_to_summary(j, latest_run_id, evergreen) for j in job_rows]
 
     return JobListResponse(jobs=jobs, total=total, page=page, per_page=per_page, counts=counts)
 
@@ -194,7 +241,8 @@ async def get_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     latest_run_id = await _get_latest_run_id(session, user.id)
-    return _job_to_detail(job, latest_run_id)
+    evergreen = await _fetch_evergreen_signals(session, [job.company])
+    return _job_to_detail(job, latest_run_id, evergreen)
 
 
 @router.put("/{job_id}/status", response_model=JobDetail)
@@ -225,7 +273,8 @@ async def update_job_status(
         job.user_status = req.status
     await session.flush()
     latest_run_id = await _get_latest_run_id(session, user.id)
-    return _job_to_detail(job, latest_run_id)
+    evergreen = await _fetch_evergreen_signals(session, [job.company])
+    return _job_to_detail(job, latest_run_id, evergreen)
 
 
 @router.patch("/{job_id}/view", status_code=204)

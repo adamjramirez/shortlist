@@ -248,6 +248,84 @@ def _build_ats_url(ats: str, slug: str) -> str:
 # Curated career page sources
 # ---------------------------------------------------------------------------
 
+def ensure_company_hiring_stats_table(conn) -> None:
+    """Create the company_hiring_stats table if it doesn't exist."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS company_hiring_stats (
+                id SERIAL PRIMARY KEY,
+                company_norm TEXT NOT NULL,
+                source TEXT NOT NULL,
+                snapshot_date DATE NOT NULL,
+                total_active_jobs INT,
+                share_180d_plus REAL,
+                share_365d_plus REAL,
+                mean_open_days REAL,
+                oldest_job_open_days INT,
+                ingested_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (company_norm, source, snapshot_date)
+            )
+        """)
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_company_hiring_stats_lookup "
+            "ON company_hiring_stats(company_norm, source, snapshot_date DESC)"
+        )
+    conn.commit()
+
+
+def upsert_hiring_stats(
+    conn, *, company_norm: str, source: str, snapshot_date,
+    total_active_jobs: int | None, share_180d_plus: float | None,
+    share_365d_plus: float | None, mean_open_days: float | None,
+    oldest_job_open_days: int | None,
+) -> None:
+    """Insert or update one company-stats row for a given source + snapshot."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO company_hiring_stats
+                (company_norm, source, snapshot_date, total_active_jobs,
+                 share_180d_plus, share_365d_plus, mean_open_days, oldest_job_open_days)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (company_norm, source, snapshot_date) DO UPDATE SET
+                total_active_jobs = EXCLUDED.total_active_jobs,
+                share_180d_plus = EXCLUDED.share_180d_plus,
+                share_365d_plus = EXCLUDED.share_365d_plus,
+                mean_open_days = EXCLUDED.mean_open_days,
+                oldest_job_open_days = EXCLUDED.oldest_job_open_days,
+                ingested_at = NOW()
+            """,
+            (company_norm, source, snapshot_date, total_active_jobs,
+             share_180d_plus, share_365d_plus, mean_open_days, oldest_job_open_days),
+        )
+    conn.commit()
+
+
+def get_latest_hiring_stats_for_companies(conn, company_norms: list[str]) -> dict:
+    """For each given normalized company name, return the latest hiring stats
+    across all sources. Returns a dict {company_norm: dict}.
+
+    Picks the most-recent snapshot_date per (company_norm); if multiple sources
+    have the same date, picks one deterministically (alphabetical by source).
+    """
+    if not company_norms:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT ON (company_norm)
+                   company_norm, source, snapshot_date,
+                   total_active_jobs, share_180d_plus, share_365d_plus,
+                   mean_open_days, oldest_job_open_days
+            FROM company_hiring_stats
+            WHERE company_norm = ANY(%s)
+            ORDER BY company_norm, snapshot_date DESC, source
+            """,
+            (company_norms,),
+        )
+        return {row["company_norm"]: dict(row) for row in cur.fetchall()}
+
+
 def ensure_career_page_sources_table(conn) -> None:
     """Create the career_page_sources table if it doesn't exist."""
     with conn.cursor() as cur:

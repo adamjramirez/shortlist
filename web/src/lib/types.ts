@@ -75,6 +75,17 @@ export interface JobSummary {
   viewed_at: string | null;
   company_intel: string | null;
   score_reasoning: string | null;
+  evergreen_signal: EvergreenSignal | null;
+}
+
+export interface EvergreenSignal {
+  share_180d: number;
+  share_365d: number | null;
+  total_active: number | null;
+  oldest_days: number | null;
+  mean_days: number | null;
+  source: string;
+  snapshot_date: string;
 }
 
 export interface JobDetail extends JobSummary {
