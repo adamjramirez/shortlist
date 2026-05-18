@@ -1,0 +1,23 @@
+{
+  "source": "csvfirst_recovery_2026-05-17",
+  "entries": [
+    {
+      "company_name": "Airbnb",
+      "career_url": "https://job-boards.greenhouse.io/airbnb",
+      "ats": "greenhouse",
+      "slug": "airbnb"
+    },
+    {
+      "company_name": "Five9",
+      "career_url": "https://job-boards.greenhouse.io/five9",
+      "ats": "greenhouse",
+      "slug": "five9"
+    },
+    {
+      "company_name": "Samsara",
+      "career_url": "https://job-boards.greenhouse.io/samsara",
+      "ats": "greenhouse",
+      "slug": "samsara"
+    }
+  ]
+}

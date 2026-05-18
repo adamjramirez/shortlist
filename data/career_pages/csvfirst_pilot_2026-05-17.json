@@ -1,0 +1,29 @@
+{
+  "source": "csvfirst_pilot_2026-05-17",
+  "entries": [
+    {
+      "company_name": "Anduril Industries",
+      "career_url": "https://job-boards.greenhouse.io/andurilindustries",
+      "ats": "greenhouse",
+      "slug": "andurilindustries"
+    },
+    {
+      "company_name": "Anthropic",
+      "career_url": "https://job-boards.greenhouse.io/anthropic",
+      "ats": "greenhouse",
+      "slug": "anthropic"
+    },
+    {
+      "company_name": "Figma",
+      "career_url": "https://job-boards.greenhouse.io/figma",
+      "ats": "greenhouse",
+      "slug": "figma"
+    },
+    {
+      "company_name": "Workato",
+      "career_url": "https://job-boards.greenhouse.io/workato",
+      "ats": "greenhouse",
+      "slug": "workato"
+    }
+  ]
+}
