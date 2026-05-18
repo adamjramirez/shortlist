@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { track } from "@/lib/analytics";
+import { usePopover } from "@/lib/use-popover";
 
 interface Props {
   jobId: number;
@@ -12,36 +12,12 @@ interface Props {
 }
 
 export default function SalaryEstimate({ jobId, value, confidence, basis }: Props) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLSpanElement>(null);
-
-  // Close on click-outside or Escape
-  useEffect(() => {
-    if (!open) return;
-
-    function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [open]);
+  const { open, toggle, containerRef } = usePopover<HTMLSpanElement>();
 
   function handleToggle(e: React.MouseEvent) {
-    e.stopPropagation();
-    const next = !open;
-    setOpen(next);
-    if (next) {
+    toggle(e);
+    if (!open) {
+      // open is the pre-toggle value, so !open === "we're about to open"
       track.salaryEstimateExpanded(jobId, confidence);
     }
   }
