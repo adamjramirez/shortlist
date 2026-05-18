@@ -6,6 +6,34 @@ Inherits: `~/Code/DECISIONS.md` (T1 — agency-level decisions)
 
 ---
 
+## D-SL-019: CSVFirst data is a feature data source + QA oracle, not a recurring collector (2026-05-17)
+
+**Chose:** Ingest CSVFirst's per-company "long-open jobs" stats into a new `company_hiring_stats` table; surface as an **evergreen warning badge** in the UI (jobs at companies where >40% of reqs stay open 6+ months). Also keep `scripts/qa_against_csvfirst.py` as an audit cross-check against pipeline failure modes.
+
+**Over:** (a) building CSVFirst into a recurring `Collector`, (b) using only as internal QA, (c) ignoring entirely.
+
+**Why:** Two trips through framing. First take ("more job coverage") was wrong — LinkedIn already covers ~all of CSVFirst's 200+ companies, marginal new jobs would be ~5-15/run, mostly noise. Reframed as candidate-protection: CSVFirst's core product is identifying jobs/companies that stay open suspiciously long (evergreen funnels, "always-on" pipelines, structural recruiting inefficiency — applicants get ghosted). That signal isn't available anywhere else in our stack and maps directly to a user-visible feature. The QA value (caught 1,610+ false closures, see D-SL-018) is bonus, not the primary use.
+
+**Evidence:** Shipped 2026-05-17 (`f64163f`, `ec68902`, `001d1d8`). `EvergreenBadge` popover on `JobCard` with structured stats + source attribution. Phase A coverage: 50 companies → 4 badge in user 2's inbox. Scaling to full ~200-company dataset blocked on API access request.
+
+**Revisit when:** (a) CSVFirst full API access lands and we evaluate paid tier; (b) user feedback shows the badge is noise (false positives at companies that DO respond); (c) we find a second source for the same signal (could deprecate dependence on one vendor).
+
+---
+
+## D-SL-018: `last_seen_stale` Pass 1 requires an active observer before closing (2026-05-17)
+
+**Chose:** Tri-state guard on `pgdb.mark_stale_jobs` Pass 1 — close greenhouse/lever/ashby jobs only when the company has an active `career_page_sources` row that fetched non-empty within 7 days. No observer → no closure, regardless of `last_seen` age.
+
+**Over:** Keeping the unconditional 3-day cutoff; or kill-switching the sweep entirely; or raising the cutoff to 30+ days.
+
+**Why:** CSVFirst QA on 2026-05-17 surfaced 1,610+ jobs incorrectly closed across 7 companies (Anthropic, Anduril, Figma, Workato, Airbnb, Five9, Samsara). All were batch-seeded once via earlier collection paths but never added to `career_page_sources`, so `last_seen` froze at the seed date and the 3-day cutoff fired against rows nothing was refreshing. Same structural bug class as the 2026-04-16 expiry-checker incident (SL-019 in `CONSTRAINTS.md`): treating absence of signal as evidence of closure. Kill-switch would also block legitimate closures from observed-but-empty sources; cutoff extension only delays the same failure. Tri-state is the correct semantics.
+
+**Evidence:** Commit `341ed95`. 3 new unit tests in `tests/test_job_expiry.py` covering no-observer, stale-observer, and observer-returned-zero cases. CLAUDE.md anti-pattern entry added.
+
+**Revisit when:** A new failure mode where a CPS observer is "fresh-but-wrong" (e.g., greenhouse returns a partial page due to a vendor bug, sweep then closes legitimately-missing URLs). At that point we'd need per-URL evidence, not just per-company observer presence.
+
+---
+
 ## D-SL-017: Whether expiry checking should run continuously at all — deferred (2026-04-26)
 
 **Chose:** Keep continuous expiry checks running, but at sharply reduced rate (~60 HEAD/hr). Defer the bigger question.

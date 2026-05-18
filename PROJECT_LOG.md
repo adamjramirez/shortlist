@@ -6,7 +6,27 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
-Stable. Senior-IC track scoring shipped (#22, 2026-05-05). DB schema gap for `salary_basis` / `prestige_tier` patched in init_db (#23, 2026-05-05).
+Evergreen-warning feature shipped (2026-05-17). CSVFirst-based per-company stats surface a candidate-protection badge ("X% jobs open 6+ mo") on `JobCard`. Phase A live with 50-company coverage; Phase B (scoring downweight + hide toggle) deferred. Tri-state `last_seen_stale` sweep deployed alongside — closed a 1,610-row silent-data-loss bug class. Both decisions recorded as D-SL-018 and D-SL-019.
+
+## 2026-05-17 — Evergreen-warning feature + tri-state stale-close fix
+
+**Why:** External QA against CSVFirst (independent observer of ~35k greenhouse jobs at 200+ companies) surfaced 1,610+ live jobs across 7 companies (Anthropic, Anduril, Figma, Workato, Airbnb, Five9, Samsara) that we'd silently closed. Root cause: `mark_stale_jobs` Pass 1 closed based on `last_seen` alone, but these companies had been batch-seeded once with no recurring observer — `last_seen` never refreshed, sweep fired against rows nothing was refreshing. Same failure mode class as the 2026-04-16 expiry-checker incident. Reframing CSVFirst from "potential collector" to "candidate-protection signal" turned the cleanup into a shipped feature.
+
+**What got done:**
+- New `scripts/qa_against_csvfirst.py` cross-checks CSVFirst snapshots against our DB (false closes, coverage gaps, age drift, stale-company audit). First report: `docs/qa/csvfirst_2026-05-17.md`.
+- Seeded 7 affected companies into `career_page_sources` (4 canonical greenhouse via CSVFirst URLs, 3 proxied via slug discovery). Bulk-reopen script (`scripts/bulk_reopen_false_closes.py`) restored 383 user-2 rows; remaining 778 were legitimate closures (URLs no longer in vendor feeds).
+- **Tri-state Pass 1** in `pgdb.mark_stale_jobs`: closure now requires an active CPS observer that fetched non-empty within 7 days. 3 new unit tests in `tests/test_job_expiry.py`. Existing tests updated to insert an observer first. CLAUDE.md anti-pattern added.
+- **Evergreen-warning feature** (Phase A): new `company_hiring_stats` table (alembic 014) + `EvergreenSignal` API model. Click-toggle popover badge on `JobCard` for jobs at companies where >40% of reqs stay open 6+ months. Extracted shared popover state into `usePopover()` hook; refactored `SalaryEstimate` to use it (DRY). 50-company snapshot ingested via `scripts/ingest_csvfirst_hiring_stats.py`.
+- Plan doc: `docs/plans/2026-05-17-csvfirst-qa-and-stale-close-remediation.md`. Decisions: D-SL-018 (tri-state sweep), D-SL-019 (CSVFirst usage).
+
+**Commits:** `9f81475` (QA tooling), `341ed95` (tri-state sweep), `ec68902` (evergreen badge), `f64163f` (badge copy), `001d1d8` (popover refactor).
+
+**Test count:** 652 non-API tests pass (+3 new). 12 pre-existing errors in `test_career_page_sources.py` (need local PG, unrelated).
+
+**What's next:**
+- Phase B (scoring downweight for evergreen companies + user toggle to hide) — deferred until live signal is observed for a few days.
+- Request CSVFirst API access → bulk-seed remaining ~250 companies into `career_page_sources` and ingest full hiring-stats snapshot (Tier 4 of plan).
+- `PROJECT_LOG.md` is 550+ lines, `DECISIONS.md` is 290+ lines — both past the 200-line threshold, archive needed before next big batch of entries.
 
 ## 2026-05-05 — DB migration for missing late columns
 
