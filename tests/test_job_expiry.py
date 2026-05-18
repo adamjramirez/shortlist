@@ -102,8 +102,41 @@ def pg_conn():
             UNIQUE(user_id, description_hash)
         )
     """)
+    conn.execute("""
+        CREATE TABLE career_page_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_name TEXT NOT NULL,
+            career_url TEXT NOT NULL UNIQUE,
+            ats TEXT,
+            slug TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            consecutive_empty INTEGER DEFAULT 0,
+            last_jobs_count INTEGER DEFAULT 0,
+            last_checked_at TIMESTAMP,
+            added_at TIMESTAMP,
+            source TEXT,
+            notes TEXT
+        )
+    """)
     conn.commit()
     return FakePgConn(conn)
+
+
+def _insert_observer(pg_conn, *, company_name="Acme", career_url=None,
+                     last_checked_at=None, last_jobs_count=10, status="active"):
+    """Insert an active observer row in career_page_sources."""
+    if career_url is None:
+        career_url = f"https://job-boards.greenhouse.io/{company_name.lower()}"
+    if last_checked_at is None:
+        last_checked_at = datetime.now(timezone.utc).isoformat()
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO career_page_sources "
+            "(company_name, career_url, status, last_jobs_count, last_checked_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (company_name, career_url, status, last_jobs_count, last_checked_at),
+        )
+    pg_conn.commit()
 
 
 def _insert_job(pg_conn, *, user_id=1, url="https://jobs.lever.co/acme/abc-123",
@@ -147,8 +180,9 @@ def _now():
 # mark_stale_jobs — Pass 1: ATS staleness (greenhouse/lever/ashby)
 # ---------------------------------------------------------------------------
 
-def test_mark_stale_ats_3_days(pg_conn):
-    """ATS job not seen for 3+ days → closed."""
+def test_mark_stale_ats_3_days_with_active_observer(pg_conn):
+    """ATS job not seen for 3+ days AND company has active observer → closed."""
+    _insert_observer(pg_conn, company_name="Acme")
     job_id = _insert_job(pg_conn, sources_seen='["greenhouse"]', last_seen=_days_ago(4))
     count = mark_stale_jobs(pg_conn, user_id=1, run_started_at=_now())
     row = _get_job(pg_conn, job_id)
@@ -159,7 +193,8 @@ def test_mark_stale_ats_3_days(pg_conn):
 
 
 def test_mark_stale_ats_under_threshold(pg_conn):
-    """ATS job not seen for 2 days → still open."""
+    """ATS job not seen for 2 days → still open (regardless of observer)."""
+    _insert_observer(pg_conn, company_name="Acme")
     job_id = _insert_job(pg_conn, sources_seen='["lever"]', last_seen=_days_ago(2))
     mark_stale_jobs(pg_conn, user_id=1, run_started_at=_now())
     row = _get_job(pg_conn, job_id)
@@ -167,7 +202,8 @@ def test_mark_stale_ats_under_threshold(pg_conn):
 
 
 def test_mark_stale_ats_all_three_sources(pg_conn):
-    """Greenhouse, lever, and ashby all caught by pass 1."""
+    """Greenhouse, lever, and ashby all caught by pass 1 when observer present."""
+    _insert_observer(pg_conn, company_name="Acme")
     ids = [
         _insert_job(pg_conn, url="https://job-boards.greenhouse.io/x/jobs/1",
                     sources_seen='["greenhouse"]', last_seen=_days_ago(5)),
@@ -180,6 +216,40 @@ def test_mark_stale_ats_all_three_sources(pg_conn):
     assert count == 3
     for job_id in ids:
         assert _get_job(pg_conn, job_id)["is_closed"] == 1
+
+
+# Tri-state semantics — Pass 1 only closes when an active observer exists.
+# Without one, "haven't seen it in 3 days" carries no signal (we wouldn't have
+# seen it anyway). Burned 2026-05-17: 1,610+ false closes when 7 batch-seeded
+# companies had no observer, so last_seen never refreshed and sweep closed them.
+
+def test_mark_stale_ats_no_observer_stays_open(pg_conn):
+    """ATS job stale for 10 days BUT company has no CPS observer → stays open."""
+    # No _insert_observer call — company is unobserved.
+    job_id = _insert_job(pg_conn, sources_seen='["greenhouse"]', last_seen=_days_ago(10))
+    mark_stale_jobs(pg_conn, user_id=1, run_started_at=_now())
+    row = _get_job(pg_conn, job_id)
+    assert row["is_closed"] == 0, "no observer → no signal → no close"
+    assert row["closed_reason"] is None
+
+
+def test_mark_stale_ats_stale_observer_stays_open(pg_conn):
+    """ATS job stale AND observer exists but observer hasn't fetched in 7+ days → stays open."""
+    _insert_observer(pg_conn, company_name="Acme",
+                     last_checked_at=_days_ago(10))  # observer itself is stale
+    job_id = _insert_job(pg_conn, sources_seen='["greenhouse"]', last_seen=_days_ago(10))
+    mark_stale_jobs(pg_conn, user_id=1, run_started_at=_now())
+    row = _get_job(pg_conn, job_id)
+    assert row["is_closed"] == 0, "stale observer → no recent signal → no close"
+
+
+def test_mark_stale_ats_observer_returned_zero_jobs_stays_open(pg_conn):
+    """Observer fetched recently but returned 0 jobs (possible transient empty) → stays open."""
+    _insert_observer(pg_conn, company_name="Acme", last_jobs_count=0)
+    job_id = _insert_job(pg_conn, sources_seen='["greenhouse"]', last_seen=_days_ago(5))
+    mark_stale_jobs(pg_conn, user_id=1, run_started_at=_now())
+    row = _get_job(pg_conn, job_id)
+    assert row["is_closed"] == 0, "zero-job fetch is unreliable → don't close"
 
 
 # ---------------------------------------------------------------------------

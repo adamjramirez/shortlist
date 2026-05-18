@@ -472,6 +472,11 @@ def mark_stale_jobs(conn, user_id: int, run_started_at: datetime) -> int:
     Returns count of jobs newly marked closed.
 
     Pass 1 — ATS (greenhouse/lever/ashby): last_seen > 3 days before run_started_at
+             AND an active observer in career_page_sources successfully fetched
+             jobs for this company in the last 7 days. The observer requirement
+             is the tri-state guard added 2026-05-17 after 1,610+ false closes
+             from batch-seeded companies with no recurring collector — without
+             an observer, "haven't seen it" carries no signal.
     Pass 2 — LinkedIn: posted_at > 30 days ago
     Pass 3 — HN with posted_at: posted_at > 45 days ago
     Pass 4 — HN with null posted_at: last_seen > 45 days ago
@@ -479,6 +484,7 @@ def mark_stale_jobs(conn, user_id: int, run_started_at: datetime) -> int:
     """
     now = datetime.now(timezone.utc)
     ats_cutoff = run_started_at - timedelta(days=3)
+    observer_cutoff = now - timedelta(days=7)
     linkedin_cutoff = now - timedelta(days=30)
     hn_cutoff = now - timedelta(days=45)
     generic_cutoff = now - timedelta(days=7)
@@ -494,13 +500,21 @@ def mark_stale_jobs(conn, user_id: int, run_started_at: datetime) -> int:
     P_HN  = '%"hn"%'
 
     passes = [
-        # Pass 1: ATS sources not seen recently
+        # Pass 1: ATS sources not seen recently, AND company has an active observer
+        # that fetched non-empty in the last 7 days (tri-state guard).
         (
             f"UPDATE jobs SET is_closed = true, closed_at = %s, closed_reason = 'last_seen_stale' "
             f"WHERE last_seen < %s "
             f"  AND (sources_seen::text LIKE %s OR sources_seen::text LIKE %s OR sources_seen::text LIKE %s) "
+            f"  AND EXISTS ("
+            f"      SELECT 1 FROM career_page_sources cps "
+            f"      WHERE LOWER(cps.company_name) = LOWER(jobs.company) "
+            f"        AND cps.status = 'active' "
+            f"        AND cps.last_checked_at > %s "
+            f"        AND cps.last_jobs_count > 0"
+            f"  ) "
             f"  {base}",
-            (now, ats_cutoff, P_GH, P_LV, P_AB, user_id),
+            (now, ats_cutoff, P_GH, P_LV, P_AB, observer_cutoff, user_id),
         ),
         # Pass 2: LinkedIn age
         (
