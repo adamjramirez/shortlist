@@ -152,30 +152,61 @@ def test_check_greenhouse_native_200():
     assert result is True
 
 
-def test_check_greenhouse_custom_domain_404():
-    """Custom domain Greenhouse job → HEAD stored URL, 404 = gone."""
-    mock_resp = MagicMock()
-    mock_resp.status_code = 404
-    with patch("shortlist.expiry.http.head", return_value=mock_resp) as mock_head:
-        result = check_job_url(
-            "https://www.samsara.com/company/careers/roles/7644634?gh_jid=7644634",
-            ["greenhouse"],
-        )
+def _gh_get(job_status, board_status=200):
+    """Mock http.get keyed on greenhouse board API URLs.
+
+    A custom-domain check hits the job endpoint (…/boards/<slug>/jobs/<jid>)
+    and, on 404, the board list (…/boards/<slug>/jobs) to confirm the board
+    exists before deciding closed vs unknown.
+    """
+    def _get(url, **kwargs):
+        resp = MagicMock()
+        if url.endswith("/jobs"):
+            resp.status_code = board_status
+        else:
+            resp.status_code = job_status
+        resp.text = ""
+        return resp
+    return _get
+
+
+def test_check_greenhouse_custom_domain_closed():
+    """Custom-domain job gone from a REAL board (job 404, board 200) → closed.
+
+    The company page (five9.com/samsara.com) is a SPA that 200s for any id, so
+    we must verify against the real Greenhouse board API by gh_jid.
+    """
+    url = "https://www.samsara.com/company/careers/roles/7644634?gh_jid=7644634"
+    with patch("shortlist.expiry.http.get", side_effect=_gh_get(job_status=404, board_status=200)) as mg:
+        result = check_job_url(url, ["greenhouse"])
     assert result is False
-    # Must have called HEAD on the stored URL, not a greenhouse.io API URL
-    call_url = mock_head.call_args[0][0]
-    assert "samsara.com" in call_url
+    # Must have queried the real greenhouse board API, not the samsara SPA.
+    assert any("boards-api.greenhouse.io/v1/boards/samsara" in c.args[0]
+               for c in mg.call_args_list)
 
 
-def test_check_greenhouse_custom_domain_200():
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    with patch("shortlist.expiry.http.head", return_value=mock_resp):
-        result = check_job_url(
-            "https://www.samsara.com/company/careers/roles/7644634",
-            ["greenhouse"],
-        )
+def test_check_greenhouse_custom_domain_live():
+    """Custom-domain job present on the real board (job 200) → live."""
+    url = "https://www.five9.com/about/careers/job-detail?gh_jid=5744018004"
+    with patch("shortlist.expiry.http.get", side_effect=_gh_get(job_status=200)):
+        result = check_job_url(url, ["greenhouse"])
     assert result is True
+
+
+def test_check_greenhouse_custom_domain_wrong_slug_is_unknown():
+    """Job 404 AND board 404 (derived slug is wrong) → unknown, never close."""
+    url = "https://careers.acmeco.com/jobs/999?gh_jid=999"
+    with patch("shortlist.expiry.http.get", side_effect=_gh_get(job_status=404, board_status=404)):
+        result = check_job_url(url, ["greenhouse"])
+    assert result is None
+
+
+def test_check_greenhouse_custom_domain_no_ghjid_is_unknown():
+    """No gh_jid to verify against the board API → unknown, never close."""
+    url = "https://www.samsara.com/company/careers/roles/7644634"
+    with patch("shortlist.expiry.http.get") as mg:
+        result = check_job_url(url, ["greenhouse"])
+    assert result is None
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlparse
 
 from shortlist import http
 from shortlist import pgdb
@@ -39,6 +40,28 @@ def _parse_greenhouse_api_url(url: str) -> str | None:
         return None
     slug, job_id = m.group(1), m.group(2)
     return f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{job_id}"
+
+
+def _extract_gh_jid(url: str) -> str | None:
+    """Extract the Greenhouse job id from a custom-domain embed URL (?gh_jid=)."""
+    m = re.search(r"[?&]gh_jid=(\d+)", url)
+    return m.group(1) if m else None
+
+
+def _greenhouse_slug_from_domain(url: str) -> str | None:
+    """Derive a likely Greenhouse board slug from a company's custom domain.
+
+    e.g. www.five9.com → 'five9', careers.samsara.com → 'samsara'. Used only to
+    look up the real board API; a wrong guess yields a 404 board (→ unknown),
+    never a false close.
+    """
+    netloc = urlparse(url).netloc.lower().split(":")[0]
+    labels = netloc.split(".")
+    while labels and labels[0] in ("www", "careers", "jobs", "job-boards", "boards", "apply"):
+        labels.pop(0)
+    if not labels or labels[0] in ("greenhouse", ""):
+        return None
+    return labels[0]
 
 
 def _parse_lever_api_url(url: str) -> str | None:
@@ -106,12 +129,36 @@ def check_job_url(url: str, sources_seen: list[str]) -> bool | None:
 
         if "greenhouse" in sources_seen:
             api_url = _parse_greenhouse_api_url(url)
-            check_url = api_url if api_url else url
-            resp = http.head(check_url)
+            if api_url:
+                # Native greenhouse.io board — a job-API 404 is a reliable
+                # closed signal.
+                resp = http.head(api_url)
+                if resp.status_code == 200:
+                    return True
+                if resp.status_code == 404:
+                    return False
+                return None
+            # Custom-domain embed (company SPA). The page returns 200 for any
+            # id, so it can't tell open from closed — verify against the real
+            # Greenhouse board API by gh_jid + a slug derived from the domain.
+            jid = _extract_gh_jid(url)
+            slug = _greenhouse_slug_from_domain(url)
+            if not (jid and slug):
+                return None  # can't verify → unknown, never close
+            job_api = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{jid}"
+            resp = http.get(job_api, timeout=10)
             if resp.status_code == 200:
                 return True
             if resp.status_code == 404:
-                return False
+                # Confirm the board itself exists before closing — guards
+                # against a wrongly-derived slug (SL-019: never false-close).
+                board = http.get(
+                    f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
+                    timeout=10,
+                )
+                if board.status_code == 200:
+                    return False
+                return None
             return None
 
         if "lever" in sources_seen:
