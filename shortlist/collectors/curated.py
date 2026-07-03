@@ -5,6 +5,7 @@ career_page_sources. Supports Ashby, Greenhouse, Lever, and direct
 career pages. Reports per-source results via an optional callback.
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 from shortlist.collectors.base import RawJob
@@ -31,31 +32,51 @@ class CuratedSourcesCollector:
         self,
         sources: list[dict],
         on_fetched: Callable[[str, list[RawJob], str | None], None] | None = None,
+        max_workers: int = 8,
     ):
         self.sources = sources
         self.on_fetched = on_fetched
+        self.max_workers = max_workers
 
     def fetch_new(self) -> list[RawJob]:
-        """Fetch jobs from all active curated sources. Returns combined list."""
+        """Fetch jobs from all active curated sources. Returns combined list.
+
+        Fetches run concurrently (network-bound; each source is an independent
+        company/ATS) — sequential fetching of dozens of sources took hours and
+        runs got reaped before finishing. Results are consumed in source order,
+        so ``on_fetched`` (which writes to a single shared DB connection) is
+        invoked serially on the main thread and stays psycopg2-safe.
+        """
         all_jobs: list[RawJob] = []
+        if not self.sources:
+            return all_jobs
 
-        for source in self.sources:
-            url = source["career_url"]
-            ats = source.get("ats")
-            slug = source.get("slug")
-            company = source["company_name"]
-
-            try:
-                jobs = self._fetch_one(ats, slug, url, company)
-                all_jobs.extend(jobs)
-                if self.on_fetched:
-                    self.on_fetched(url, jobs, None)
-                logger.info(f"Curated: {company} → {len(jobs)} jobs")
-            except Exception as e:
-                error = str(e)
-                logger.warning(f"Curated: {company} fetch failed — {error}")
-                if self.on_fetched:
-                    self.on_fetched(url, [], error)
+        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            futures = [
+                (
+                    source,
+                    pool.submit(
+                        self._fetch_one,
+                        source.get("ats"), source.get("slug"),
+                        source["career_url"], source["company_name"],
+                    ),
+                )
+                for source in self.sources
+            ]
+            for source, future in futures:
+                url = source["career_url"]
+                company = source["company_name"]
+                try:
+                    jobs = future.result()
+                    all_jobs.extend(jobs)
+                    if self.on_fetched:
+                        self.on_fetched(url, jobs, None)
+                    logger.info(f"Curated: {company} → {len(jobs)} jobs")
+                except Exception as e:
+                    error = str(e)
+                    logger.warning(f"Curated: {company} fetch failed — {error}")
+                    if self.on_fetched:
+                        self.on_fetched(url, [], error)
 
         return all_jobs
 

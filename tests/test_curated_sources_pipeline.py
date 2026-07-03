@@ -99,16 +99,47 @@ def test_curated_collector_reports_results_via_callback():
     ]
     calls = []
 
-    with patch("shortlist.collectors.curated.fetch_ashby_jobs", side_effect=[
-        [_ashby_job()],  # momentic: 1 job
-        [],              # deadco: 0 jobs
-    ]):
+    # Keyed by slug (not an ordered list): fetches run in parallel threads, so
+    # call order is non-deterministic — but callbacks fire in source order.
+    def fake_ashby(slug, company_name=None):
+        return {"momentic": [_ashby_job()], "deadco": []}[slug]
+
+    with patch("shortlist.collectors.curated.fetch_ashby_jobs", side_effect=fake_ashby):
         collector = CuratedSourcesCollector(sources, on_fetched=lambda url, jobs, err: calls.append((url, len(jobs), err)))
         collector.fetch_new()
 
     assert len(calls) == 2
+    # Callbacks preserve source order even though fetches are concurrent.
     assert calls[0] == ("https://jobs.ashbyhq.com/momentic", 1, None)
     assert calls[1] == ("https://jobs.ashbyhq.com/deadco", 0, None)
+
+
+def test_curated_collector_fetches_concurrently():
+    """Sources are fetched in parallel, not one-at-a-time.
+
+    The curated phase fetches dozens of sources, some paginating 100+ jobs;
+    sequential fetching took hours and runs got reaped before finishing.
+    """
+    import time
+    from shortlist.collectors.curated import CuratedSourcesCollector
+
+    sources = [
+        {"company_name": f"C{i}", "career_url": f"https://jobs.ashbyhq.com/c{i}",
+         "ats": "ashby", "slug": f"c{i}", "status": "active"}
+        for i in range(8)
+    ]
+
+    def slow(slug, company_name=None):
+        time.sleep(0.2)
+        return []
+
+    with patch("shortlist.collectors.curated.fetch_ashby_jobs", side_effect=slow):
+        start = time.monotonic()
+        CuratedSourcesCollector(sources, max_workers=8).fetch_new()
+        elapsed = time.monotonic() - start
+
+    # 8 sequential sleeps would be ~1.6s; parallel should be ~0.2-0.4s.
+    assert elapsed < 0.8, f"curated fetch not parallel (took {elapsed:.2f}s)"
 
 
 def test_curated_collector_handles_fetch_error():
