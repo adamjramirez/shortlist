@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # Jobs seen within this window are skipped — transient network errors more likely
 # than genuine removal. last_seen_stale sweep picks up truly old jobs.
 _RECENCY_SKIP_HOURS = 24
+# The recency skip only protects genuinely-new jobs. A job first seen longer ago
+# than this whose last_seen keeps refreshing is a repost (LinkedIn re-lists old
+# roles); those must still be re-checked or a closed repost lingers forever.
+_REPOST_RECHECK_AGE_DAYS = 21
 
 # Regex patterns for extracting org slug + job ID from ATS URLs
 _GREENHOUSE_PATTERN = re.compile(
@@ -213,6 +217,12 @@ def _run_batch(conn, limit: int = 5) -> dict:
     checked = closed = live = unknown = skipped_recent = errors = 0
     now = datetime.now(timezone.utc)
     recency_cutoff = now - timedelta(hours=_RECENCY_SKIP_HOURS)
+    repost_cutoff = now - timedelta(days=_REPOST_RECHECK_AGE_DAYS)
+
+    def _as_utc(dt):
+        if isinstance(dt, datetime) and dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
 
     for job in jobs:
         sources = job["sources_seen"]
@@ -222,19 +232,22 @@ def _run_batch(conn, limit: int = 5) -> dict:
             except (ValueError, TypeError):
                 sources = []
 
-        # 5b — Recency skip: last_seen within 24h → transient errors far more
-        # likely than genuine removal. Skip the HTTP call entirely.
-        last_seen = job.get("last_seen")
-        if last_seen is not None:
-            if isinstance(last_seen, datetime) and last_seen.tzinfo is None:
-                last_seen = last_seen.replace(tzinfo=timezone.utc)
-            if isinstance(last_seen, datetime) and last_seen > recency_cutoff:
-                logger.debug(
-                    "url_check skip (recent): job=%d last_seen=%s",
-                    job["id"], last_seen.isoformat(),
-                )
-                skipped_recent += 1
-                continue
+        # 5b — Recency skip: a job seen within 24h is skipped (transient errors
+        # far outweigh genuine removal on fresh data) — but ONLY if it is also
+        # genuinely new. A job first seen long ago whose last_seen keeps
+        # refreshing is a repost and must still be re-checked, or a closed
+        # repost lingers as visible forever.
+        last_seen = _as_utc(job.get("last_seen"))
+        first_seen = _as_utc(job.get("first_seen"))
+        genuinely_new = first_seen is None or first_seen > repost_cutoff
+        if (isinstance(last_seen, datetime) and last_seen > recency_cutoff
+                and genuinely_new):
+            logger.debug(
+                "url_check skip (recent): job=%d last_seen=%s",
+                job["id"], last_seen.isoformat(),
+            )
+            skipped_recent += 1
+            continue
 
         primary_source = next(
             (s for s in ("linkedin", "greenhouse", "lever", "ashby") if s in sources),

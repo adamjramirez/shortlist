@@ -359,6 +359,55 @@ def _run_batch_with_conn(conn, jobs, mock_head):
     return result
 
 
+def _run_batch_with_check(jobs):
+    """Run _run_batch against a job list, recording which URLs got checked."""
+    import shortlist.expiry as exp
+    import shortlist.pgdb as pgdb_mod
+    checked_urls = []
+
+    def fake_check(url, sources):
+        checked_urls.append(url)
+        return True  # live
+
+    orig_get = pgdb_mod.get_jobs_for_expiry_check
+    orig_mark = pgdb_mod.mark_expiry_checked
+    orig_check = exp.check_job_url
+    pgdb_mod.get_jobs_for_expiry_check = lambda c, limit=20: jobs
+    pgdb_mod.mark_expiry_checked = lambda c, job_id, is_closed, closed_reason=None: None
+    exp.check_job_url = fake_check
+    try:
+        result = exp._run_batch(MagicMock(), limit=10)
+    finally:
+        pgdb_mod.get_jobs_for_expiry_check = orig_get
+        pgdb_mod.mark_expiry_checked = orig_mark
+        exp.check_job_url = orig_check
+    return result, checked_urls
+
+
+def test_recency_skip_rechecks_old_reposts_but_skips_fresh_jobs():
+    """A recently-seen OLD job (repost) must still be closure-checked.
+
+    Recency-skip protects genuinely-new jobs from transient errors, but a job
+    first seen months ago whose last_seen keeps refreshing is a repost — the
+    Oracle case that lingered as closed-but-visible. Old first_seen ⇒ re-check.
+    """
+    now = datetime.now(timezone.utc)
+    jobs = [
+        {"id": 1, "url": "https://www.linkedin.com/jobs/view/fresh-1",
+         "sources_seen": ["linkedin"], "fit_score": 85,
+         "last_seen": now - timedelta(hours=1),
+         "first_seen": now - timedelta(days=2)},   # genuinely new → skip
+        {"id": 2, "url": "https://www.linkedin.com/jobs/view/repost-2",
+         "sources_seen": ["linkedin"], "fit_score": 85,
+         "last_seen": now - timedelta(hours=1),
+         "first_seen": now - timedelta(days=60)},   # old repost → re-check
+    ]
+    result, checked = _run_batch_with_check(jobs)
+    assert "https://www.linkedin.com/jobs/view/repost-2" in checked
+    assert "https://www.linkedin.com/jobs/view/fresh-1" not in checked
+    assert result["skipped_recent"] == 1
+
+
 def test_check_expiry_batch_connection_closed_on_error():
     """DB connection is closed even when an exception occurs."""
     fake_conn = MagicMock()
