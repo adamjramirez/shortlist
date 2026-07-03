@@ -47,6 +47,17 @@ class TestRateLimiting:
         assert http.DOMAIN_LIMITS["www.linkedin.com"] == 3.0
         assert http.DOMAIN_LIMITS["generativelanguage.googleapis.com"] == 0.5
 
+    def test_ats_api_domains_are_fast(self):
+        """Public ATS APIs must be low-latency-limited.
+
+        Dozens of curated sources share these three domains (all Ashby
+        companies hit jobs.ashbyhq.com, etc.), so a slow per-domain limit
+        serializes the whole curated phase. These are robust programmatic
+        APIs — keep them well under 1s.
+        """
+        for d in ("jobs.ashbyhq.com", "boards-api.greenhouse.io", "api.lever.co"):
+            assert http.DOMAIN_LIMITS[d] <= 0.5, d
+
     def test_post_also_rate_limited(self):
         """POST requests are also rate limited."""
         with patch("shortlist.http.time.sleep") as mock_sleep:

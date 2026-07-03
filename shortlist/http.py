@@ -31,9 +31,13 @@ def _notify_status(msg: str):
 
 # Minimum seconds between requests to each domain
 DOMAIN_LIMITS: dict[str, float] = {
-    "jobs.ashbyhq.com": 2.0,
-    "boards-api.greenhouse.io": 2.0,
-    "api.lever.co": 2.0,
+    # Public programmatic ATS APIs — robust and tolerant. Kept fast because
+    # dozens of curated sources share each of these domains (every Ashby
+    # company hits jobs.ashbyhq.com, etc.); a slow limit serializes the whole
+    # curated phase (was 2.0s → curated took 20-40 min for ~73 sources).
+    "jobs.ashbyhq.com": 0.3,
+    "boards-api.greenhouse.io": 0.3,
+    "api.lever.co": 0.3,
     "www.linkedin.com": 3.0,   # conservative — with 6 proxies, each IP sees 1 req/18s
     "hn.algolia.com": 1.0,
     "nextplayso.substack.com": 2.0,
