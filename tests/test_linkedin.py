@@ -120,6 +120,67 @@ class TestLinkedInCollector:
         assert len(jobs) == 1
         assert jobs[0].posted_at is None
 
+    def test_parse_search_no_field_bleed_when_company_missing(self, collector):
+        """A card missing its company must NOT inherit the next card's company.
+
+        Regression for the global-findall misalignment bug: separate re.findall
+        lists desync when a card omits a field, shifting every subsequent value
+        onto the wrong job. Real incident: a Honeywell job stored as company
+        "Oracle". Per-card parsing must keep every field anchored to its own card.
+        """
+        html = (
+            '<li><div class="base-card job-search-card" '
+            'data-entity-urn="urn:li:jobPosting:111">'
+            '<a class="base-card__full-link" '
+            'href="https://www.linkedin.com/jobs/view/role-a-at-acme-111">Role A</a>'
+            # NOTE: no <h4> company subtitle on this card
+            '<span class="job-search-card__location">United States</span>'
+            '</div></li>'
+            '<li><div class="base-card job-search-card" '
+            'data-entity-urn="urn:li:jobPosting:222">'
+            '<a class="base-card__full-link" '
+            'href="https://www.linkedin.com/jobs/view/role-b-at-bigco-222">Role B</a>'
+            '<h4 class="base-search-card__subtitle"><a href="/company/bigco">BigCo Inc</a></h4>'
+            '<span class="job-search-card__location">Remote</span>'
+            '<time datetime="2026-03-10">1 day ago</time>'
+            '</div></li>'
+        )
+        with patch.object(collector, "_fetch_description", return_value="desc"):
+            jobs = collector._parse_search_results(html)
+        assert len(jobs) == 2
+        by_id = {j.url.rsplit("-", 1)[-1]: j for j in jobs}
+        # Card 111 has no company — must be None, NOT "BigCo Inc"
+        assert by_id["111"].company in (None, "")
+        assert by_id["111"].title == "Role A"
+        assert by_id["111"].posted_at is None  # no <time> on this card
+        # Card 222 keeps its own company + date
+        assert by_id["222"].company == "BigCo Inc"
+        assert by_id["222"].posted_at == "2026-03-10"
+
+    def test_parse_search_date_stays_with_own_card(self, collector):
+        """A missing <time> on one card must not shift dates onto other cards."""
+        html = (
+            '<li><div class="base-card job-search-card" '
+            'data-entity-urn="urn:li:jobPosting:9001">'
+            '<a class="base-card__full-link" '
+            'href="https://www.linkedin.com/jobs/view/a-at-co-9001">A</a>'
+            '<h4 class="base-search-card__subtitle"><a>CoA</a></h4>'
+            # no <time>
+            '</div></li>'
+            '<li><div class="base-card job-search-card" '
+            'data-entity-urn="urn:li:jobPosting:9002">'
+            '<a class="base-card__full-link" '
+            'href="https://www.linkedin.com/jobs/view/b-at-co-9002">B</a>'
+            '<h4 class="base-search-card__subtitle"><a>CoB</a></h4>'
+            '<time datetime="2026-05-01">recent</time>'
+            '</div></li>'
+        )
+        with patch.object(collector, "_fetch_description", return_value="desc"):
+            jobs = collector._parse_search_results(html)
+        by_id = {j.url.rsplit("-", 1)[-1]: j for j in jobs}
+        assert by_id["9001"].posted_at is None
+        assert by_id["9002"].posted_at == "2026-05-01"
+
     def test_deduplicates_within_run(self, collector):
         """Same job ID appearing twice should only be returned once."""
         double_html = MOCK_SEARCH_HTML + MOCK_SEARCH_HTML

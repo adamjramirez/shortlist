@@ -198,51 +198,70 @@ class LinkedInCollector:
         return None
 
     def _parse_search_results(self, html: str) -> list[RawJob]:
-        """Parse LinkedIn search results HTML into RawJob objects."""
+        """Parse LinkedIn search results HTML into RawJob objects.
+
+        Parses per job card, anchored on each card's ``data-entity-urn``.
+        Every field is extracted from within its own card's HTML slice, so a
+        card that omits a field (no company subtitle, no ``<time>`` — common on
+        promoted/reposted cards) yields ``None`` for that field instead of
+        silently inheriting the next card's value. Parsing with separate global
+        ``re.findall`` lists zipped by index desynced whenever a field was
+        missing, mislabeling jobs with another card's company/date.
+        """
         jobs = []
 
-        titles = re.findall(
-            r'<a[^>]*class="base-card__full-link[^"]*"[^>]*>\s*(.*?)\s*</a>',
-            html, re.DOTALL,
+        # Each job card is anchored by its jobPosting URN. Slice the HTML from
+        # one anchor to the next so every field regex only sees one card.
+        anchors = list(
+            re.finditer(r'data-entity-urn="urn:li:jobPosting:(\d+)"', html)
         )
-        companies = re.findall(
-            r'<h4[^>]*base-search-card__subtitle[^>]*>\s*(?:<a[^>]*>)?\s*(.*?)\s*(?:</a>)?\s*</h4>',
-            html, re.DOTALL,
-        )
-        locations = re.findall(
-            r'<span class="job-search-card__location">\s*(.*?)\s*</span>', html
-        )
-        links = re.findall(
-            r'<a[^>]*class="base-card__full-link[^"]*"[^>]*href="([^"]+)"', html
-        )
-        job_ids = re.findall(
-            r'data-entity-urn="urn:li:jobPosting:(\d+)"', html
-        )
-        dates = re.findall(
-            r'<time[^>]*datetime="([^"]+)"[^>]*>', html
-        )
+        for idx, match in enumerate(anchors):
+            job_id = match.group(1)
+            start = match.start()
+            end = anchors[idx + 1].start() if idx + 1 < len(anchors) else len(html)
+            card = html[start:end]
 
-        count = min(len(titles), len(companies), len(links))
-        for i in range(count):
-            job_id = job_ids[i] if i < len(job_ids) else ""
-
-            if job_id and job_id in self._seen_ids:
+            link_match = re.search(
+                r'<a[^>]*class="base-card__full-link[^"]*"[^>]*href="([^"]+)"', card
+            )
+            title_match = re.search(
+                r'<a[^>]*class="base-card__full-link[^"]*"[^>]*>\s*(.*?)\s*</a>',
+                card, re.DOTALL,
+            )
+            # A card without a title link isn't a usable job posting.
+            if not link_match or not title_match:
                 continue
-            if job_id:
-                self._seen_ids.add(job_id)
 
-            title = _clean_html(titles[i])
-            company = _clean_html(companies[i])
-            location = locations[i].strip() if i < len(locations) else None
-            url = links[i].split("?")[0]
-            posted_at = dates[i] if i < len(dates) else None
+            if job_id in self._seen_ids:
+                continue
+            self._seen_ids.add(job_id)
+
+            title = _clean_html(title_match.group(1))
+            url = link_match.group(1).split("?")[0]
+
+            company_match = re.search(
+                r'<h4[^>]*base-search-card__subtitle[^>]*>\s*(?:<a[^>]*>)?\s*(.*?)\s*(?:</a>)?\s*</h4>',
+                card, re.DOTALL,
+            )
+            company = _clean_html(company_match.group(1)) if company_match else None
+
+            location_match = re.search(
+                r'<span class="job-search-card__location">\s*(.*?)\s*</span>', card
+            )
+            location = location_match.group(1).strip() if location_match else None
+
+            date_match = re.search(r'<time[^>]*datetime="([^"]+)"[^>]*>', card)
+            posted_at = date_match.group(1) if date_match else None
 
             description = ""
             if self.fetch_descriptions and job_id:
                 description = self._fetch_description(job_id)
 
             if not description:
-                description = f"{title} at {company}. Location: {location or 'Unknown'}."
+                description = (
+                    f"{title} at {company or 'Unknown'}. "
+                    f"Location: {location or 'Unknown'}."
+                )
 
             jobs.append(RawJob(
                 title=title,
