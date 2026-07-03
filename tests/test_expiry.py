@@ -50,27 +50,79 @@ def test_parse_lever_api_url_non_lever():
 # ---------------------------------------------------------------------------
 
 def test_check_linkedin_404():
-    """HEAD 404 → job is gone."""
+    """GET 404 → job is gone."""
     mock_resp = MagicMock()
     mock_resp.status_code = 404
-    with patch("shortlist.expiry.http.head", return_value=mock_resp):
-        result = check_job_url("https://www.linkedin.com/jobs/view/123", ["linkedin"])
+    mock_resp.text = ""
+    with patch("shortlist.expiry.http.get", return_value=mock_resp):
+        result = check_job_url("https://www.linkedin.com/jobs/view/eng-at-co-123", ["linkedin"])
     assert result is False
 
 
-def test_check_linkedin_200():
-    """HEAD 200 → job is active."""
+def test_check_linkedin_200_open():
+    """GET 200 without a closed-job banner → job is active."""
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    with patch("shortlist.expiry.http.head", return_value=mock_resp):
-        result = check_job_url("https://www.linkedin.com/jobs/view/123", ["linkedin"])
+    mock_resp.text = '<figure class="num-applicants__figure">Over 100 applicants</figure><button>Apply</button>'
+    with patch("shortlist.expiry.http.get", return_value=mock_resp):
+        result = check_job_url("https://www.linkedin.com/jobs/view/eng-at-co-123", ["linkedin"])
     assert result is True
+
+
+def test_check_linkedin_200_closed_banner():
+    """GET 200 with the 'No longer accepting applications' banner → gone.
+
+    LinkedIn keeps closed listings live (200), so a HEAD check never saw the
+    closure. The guest jobPosting API renders
+    <figcaption class="closed-job__flavor--closed">No longer accepting
+    applications</figcaption> — the reliable signal. Real case: Oracle
+    Senior Director job 4380201264.
+    """
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = (
+        '<figure class="closed-job closed-job__flavor topcard__flavor-row">'
+        '<figcaption class="closed-job__flavor--closed">'
+        'No longer accepting applications</figcaption></figure>'
+    )
+    with patch("shortlist.expiry.http.get", return_value=mock_resp):
+        result = check_job_url("https://www.linkedin.com/jobs/view/eng-at-co-4380201264", ["linkedin"])
+    assert result is False
+
+
+def test_check_linkedin_uses_guest_api_url():
+    """The check hits the guest jobPosting API (which renders closure), not the view URL."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = "<button>Apply</button>"
+    with patch("shortlist.expiry.http.get", return_value=mock_resp) as mock_get:
+        check_job_url("https://www.linkedin.com/jobs/view/eng-at-co-999888", ["linkedin"])
+    called_url = mock_get.call_args[0][0]
+    assert called_url == "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/999888"
+
+
+def test_check_linkedin_unparseable_url_is_unknown():
+    """A LinkedIn URL with no job id → unknown (never close)."""
+    with patch("shortlist.expiry.http.get") as mock_get:
+        result = check_job_url("https://www.linkedin.com/jobs/view/", ["linkedin"])
+    assert result is None
+    mock_get.assert_not_called()
+
+
+def test_check_linkedin_non200_is_unknown():
+    """403/429/5xx → unknown, return None (proxy flake, bot challenge)."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 429
+    mock_resp.text = ""
+    with patch("shortlist.expiry.http.get", return_value=mock_resp):
+        result = check_job_url("https://www.linkedin.com/jobs/view/eng-at-co-123", ["linkedin"])
+    assert result is None
 
 
 def test_check_linkedin_error():
     """Network error → unknown, return None."""
-    with patch("shortlist.expiry.http.head", side_effect=Exception("timeout")):
-        result = check_job_url("https://www.linkedin.com/jobs/view/123", ["linkedin"])
+    with patch("shortlist.expiry.http.get", side_effect=Exception("timeout")):
+        result = check_job_url("https://www.linkedin.com/jobs/view/eng-at-co-123", ["linkedin"])
     assert result is None
 
 
@@ -218,20 +270,23 @@ def test_check_expiry_batch_closes_expired(tmp_path):
          "sources_seen": ["linkedin"], "fit_score": 80},
     ]
 
+    # LinkedIn closure is checked via the guest jobPosting API (by job id).
     responses = {
-        "https://www.linkedin.com/jobs/view/1": 404,
-        "https://www.linkedin.com/jobs/view/2": 200,
+        "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/1": (404, ""),
+        "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/2": (200, "<button>Apply</button>"),
     }
 
     def mock_head(url, **kwargs):
+        status, text = responses[url]
         resp = MagicMock()
-        resp.status_code = responses[url]
+        resp.status_code = status
+        resp.text = text
         return resp
 
     fake_conn = MagicMock()
 
     with patch("shortlist.expiry.pgdb") as mock_pgdb, \
-         patch("shortlist.expiry.http.head", side_effect=mock_head), \
+         patch("shortlist.expiry.http.get", side_effect=mock_head), \
          patch("shortlist.expiry.pgdb.get_pg_connection", return_value=fake_conn):
         mock_pgdb.get_pg_connection.return_value = fake_conn
         mock_pgdb.get_jobs_for_expiry_check.return_value = jobs
@@ -312,7 +367,7 @@ def test_check_linkedin_403():
     """403 = bot challenge / auth wall → unknown, not gone."""
     mock_resp = MagicMock()
     mock_resp.status_code = 403
-    with patch("shortlist.expiry.http.head", return_value=mock_resp):
+    with patch("shortlist.expiry.http.get", return_value=mock_resp):
         result = check_job_url("https://www.linkedin.com/jobs/view/123", ["linkedin"])
     assert result is None
 
@@ -321,7 +376,7 @@ def test_check_linkedin_429():
     """429 = rate limited → unknown, not gone."""
     mock_resp = MagicMock()
     mock_resp.status_code = 429
-    with patch("shortlist.expiry.http.head", return_value=mock_resp):
+    with patch("shortlist.expiry.http.get", return_value=mock_resp):
         result = check_job_url("https://www.linkedin.com/jobs/view/123", ["linkedin"])
     assert result is None
 
@@ -330,7 +385,7 @@ def test_check_linkedin_500():
     """5xx = server error → unknown, not gone."""
     mock_resp = MagicMock()
     mock_resp.status_code = 500
-    with patch("shortlist.expiry.http.head", return_value=mock_resp):
+    with patch("shortlist.expiry.http.get", return_value=mock_resp):
         result = check_job_url("https://www.linkedin.com/jobs/view/123", ["linkedin"])
     assert result is None
 
@@ -339,7 +394,7 @@ def test_check_linkedin_302():
     """3xx redirect → unknown (may be login wall), not gone."""
     mock_resp = MagicMock()
     mock_resp.status_code = 302
-    with patch("shortlist.expiry.http.head", return_value=mock_resp):
+    with patch("shortlist.expiry.http.get", return_value=mock_resp):
         result = check_job_url("https://www.linkedin.com/jobs/view/123", ["linkedin"])
     assert result is None
 

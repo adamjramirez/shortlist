@@ -50,6 +50,29 @@ def _parse_lever_api_url(url: str) -> str | None:
     return f"https://api.lever.co/v0/postings/{slug}/{job_id}"
 
 
+# LinkedIn keeps closed listings live (HTTP 200), so a HEAD check can't tell an
+# open job from a closed one. The guest jobPosting API renders a banner:
+#   <figcaption class="closed-job__flavor--closed">No longer accepting applications</figcaption>
+_LINKEDIN_JOB_ID_PATTERN = re.compile(r"(\d+)/?$")
+_LINKEDIN_CLOSED_MARKERS = (
+    "closed-job__flavor--closed",
+    "no longer accepting applications",
+)
+
+
+def _parse_linkedin_guest_api_url(url: str) -> str | None:
+    """Return the LinkedIn guest jobPosting API URL (renders closure banner).
+
+    LinkedIn job URLs end in the numeric posting id
+    (…/jobs/view/<slug>-<id>). Returns None if no id can be extracted — the
+    caller then treats the job as unknown rather than closing it.
+    """
+    m = _LINKEDIN_JOB_ID_PATTERN.search(url)
+    if not m:
+        return None
+    return f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{m.group(1)}"
+
+
 def check_job_url(url: str, sources_seen: list[str]) -> bool | None:
     """Check if a job URL is still active.
 
@@ -66,11 +89,18 @@ def check_job_url(url: str, sources_seen: list[str]) -> bool | None:
     """
     try:
         if "linkedin" in sources_seen:
-            resp = http.head(url)
-            if resp.status_code == 200:
-                return True
+            api_url = _parse_linkedin_guest_api_url(url)
+            if not api_url:
+                # No job id to check → unknown, never close.
+                return None
+            resp = http.get(api_url, timeout=10)
             if resp.status_code == 404:
                 return False
+            if resp.status_code == 200:
+                body = (resp.text or "").lower()
+                if any(marker in body for marker in _LINKEDIN_CLOSED_MARKERS):
+                    return False  # "No longer accepting applications" banner
+                return True
             # 403/429/5xx/3xx — proxy flake, bot challenge, rate limit → unknown
             return None
 
