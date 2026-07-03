@@ -25,7 +25,14 @@ from shortlist.api.models import Profile, Run, User
 
 logger = logging.getLogger(__name__)
 TICK_INTERVAL = 300  # seconds
-ZOMBIE_RUN_TIMEOUT_MINUTES = 45  # runs stuck in 'running' longer than this are dead
+# Runs stuck in 'running' longer than this are treated as dead. The reaper keys
+# off created_at regardless of live progress, so this must exceed a real run's
+# wall time or healthy runs get reaped mid-flight. A full run (parallel sources
+# + NextPlay homepage probing with rate-limit cooldowns + curated sources +
+# backlog scoring) takes ~90 min; the twice-daily schedule is 12h apart, so a
+# generous ceiling is safe. Was 45 (stale from when runs took ~10 min) — that
+# reaped live runs; incident 2026-07-03 run 199 killed at 45 min mid-probe.
+ZOMBIE_RUN_TIMEOUT_MINUTES = 150
 
 
 async def reap_zombie_runs(session: AsyncSession) -> int:

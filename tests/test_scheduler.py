@@ -527,6 +527,19 @@ class TestFireAndUpdate:
 class TestReapZombieRuns:
     """reap_zombie_runs marks stuck 'running' runs as 'failed'."""
 
+    def test_timeout_exceeds_real_run_duration(self):
+        """The reaper ceiling must comfortably exceed a real run's wall time.
+
+        A full pipeline run (parallel sources + NextPlay homepage probing with
+        rate-limit cooldowns + curated sources + backlog scoring) takes ~90 min
+        (run 197 ran 94 min and completed). The reaper keys off created_at
+        regardless of live progress, so a ceiling below the real duration kills
+        healthy runs mid-flight. Incident 2026-07-03: run 199 was reaped at
+        45 min while still probing (165/168 companies).
+        """
+        from shortlist.scheduler import ZOMBIE_RUN_TIMEOUT_MINUTES
+        assert ZOMBIE_RUN_TIMEOUT_MINUTES >= 120
+
     @pytest.mark.asyncio
     async def test_reaps_old_running_run(self, session, session_factory):
         """A run stuck in 'running' beyond the timeout is marked failed."""
