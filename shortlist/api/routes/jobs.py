@@ -102,8 +102,24 @@ async def _fetch_evergreen_signals(session: AsyncSession, companies: list[str]) 
     return out
 
 
+def _effective_posted_at(posted_at, first_seen):
+    """Clamp posted_at so it is never later than first_seen.
+
+    A posting date after we first saw the job is a repost artifact (LinkedIn
+    reposts carry a fresh date, and f_TPR surfaces them as recent). In that
+    case the earliest signal — when we first observed the listing — is the
+    honest age. Returns the datetime to display (or None).
+    """
+    if posted_at is None:
+        return None
+    if first_seen is not None and posted_at > first_seen:
+        return first_seen
+    return posted_at
+
+
 def _job_to_summary(job: Job, latest_run_id: int | None = None,
                     evergreen_by_norm: dict[str, EvergreenSignal] | None = None) -> JobSummary:
+    _posted_at = _effective_posted_at(job.posted_at, job.first_seen)
     return JobSummary(
         id=job.id,
         title=job.title,
@@ -117,7 +133,7 @@ def _job_to_summary(job: Job, latest_run_id: int | None = None,
         user_status=job.user_status,
         sources_seen=job.sources_seen or [],
         first_seen=job.first_seen.isoformat() if job.first_seen else None,
-        posted_at=job.posted_at.isoformat() if job.posted_at else None,
+        posted_at=_posted_at.isoformat() if _posted_at else None,
         has_tailored_resume=bool(job.tailored_resume_key),
         has_tailored_pdf=bool(job.tailored_resume_pdf_key),
         is_new=(latest_run_id is not None and job.run_id == latest_run_id),
