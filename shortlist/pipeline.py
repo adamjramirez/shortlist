@@ -1118,6 +1118,7 @@ def _get_collectors(config: Config | None = None, db: sqlite3.Connection | None 
     collectors["nextplay"] = NextPlayCollector(
         db=db, pg_db_url=pg_db_url,
         title_filter=_is_leadership_role,
+        max_articles=15,
     )
 
     return collectors
