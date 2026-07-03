@@ -1,0 +1,179 @@
+{
+  "source": "vc_portfolio_2026-07-04",
+  "entries": [
+    {
+      "company_name": "Abnormal Security",
+      "career_url": "https://job-boards.greenhouse.io/abnormalsecurity",
+      "ats": "greenhouse",
+      "slug": "abnormalsecurity"
+    },
+    {
+      "company_name": "Airtable",
+      "career_url": "https://job-boards.greenhouse.io/airtable",
+      "ats": "greenhouse",
+      "slug": "airtable"
+    },
+    {
+      "company_name": "Anyscale",
+      "career_url": "https://jobs.ashbyhq.com/anyscale",
+      "ats": "ashby",
+      "slug": "anyscale"
+    },
+    {
+      "company_name": "Brex",
+      "career_url": "https://job-boards.greenhouse.io/brex",
+      "ats": "greenhouse",
+      "slug": "brex"
+    },
+    {
+      "company_name": "Chainguard",
+      "career_url": "https://job-boards.greenhouse.io/chainguard",
+      "ats": "greenhouse",
+      "slug": "chainguard"
+    },
+    {
+      "company_name": "Clay",
+      "career_url": "https://jobs.ashbyhq.com/claylabs",
+      "ats": "ashby",
+      "slug": "claylabs"
+    },
+    {
+      "company_name": "Cognition",
+      "career_url": "https://jobs.ashbyhq.com/cognition",
+      "ats": "ashby",
+      "slug": "cognition"
+    },
+    {
+      "company_name": "Cohere",
+      "career_url": "https://jobs.ashbyhq.com/cohere",
+      "ats": "ashby",
+      "slug": "cohere"
+    },
+    {
+      "company_name": "Commure",
+      "career_url": "https://jobs.ashbyhq.com/Commure-Athelas",
+      "ats": "ashby",
+      "slug": "Commure-Athelas"
+    },
+    {
+      "company_name": "Crusoe",
+      "career_url": "https://jobs.ashbyhq.com/Crusoe",
+      "ats": "ashby",
+      "slug": "Crusoe"
+    },
+    {
+      "company_name": "Deel",
+      "career_url": "https://jobs.ashbyhq.com/Deel",
+      "ats": "ashby",
+      "slug": "Deel"
+    },
+    {
+      "company_name": "Grafana Labs",
+      "career_url": "https://job-boards.greenhouse.io/grafanalabs",
+      "ats": "greenhouse",
+      "slug": "grafanalabs"
+    },
+    {
+      "company_name": "Gusto",
+      "career_url": "https://job-boards.greenhouse.io/gusto",
+      "ats": "greenhouse",
+      "slug": "gusto"
+    },
+    {
+      "company_name": "Lambda",
+      "career_url": "https://jobs.ashbyhq.com/lambda",
+      "ats": "ashby",
+      "slug": "lambda"
+    },
+    {
+      "company_name": "Mercury",
+      "career_url": "https://job-boards.greenhouse.io/mercury",
+      "ats": "greenhouse",
+      "slug": "mercury"
+    },
+    {
+      "company_name": "Mistral AI",
+      "career_url": "https://jobs.lever.co/mistral",
+      "ats": "lever",
+      "slug": "mistral"
+    },
+    {
+      "company_name": "Notion",
+      "career_url": "https://jobs.ashbyhq.com/notion",
+      "ats": "ashby",
+      "slug": "notion"
+    },
+    {
+      "company_name": "OpenEvidence",
+      "career_url": "https://jobs.ashbyhq.com/openevidence",
+      "ats": "ashby",
+      "slug": "openevidence"
+    },
+    {
+      "company_name": "Pinecone",
+      "career_url": "https://jobs.ashbyhq.com/pinecone",
+      "ats": "ashby",
+      "slug": "pinecone"
+    },
+    {
+      "company_name": "Render",
+      "career_url": "https://jobs.ashbyhq.com/render",
+      "ats": "ashby",
+      "slug": "render"
+    },
+    {
+      "company_name": "Runway",
+      "career_url": "https://jobs.ashbyhq.com/runway-ml",
+      "ats": "ashby",
+      "slug": "runway-ml"
+    },
+    {
+      "company_name": "Semgrep",
+      "career_url": "https://jobs.ashbyhq.com/semgrep",
+      "ats": "ashby",
+      "slug": "semgrep"
+    },
+    {
+      "company_name": "Sourcegraph",
+      "career_url": "https://job-boards.greenhouse.io/sourcegraph91",
+      "ats": "greenhouse",
+      "slug": "sourcegraph91"
+    },
+    {
+      "company_name": "Suno",
+      "career_url": "https://jobs.ashbyhq.com/suno",
+      "ats": "ashby",
+      "slug": "suno"
+    },
+    {
+      "company_name": "Supabase",
+      "career_url": "https://jobs.ashbyhq.com/supabase",
+      "ats": "ashby",
+      "slug": "supabase"
+    },
+    {
+      "company_name": "Temporal",
+      "career_url": "https://job-boards.greenhouse.io/temporaltechnologies",
+      "ats": "greenhouse",
+      "slug": "temporaltechnologies"
+    },
+    {
+      "company_name": "Vercel",
+      "career_url": "https://job-boards.greenhouse.io/vercel",
+      "ats": "greenhouse",
+      "slug": "vercel"
+    },
+    {
+      "company_name": "Warp",
+      "career_url": "https://job-boards.greenhouse.io/warp",
+      "ats": "greenhouse",
+      "slug": "warp"
+    },
+    {
+      "company_name": "Writer",
+      "career_url": "https://jobs.ashbyhq.com/writer",
+      "ats": "ashby",
+      "slug": "writer"
+    }
+  ]
+}
