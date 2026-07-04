@@ -6,6 +6,25 @@ Session-by-session progress log. Read this first when resuming work.
 
 ## Current Focus
 
+Pipeline recovered + hardened (2026-07-03). App was down 2 weeks (DB machine stopped June 18); restarted. Then a cascade of reliability + data-quality fixes made runs actually complete for the first time (run 203, ~19 min). Headline: **6,949 LinkedIn jobs had been silently false-closed on age** by `mark_stale_jobs` Pass 2 — removed it (LinkedIn closure is now owned by the evidence-based expiry checker); reopened them → Adam's visible inbox went 2 → 70 real VP/CTO roles. See 2026-07-03 entry.
+
+## 2026-07-03 — Full pipeline recovery: OOM, reaper, curated speed, LinkedIn data quality, 6,949 false-closes
+
+**Why:** Resuming the job hunt. App was 503 (DB stopped June 18). Beyond that, runs had been failing/never-completing for weeks, and the inbox was full of wrong-company / stale / mis-dated jobs.
+
+**Shipped (12 commits, deployed):**
+- **Infra:** restarted DB; app VM 1GB→2GB (OOM); zombie-reaper 45→150 min (real runs take ~90 min, were reaped mid-flight).
+- **Run completion:** parallelized curated-source fetch (ThreadPoolExecutor, serial DB writes) + dropped ATS API rate limits 2.0s→0.3s (per-domain limiter was re-serializing ~40 Ashby cos on one domain). Curated went from 2+ hrs → minutes. Run 203 completed in 19 min.
+- **LinkedIn data quality:** per-card parser (was mislabeling company, e.g. Honeywell→Oracle, via zipped global `re.findall`); `posted_at` clamped to `first_seen` (reposts showed "1d ago" on 4-mo-old jobs); closure detection via guest API "No longer accepting applications" banner; custom-domain Greenhouse closure via real board API (SPA 200 was masking closures); recency-skip now re-checks old reposts.
+- **`age_expired` removal (biggest impact):** `mark_stale_jobs` Pass 2 closed every LinkedIn job with `posted_at>30d` on age alone — 6,949 false-closes for user 2 (incl. live Anthropic/Five9/Zeta/Blooming VP roles). Removed; reopened all; evidence-based expiry checker now owns LinkedIn closure. Inbox 2→70.
+- **Sources:** +29 VC-portfolio startups via ATS auto-detect (`discover_ats_from_domain`, not slug-guessing) → 44→73 active curated sources. `data/career_pages/vc_portfolio_2026-07-04.json` + `talentguy_2026-06` committed.
+
+**Open:** levels.fyi collector blocked on user's DevTools cURL capture (rich data confirmed — 26k jobs w/ comp; API is a client-side call). Decodo proxy broken (407, LinkedIn on datacenter IP) — user deferred. Follow-ups: trim curated `all_jobs` memory → scale VM back to 1GB; make reaper progress-aware; verify inbox settles after scheduler prunes the 70.
+
+**Principle reinforced:** never close on age/last_seen alone when a real signal exists (SL-019 extended from ATS to LinkedIn).
+
+## Earlier — Evergreen-warning feature (2026-05-17)
+
 Evergreen-warning feature shipped (2026-05-17). CSVFirst-based per-company stats surface a candidate-protection badge ("X% jobs open 6+ mo") on `JobCard`. Phase A live with 50-company coverage; Phase B (scoring downweight + hide toggle) deferred. Tri-state `last_seen_stale` sweep deployed alongside — closed a 1,610-row silent-data-loss bug class. Both decisions recorded as D-SL-018 and D-SL-019.
 
 ## 2026-05-17 — Evergreen-warning feature + tri-state stale-close fix
