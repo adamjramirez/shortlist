@@ -103,18 +103,17 @@ async def _fetch_evergreen_signals(session: AsyncSession, companies: list[str]) 
 
 
 def _effective_posted_at(posted_at, first_seen):
-    """Clamp posted_at so it is never later than first_seen.
+    """The date to display as when the job was posted/last updated.
 
-    A posting date after we first saw the job is a repost artifact (LinkedIn
-    reposts carry a fresh date, and f_TPR surfaces them as recent). In that
-    case the earliest signal — when we first observed the listing — is the
-    honest age. Returns the datetime to display (or None).
+    Prefer the source's posted/updated date (posted_at); fall back to
+    first_seen only when the source gave no date at all. We do NOT clamp to
+    first_seen — users want the source's posting date, not our crawl time.
+    (An earlier version clamped posted_at<=first_seen as a workaround for
+    unreliable LinkedIn dates; the per-card parser fixed that, and dead reposts
+    that would otherwise read as fresh are now pruned by the evidence-based
+    closure check.)
     """
-    if posted_at is None:
-        return None
-    if first_seen is not None and posted_at > first_seen:
-        return first_seen
-    return posted_at
+    return posted_at if posted_at is not None else first_seen
 
 
 def _job_to_summary(job: Job, latest_run_id: int | None = None,

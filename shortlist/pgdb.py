@@ -49,7 +49,11 @@ def upsert_job(conn, user_id: int, job) -> None:
                 sources.append(job.source)
             cur.execute(
                 "UPDATE jobs SET last_seen = %s, sources_seen = %s, "
-                "posted_at = COALESCE(posted_at, %s), "
+                # COALESCE(new, existing) — take the source's date from this
+                # re-collection ("last updated/posted"), keeping the existing
+                # one only when the source gave none. (Was COALESCE(existing,
+                # new), which stuck at the first date we ever captured.)
+                "posted_at = COALESCE(%s, posted_at), "
                 "is_closed = CASE WHEN closed_reason = 'user' THEN is_closed ELSE false END, "
                 "closed_at = CASE WHEN closed_reason = 'user' THEN closed_at ELSE NULL END, "
                 "closed_reason = CASE WHEN closed_reason = 'user' THEN closed_reason ELSE NULL END "

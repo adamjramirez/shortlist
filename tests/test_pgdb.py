@@ -195,8 +195,8 @@ def test_upsert_job_posted_at_none_when_missing(pg_conn):
     assert row["posted_at"] is None
 
 
-def test_upsert_job_preserves_existing_posted_at(pg_conn):
-    """Re-seen job should NOT overwrite existing posted_at."""
+def test_upsert_job_advances_posted_at_to_latest_source_date(pg_conn):
+    """Re-seen job takes the source's newer date (last updated/posted)."""
     job1 = FakeJob(source="hn", posted_at="2026-03-15T10:30:00+00:00")
     upsert_job(pg_conn, user_id=1, job=job1)
 
@@ -207,7 +207,19 @@ def test_upsert_job_preserves_existing_posted_at(pg_conn):
         cur.execute("SELECT posted_at FROM jobs WHERE user_id = 1")
         row = cur.fetchone()
 
-    # Should keep the first posted_at (COALESCE behavior)
+    # Latest-wins: the re-collection's source date replaces the older one.
+    assert "2026-03-20" in str(row["posted_at"])
+
+
+def test_upsert_job_keeps_posted_at_when_recollected_without_date(pg_conn):
+    """A re-collection with no source date keeps the existing posted_at."""
+    upsert_job(pg_conn, user_id=1, job=FakeJob(source="hn", posted_at="2026-03-15T10:30:00+00:00"))
+    upsert_job(pg_conn, user_id=1, job=FakeJob(source="linkedin", posted_at=None))
+
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT posted_at FROM jobs WHERE user_id = 1")
+        row = cur.fetchone()
+
     assert "2026-03-15" in str(row["posted_at"])
 
 
