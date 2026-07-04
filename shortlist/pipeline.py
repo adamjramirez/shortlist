@@ -1121,6 +1121,16 @@ def _get_collectors(config: Config | None = None, db: sqlite3.Connection | None 
         max_articles=15,
     )
 
+    # Getro VC-portfolio boards (Thrive, General Catalyst, Craft) — senior roles
+    # across elite startup portfolios, linking back to real ATS postings.
+    from shortlist.collectors.getro import (
+        GetroCollector, GETRO_NETWORKS, DEFAULT_GETRO_QUERIES,
+    )
+    collectors["getro"] = GetroCollector(
+        GETRO_NETWORKS, queries=DEFAULT_GETRO_QUERIES,
+        title_filter=_is_leadership_role, max_pages=2,
+    )
+
     return collectors
 
 
