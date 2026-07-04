@@ -253,26 +253,23 @@ def test_mark_stale_ats_observer_returned_zero_jobs_stays_open(pg_conn):
 
 
 # ---------------------------------------------------------------------------
-# mark_stale_jobs — Pass 2: LinkedIn age
+# mark_stale_jobs — LinkedIn is NOT closed on age
 # ---------------------------------------------------------------------------
 
-def test_mark_stale_linkedin_30_days(pg_conn):
-    """LinkedIn job posted 30+ days ago → closed."""
+def test_mark_stale_linkedin_old_stays_open(pg_conn):
+    """An old LinkedIn job must NOT be closed on age alone.
+
+    Age is not a closure signal for LinkedIn — reposts and evergreen reqs stay
+    open for months. Closing on posted_at>30d silently killed genuinely-live
+    roles (Zeta VP Identity, Blooming VP Eng — both confirmed live on
+    LinkedIn's guest API when the age sweep closed them). LinkedIn closure is
+    owned by the evidence-based expiry checker (check_job_url via the guest
+    API), which detects the real "No longer accepting applications" banner.
+    """
     job_id = _insert_job(pg_conn,
                          url="https://www.linkedin.com/jobs/view/123",
                          sources_seen='["linkedin"]',
-                         posted_at=_days_ago(31))
-    mark_stale_jobs(pg_conn, user_id=1, run_started_at=_now())
-    assert _get_job(pg_conn, job_id)["is_closed"] == 1
-    assert _get_job(pg_conn, job_id)["closed_reason"] == "age_expired"
-
-
-def test_mark_stale_linkedin_29_days(pg_conn):
-    """LinkedIn job posted 29 days ago → still open."""
-    job_id = _insert_job(pg_conn,
-                         url="https://www.linkedin.com/jobs/view/123",
-                         sources_seen='["linkedin"]',
-                         posted_at=_days_ago(29))
+                         posted_at=_days_ago(60))
     mark_stale_jobs(pg_conn, user_id=1, run_started_at=_now())
     assert _get_job(pg_conn, job_id)["is_closed"] == 0
 

@@ -555,7 +555,8 @@ def mark_stale_jobs(conn, user_id: int, run_started_at: datetime) -> int:
              is the tri-state guard added 2026-05-17 after 1,610+ false closes
              from batch-seeded companies with no recurring collector — without
              an observer, "haven't seen it" carries no signal.
-    Pass 2 — LinkedIn: posted_at > 30 days ago
+    (LinkedIn is intentionally NOT closed on age — reposts/evergreen reqs stay
+     open for months; closure is owned by the evidence-based expiry checker.)
     Pass 3 — HN with posted_at: posted_at > 45 days ago
     Pass 4 — HN with null posted_at: last_seen > 45 days ago
     Pass 5 — Generic: all other sources not seen in 7 days
@@ -563,7 +564,6 @@ def mark_stale_jobs(conn, user_id: int, run_started_at: datetime) -> int:
     now = datetime.now(timezone.utc)
     ats_cutoff = run_started_at - timedelta(days=3)
     observer_cutoff = now - timedelta(days=7)
-    linkedin_cutoff = now - timedelta(days=30)
     hn_cutoff = now - timedelta(days=45)
     generic_cutoff = now - timedelta(days=7)
 
@@ -594,14 +594,11 @@ def mark_stale_jobs(conn, user_id: int, run_started_at: datetime) -> int:
             f"  {base}",
             (now, ats_cutoff, P_GH, P_LV, P_AB, observer_cutoff, user_id),
         ),
-        # Pass 2: LinkedIn age
-        (
-            f"UPDATE jobs SET is_closed = true, closed_at = %s, closed_reason = 'age_expired' "
-            f"WHERE sources_seen::text LIKE %s "
-            f"  AND posted_at IS NOT NULL AND posted_at < %s "
-            f"  {base}",
-            (now, P_LI, linkedin_cutoff, user_id),
-        ),
+        # (LinkedIn is intentionally NOT closed on age — reposts and evergreen
+        # reqs stay open for months. LinkedIn closure is owned by the
+        # evidence-based expiry checker, which reads the real "No longer
+        # accepting applications" banner via the guest API. Closing on
+        # posted_at>30d false-closed genuinely-live roles.)
         # Pass 3: HN with posted_at
         (
             f"UPDATE jobs SET is_closed = true, closed_at = %s, closed_reason = 'age_expired' "
